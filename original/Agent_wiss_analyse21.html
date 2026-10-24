@@ -1,0 +1,2332 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wissenschaftliche Publikations-Analyse (Hybrid-Agent)</title>
+    <!-- PDF.js für lokales Parsen im Browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #334155;
+            --text-light: #64748b;
+            --border: #e2e8f0;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --log-bg: #0f172a;
+            --log-text: #38bdf8;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; height: 100vh; display: flex; flex-direction: column; }
+        
+        /* Navbar */
+        header { background: var(--surface); padding: 1rem 2rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        header h1 { font-size: 1.25rem; color: #0f172a; }
+        .user-controls { display: flex; align-items: center; gap: 1rem; }
+        .user-controls span { font-weight: 600; color: var(--primary); }
+        nav button, .btn-logout { background: none; border: none; padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; color: var(--text-light); font-weight: 600; }
+        nav button { border-bottom: 2px solid transparent; }
+        nav button.active { color: var(--primary); border-bottom: 2px solid var(--primary); }
+        .btn-logout { color: var(--danger); border: 1px solid var(--danger); border-radius: 0.375rem; padding: 0.25rem 0.75rem; }
+        .btn-logout:hover { background: #fef2f2; }
+
+        /* Screens */
+        #login-screen { display: flex; justify-content: center; align-items: center; height: 100vh; background: var(--bg); }
+        #app-screen { display: none; flex-direction: column; height: 100vh; }
+        .login-card { background: white; padding: 2.5rem; border-radius: 1rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        .login-card h2 { text-align: center; margin-bottom: 1.5rem; color: #0f172a; }
+
+        /* Layout */
+        .container { display: none; flex: 1; overflow: hidden; padding: 1.5rem; gap: 1.5rem; }
+        .container.active { display: flex; }
+        .col-left { flex: 0 0 350px; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
+        .col-right { flex: 1; display: flex; flex-direction: column; gap: 1rem; overflow-y: hidden; }
+        .full-center { flex: 1; display: flex; flex-direction: column; align-items: center; overflow-y: auto; padding: 2rem; }
+
+        /* Cards & Inputs */
+        .card { background: var(--surface); padding: 1.5rem; border-radius: 0.75rem; border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .card h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #0f172a; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.25rem; margin-top: 0.75rem; }
+        input, select, textarea { width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.9rem; margin-bottom: 0.5rem; font-family: inherit; }
+        textarea { resize: vertical; min-height: 100px; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2); }
+        
+        .btn { display: block; width: 100%; padding: 0.75rem; background: var(--primary); color: white; border: none; border-radius: 0.375rem; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 1rem; }
+        .btn:hover { background: var(--primary-hover); }
+        .btn:disabled { background: var(--text-light); cursor: not-allowed; }
+        .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: #e2e8f0; }
+
+        /* File Upload */
+        .file-drop { border: 2px dashed var(--border); border-radius: 0.5rem; padding: 3rem 1rem; text-align: center; cursor: pointer; background: var(--bg); transition: border-color 0.2s; }
+        .file-drop:hover { border-color: var(--primary); background: #eff6ff; }
+        .file-list { font-size: 0.85rem; color: var(--text-light); margin-top: 1rem; max-height: 200px; overflow-y: auto; background: var(--surface); padding: 0.5rem; border-radius: 0.5rem; }
+        
+        .file-item { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 0.4rem 0.6rem; margin-bottom: 0.35rem; border-radius: 0.375rem; border: 1px solid var(--border); }
+        .file-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; color: var(--text); margin-right: 0.5rem; }
+        .file-item-remove { color: var(--text-light); cursor: pointer; font-weight: bold; border: none; background: none; font-size: 1.2rem; line-height: 1; padding: 0 0.25rem; transition: color 0.2s; }
+        .file-item-remove:hover { color: var(--danger); }
+
+        /* Workflow Stepper */
+        .stepper { display: flex; justify-content: space-between; margin-bottom: 1rem; }
+        .step { flex: 1; text-align: center; font-size: 0.8rem; font-weight: 600; color: var(--text-light); position: relative; }
+        .step::after { content: ''; position: absolute; top: 50%; left: 50%; width: 100%; height: 2px; background: var(--border); z-index: -1; }
+        .step:last-child::after { display: none; }
+        .step span { display: inline-block; background: var(--surface); padding: 0.25rem 0.5rem; border-radius: 1rem; border: 1px solid var(--border); }
+        .step.active span { border-color: var(--primary); color: var(--primary); background: #eff6ff; }
+        .step.done span { border-color: var(--success); color: var(--success); background: #ecfdf5; }
+
+        /* Terminal Log */
+        .terminal { flex: 0 0 auto; height: 420px; max-height: 52vh; min-height: 260px; background: var(--log-bg); color: var(--log-text); font-family: 'Courier New', Courier, monospace; font-size: 0.85rem; padding: 1rem; border-radius: 0.5rem; overflow-y: scroll; overflow-x: auto; display: flex; flex-direction: column; gap: 0.25rem; scrollbar-gutter: stable; }
+        .col-right, .col-right > .card { min-height: 0; }
+        .source-ref { display:inline-flex; align-items:center; gap:.25rem; margin:.15rem .25rem .15rem 0; padding:.2rem .45rem; border:1px solid #bfdbfe; background:#eff6ff; color:#1d4ed8; border-radius:.35rem; font-size:.75rem; cursor:pointer; font-weight:600; }
+        .source-ref:hover { background:#dbeafe; }
+        .source-ref.unverified { border-color:#fde68a; background:#fffbeb; color:#92400e; }
+        .source-ref-wrap { margin-top:.35rem; }
+        .source-modal { display:none; position:fixed; inset:0; z-index:9999; background:rgba(15,23,42,.55); align-items:center; justify-content:center; padding:1rem; }
+        .source-modal.open { display:flex; }
+        .source-modal-card { width:min(760px,96vw); max-height:85vh; overflow:auto; background:white; border-radius:.75rem; box-shadow:0 20px 40px rgba(0,0,0,.25); padding:1.25rem; }
+        .source-quote { margin:.8rem 0; padding:.8rem; background:#f8fafc; border-left:4px solid var(--primary); white-space:pre-wrap; }
+        .source-meta { font-size:.85rem; color:var(--text-light); }
+        .source-actions { display:flex; gap:.5rem; margin-top:1rem; flex-wrap:wrap; }
+        .source-actions .btn { width:auto; margin:0; padding:.55rem .8rem; }
+        .log-info { color: #cbd5e1; }
+        .log-success { color: #4ade80; }
+        .log-warning { color: #facc15; }
+        .log-error { color: #f87171; }
+
+        /* Results Display */
+        .results-view { display: none; flex: 1; overflow-y: auto; }
+        .results-view.active { display: block; }
+        .result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        .metric-box { background: #f1f5f9; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--primary); }
+        .metric-box h3 { font-size: 0.875rem; color: var(--text-light); margin-bottom: 0.25rem; }
+        .metric-box .value { font-size: 1.25rem; font-weight: bold; color: #0f172a; }
+
+        /* Standard Text Sections */
+        .text-content { max-width: 1000px; margin: 0 auto; overflow-y: auto; height: 100%; padding: 1rem; }
+        .text-content h2 { color: var(--primary); margin-top: 1.5rem; }
+        .text-content p { margin-bottom: 1rem; }
+        .text-content ul { padding-left: 1.5rem; margin-bottom: 1rem; }
+        .history-list .history-item { padding: 1rem; border: 1px solid var(--border); border-radius: 0.5rem; margin-bottom: 0.5rem; cursor: pointer; background: white; transition: border-color 0.2s; }
+        .history-item:hover { border-color: var(--primary); }
+        
+        /* Prompt Editing UI & Config UI */
+        .prompt-editor { border: 1px solid var(--border); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1.5rem; background: var(--surface); }
+        .prompt-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+        .prompt-header h3 { margin: 0; color: #0f172a; font-size: 1rem; }
+        .prompt-controls { display: flex; gap: 0.5rem; align-items: center; }
+        .prompt-controls select { margin: 0; width: 180px; padding: 0.25rem; font-size: 0.8rem; }
+        .btn-small { padding: 0.25rem 0.75rem; font-size: 0.8rem; width: auto; margin: 0; }
+        .warning-text { font-size: 0.75rem; color: var(--danger); margin-bottom: 0.5rem; }
+        .save-note { font-size: 0.75rem; color: var(--success); display: none; margin-top: -0.25rem; margin-bottom: 0.5rem; }
+        .version-badge { font-size: 0.75rem; background: #e2e8f0; padding: 0.15rem 0.4rem; border-radius: 0.25rem; color: var(--text-light); }
+    </style>
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen">
+        <div class="login-card">
+            <h2>🔐 Login / Registrierung</h2>
+            <p style="font-size: 0.85rem; color: var(--text-light); text-align: center; margin-bottom: 1.5rem;">
+                Deine API-Keys, Prompts und Historie werden lokal im Browser verschlüsselt gespeichert.
+            </p>
+            <label>User-ID</label>
+            <input type="text" id="login-user" placeholder="Dein Benutzername" autocomplete="username">
+            <label>Passwort</label>
+            <input type="password" id="login-pass" placeholder="Dein Passwort" autocomplete="current-password">
+            
+            <button class="btn" onclick="handleAuth('login')">Einloggen</button>
+            <button class="btn btn-secondary" onclick="handleAuth('register')">Neu registrieren</button>
+            <div id="login-error" style="color: var(--danger); font-size: 0.85rem; text-align: center; margin-top: 1rem; display: none;"></div>
+        </div>
+    </div>
+
+    <!-- MAIN APP SCREEN -->
+    <div id="app-screen">
+        <header>
+            <h1>🔬 Publikations-Agent (Hybrid)</h1>
+            <nav>
+                <button class="active" onclick="switchTab('dashboard')">Dashboard</button>
+                <button onclick="switchTab('config')">⚙️ Konfiguration</button>
+                <button onclick="switchTab('info')">Prompts & Info</button>
+                <button onclick="switchTab('history'); loadHistory();">Historie</button>
+            </nav>
+            <div class="user-controls">
+                👤 <span id="display-username">User</span>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <!-- TAB: DASHBOARD -->
+        <div id="tab-dashboard" class="container active">
+            <div class="col-left">
+                <div class="card" style="padding: 2rem;">
+                    <h2 style="font-size: 1.25rem; text-align: center;">📄 PDFs Hochladen</h2>
+                    <p style="font-size: 0.85rem; color: var(--text-light); text-align: center; margin-bottom: 1.5rem;">Wähle die wissenschaftlichen Arbeiten aus, die analysiert werden sollen.</p>
+                    
+                    <div class="file-drop" onclick="document.getElementById('file-input').click()">
+                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">📥</div>
+                        PDFs hier ablegen oder klicken
+                        <input type="file" id="file-input" multiple accept=".pdf" style="display: none;" onchange="handleFiles(this.files)">
+                    </div>
+                    <div class="file-list" id="file-list">Keine Dateien ausgewählt.</div>
+                    
+                    <button class="btn" id="btn-start" onclick="startWorkflow()" style="padding: 1rem; font-size: 1.1rem; margin-top: 1.5rem;">🚀 Analyse Starten</button>
+                </div>
+            </div>
+
+            <!-- Rechte Spalte: Workflow & Ergebnisse -->
+            <div class="col-right">
+                <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+                        <h2 style="margin: 0; border: none; padding: 0;">Workflow Status & Ergebnisse</h2>
+                        <button class="btn btn-secondary btn-small" id="btn-toggle-terminal" onclick="toggleTerminal()" style="width: auto; margin: 0; padding: 0.25rem 0.75rem;">Terminal anzeigen</button>
+                    </div>
+                    
+                    <div class="stepper" id="workflow-stepper">
+                        <div class="step" id="step-1"><span>1. Ingestion</span></div>
+                        <div class="step" id="step-2"><span>2. Extraction</span></div>
+                        <div class="step" id="step-3"><span>3. Analysis</span></div>
+                        <div class="step" id="step-4"><span>4. Validation</span></div>
+                        <div class="step" id="step-5"><span>5. Synthesis</span></div>
+                    </div>
+
+                    <!-- Terminal -->
+                    <div class="terminal" id="terminal">
+                        <div class="log-info">System bereit. Warten auf PDFs...</div>
+                    </div>
+
+                    <!-- Ergebnisse -->
+                    <div class="results-view" id="results-view">
+                        <div class="result-grid">
+                            <div class="metric-box">
+                                <h3>Verwendetes Modell</h3>
+                                <div class="value" id="res-model" style="font-size: 1rem; color: var(--primary); word-break: break-all;">-</div>
+                            </div>
+                            <div class="metric-box">
+                                <h3>Etablierte Instrumente</h3>
+                                <div class="value" id="res-established" style="font-size:1rem;">-</div>
+                            </div>
+                            <div class="metric-box">
+                                <h3>GRADE Evidenzsicherheit</h3>
+                                <div class="value" id="res-grade" style="font-size:1rem;">-</div>
+                            </div>
+                            <div class="metric-box">
+                                <h3>Ø CASQ (intern)</h3>
+                                <div class="value" id="res-casq">-</div>
+                            </div>
+                            <div class="metric-box">
+                                <h3>Evidenzabdeckung</h3>
+                                <div class="value" id="res-evidence">-</div>
+                            </div>
+                        </div>
+                        <div style="font-size:.75rem;color:var(--text-light);margin-top:-.8rem;margin-bottom:1rem;">Primär werden – sofern fachlich anwendbar – etablierte Instrumente wie PEDro, MINORS, AMSTAR 2, COSMIN, MMAT/CASP und bei Evidenzsynthesen GRADE ausgewiesen. <strong>CASQ ist nur ein ergänzender interner Vergleichsindex.</strong></div>
+
+                        <div id="res-grade-detail"></div>
+
+                        <h3>Dominante Themen</h3>
+                        <ul id="res-topics" style="margin-left: 1.5rem; margin-bottom: 1rem;"></ul>
+
+                        <h3>Evidenzgewichtete Synthese</h3>
+                        <p id="res-summary" style="margin-bottom: 1rem;"></p>
+
+                        <h3>Analysierte Studien</h3>
+                        <div id="res-studies"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: KONFIGURATION -->
+        <div id="tab-config" class="container">
+            <div class="full-center">
+                <div class="card" style="width: 100%; max-width: 650px;">
+                    <h2 style="font-size: 1.5rem; text-align: center; border: none; margin-bottom: 1.5rem;">⚙️ Systemeinstellungen</h2>
+                    
+                    <label style="font-size: 1rem;">Aktiver LLM-Provider</label>
+                    <select id="llm-provider" onchange="toggleProviderSettings(); saveUserKeys();" style="padding: 0.75rem; font-size: 1rem; border-color: var(--primary); background: #eff6ff;">
+                        <option value="custom1">🖥️ Lokales Profil 1 (z.B. LM Studio)</option>
+                        <option value="custom2">🖥️ Lokales Profil 2 (z.B. vLLM / Spark)</option>
+                        <option value="custom3">🖥️ Lokales Profil 3 (z.B. Ollama)</option>
+                        <option value="openai">🟢 OpenAI (ChatGPT API)</option>
+                        <option value="gemini">✨ Google Gemini (API)</option>
+                    </select>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
+
+                    <!-- Custom API Settings 1 -->
+                    <div id="settings-custom1" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🖥️ Lokales Profil 1</h3>
+                        <label>Base API URL</label>
+                        <input type="text" id="custom1-url" placeholder="z.B. http://localhost:8888/v1" onchange="saveUserKeys()">
+                        <label>Modell-Name (Optional)</label>
+                        <input type="text" id="custom1-model" placeholder="z.B. qwen-2.5-coder" onchange="saveUserKeys()">
+                        <label>API-Key (Optional)</label>
+                        <input type="password" id="custom1-key" placeholder="z.B. lm-studio" onchange="saveUserKeys()">
+                        
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="custom1-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+                        
+                        <div id="save-note-custom1" class="save-note">✓ Sicher im Profil gespeichert</div>
+                    </div>
+
+                    <!-- Custom API Settings 2 -->
+                    <div id="settings-custom2" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🖥️ Lokales Profil 2</h3>
+                        <label>Base API URL</label>
+                        <input type="text" id="custom2-url" placeholder="z.B. http://10.189.26.81:8000/v1" onchange="saveUserKeys()">
+                        <label>Modell-Name (Optional)</label>
+                        <input type="text" id="custom2-model" placeholder="z.B. nvidia/Qwen3.6-35B-A3B-NVFP4" onchange="saveUserKeys()">
+                        <label>API-Key (Optional)</label>
+                        <input type="password" id="custom2-key" placeholder="API Key eingeben falls benötigt" onchange="saveUserKeys()">
+                        
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="custom2-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+
+                        <div id="save-note-custom2" class="save-note">✓ Sicher im Profil gespeichert</div>
+                    </div>
+
+                    <!-- Custom API Settings 3 -->
+                    <div id="settings-custom3" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🖥️ Lokales Profil 3</h3>
+                        <label>Base API URL</label>
+                        <input type="text" id="custom3-url" placeholder="z.B. http://localhost:11434/v1" onchange="saveUserKeys()">
+                        <label>Modell-Name (Optional)</label>
+                        <input type="text" id="custom3-model" placeholder="z.B. llama3.1" onchange="saveUserKeys()">
+                        <label>API-Key (Optional)</label>
+                        <input type="password" id="custom3-key" placeholder="API Key eingeben falls benötigt" onchange="saveUserKeys()">
+                        
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="custom3-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+
+                        <div id="save-note-custom3" class="save-note">✓ Sicher im Profil gespeichert</div>
+                    </div>
+
+                    <!-- OpenAI Settings -->
+                    <div id="settings-openai" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: #10b981;">OpenAI API</h3>
+                        <label>OpenAI API-Key</label>
+                        <input type="password" id="openai-key" placeholder="sk-..." onchange="saveUserKeys()">
+                        <div id="save-note-openai" class="save-note">✓ Sicher im Profil gespeichert</div>
+                        
+                        <label>Modell</label>
+                        <input type="text" id="openai-model" placeholder="z.B. gpt-4o-mini" onchange="saveUserKeys()">
+                    </div>
+
+                    <!-- Gemini Settings -->
+                    <div id="settings-gemini" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: #8b5cf6;">Google Gemini API</h3>
+                        <p style="font-size: 0.8rem; color: var(--text-light); margin-bottom: 1rem;">Nutzt die offizielle OpenAI-kompatible Schnittstelle von Google.</p>
+                        <label>Gemini API-Key</label>
+                        <input type="password" id="gemini-key" placeholder="AIzaSy..." onchange="saveUserKeys()">
+                        <div id="save-note-gemini" class="save-note">✓ Sicher im Profil gespeichert</div>
+                        
+                        <label>Modell</label>
+                        <input type="text" id="gemini-model" placeholder="z.B. gemini-2.5-flash" onchange="saveUserKeys()">
+                    </div>
+                    
+                    <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
+
+                    <!-- Agenten-Steuerung & Limits -->
+                    <h3 style="margin-bottom: 1rem; color: #0f172a;">Agenten-Steuerung (Payload)</h3>
+                    
+                    <label style="font-size: 1rem;">System Prompt (Global)</label>
+                    <textarea id="llm-system-prompt" rows="4" onchange="saveUserKeys()" style="margin-bottom: 0.5rem; font-size: 0.9rem;"></textarea>
+                    <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0; margin-bottom: 1rem;">Überschreibt das Verhalten für alle Anfragen. <strong>Tipp für Reasoning-Modelle (Qwen, DeepSeek):</strong> Verbiete zwingend das "Nachdenken", um Parser-Fehler zu vermeiden.</p>
+
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 1rem;">Temperature</label>
+                            <input type="number" id="llm-temperature" value="0.0" step="0.1" min="0" max="2" onchange="saveUserKeys()" style="margin-bottom: 0.5rem; font-size: 1rem; padding: 0.75rem;">
+                            <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0;">0.0 = Deterministisch (am besten für strukturiertes JSON).</p>
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 1rem;">Max Output Tokens</label>
+                            <input type="number" id="max-output-tokens" value="8192" step="1024" onchange="saveUserKeys()" style="margin-bottom: 0.5rem; font-size: 1rem; padding: 0.75rem;">
+                            <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0;">Reservierter Platz für das JSON-Ergebnis.</p>
+                        </div>
+                    </div>
+
+                    <label style="font-size: 1rem; margin-top: 1rem;">Max. Evidenz-Zeichen (Input-Limit)</label>
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <input type="number" id="max-evidence-chars" value="50000" step="1000" onchange="saveUserKeys()" style="margin-bottom: 0; font-size: 1rem; padding: 0.75rem;">
+                        <button type="button" class="btn btn-secondary" onclick="autoDetectContext()" style="margin: 0; width: auto; white-space: nowrap; padding: 0.5rem 1rem;">⚙️ Auto-Detect</button>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem; background: #f1f5f9; padding: 0.75rem; border-radius: 0.375rem; border-left: 3px solid var(--primary);">
+                        <strong>Faustregel:</strong> 1 Token ≈ 3,5 Zeichen. Ziehe vom Studio-Context-Window (n_ctx) deine reservierten Output-Tokens ab.<br>
+                        <em>Beispiel: 32k Context - 8k Output = 24k für Input → max. 84.000 Zeichen.</em>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: PROMPTS & INFO -->
+        <div id="tab-info" class="container">
+            <div class="card text-content" style="width: 100%;">
+                <h2>Wie die Agenten arbeiten</h2>
+                <p>Der OnePager führt ein <strong>AI-gestütztes Critical Appraisal</strong> durch. Er bewertet nicht nur Themen oder Zusammenfassungen, sondern versucht die methodische Belastbarkeit jeder Publikation anhand nachweisbarer Textstellen einzuschätzen. Fehlende Angaben werden als <code>not_reported</code> bzw. <code>insufficient_information</code> behandelt und dürfen nicht erfunden werden.</p>
+
+                <div style="background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid var(--primary);padding:1rem;border-radius:.5rem;margin:1rem 0 1.25rem 0;">
+                    <h3 style="margin:0 0 .6rem 0;color:#1e3a8a;">Priorität: etablierte wissenschaftliche Bewertungsinstrumente</h3>
+                    <p style="margin:0 0 .65rem 0;">Der OnePager versucht zuerst ein <strong>in der Wissenschaft etabliertes, zum Studiendesign und Fachgebiet passendes Instrument</strong> anzuwenden. Nur wenn dessen Anwendungsbereich tatsächlich passt, wird der offizielle Score bzw. das offizielle Rating ausgegeben. Der interne CASQ steht bewusst an zweiter Stelle.</p>
+                    <ol style="margin:0 0 .6rem 1.2rem;">
+                        <li><strong>Primäres etabliertes Instrument:</strong> z. B. PEDro 0–10, MINORS 0–16/24, AMSTAR 2 High/Moderate/Low/Critically low oder COSMIN Very good/Adequate/Doubtful/Inadequate.</li>
+                        <li><strong>Checklisten ohne offiziellen Summenscore:</strong> MMAT und CASP werden mit ihren Einzelkriterien dokumentiert; es wird kein künstlicher offizieller Score behauptet.</li>
+                        <li><strong>GRADE auf Syntheseebene:</strong> Bei einem geeigneten Evidenzkörper wird die Sicherheit der Evidenz pro wichtigem Outcome als High, Moderate, Low oder Very low ausgewiesen.</li>
+                        <li><strong>CASQ:</strong> zusätzlicher, eigener 0–10-Vergleichsindex. Er dient der internen Vergleichbarkeit, ist aber <em>kein</em> etabliertes externes Instrument.</li>
+                    </ol>
+                    <p style="margin:0;font-size:.86rem;"><strong>Grundsatz:</strong> Ein wissenschaftlich unpassendes Instrument wird nicht erzwungen. Der Agent muss die Anwendbarkeit begründen und kann <code>not_applicable</code> ausgeben.</p>
+                </div>
+                <div style="background:#f8fafc;border:1px solid var(--border);padding:1rem;border-radius:.5rem;margin:1rem 0;">
+                    <h3 style="margin:0 0 .5rem 0;">Schutzstufe: Dokumenttyp vor Studiendesign</h3>
+                    <p style="margin:0 0 .5rem 0;">Bevor MMAT, CASP, PEDro, MINORS oder andere Instrumente ausgewählt werden, klassifiziert Agent 2 zunächst, <strong>was für ein Dokument überhaupt vorliegt</strong>. Dadurch wird ein Methodenbeitrag, der mehrere Studien nur beschreibt, nicht mehr wie eine einzelne Primärstudie bewertet.</p>
+                    <p style="margin:.4rem 0 0;font-size:.86rem;"><strong>Tie-Breaker:</strong> Mehrere erwähnte Studien machen ein Paper noch nicht zu einem <code>multiple_study_report</code>. Wenn Titel, Abstract, Zielsetzung und Gliederung primär Methoden, Messinstrumente oder Forschungszugänge erklären und die Studien nur als Beispiele/Evidenz dienen, wird <code>methodological_paper</code> gewählt. <code>multiple_study_report</code> ist für Artikel reserviert, deren mehrere originäre Teilstudien den eigentlichen empirischen Kern bilden.</p>
+                    <p style="margin:0;font-size:.86rem;"><code>primary_empirical_study</code>, <code>multiple_study_report</code>, <code>systematic_review</code>, <code>narrative_review</code>, <code>methodological_paper</code>, <code>theoretical_conceptual_paper</code>, <code>other</code> oder <code>unclear</code>.</p>
+                </div>
+                <ul>
+                    <li><strong>1. Ingestion:</strong> PDF.js liest den Text lokal und <strong>seitenweise</strong> aus den PDFs. Jede Seite erhält eine interne Seitenmarke. Aus langen Dokumenten werden gezielt Abschnitte zu Forschungsfrage, Theorie, Methodik, Stichprobe, Messung, Analyse, Ergebnissen, Limitationen und Transparenz zusammengestellt.</li>
+                    <li><strong>2. Evidence Extraction:</strong> Agent 2 klassifiziert zuerst den <strong>Dokumenttyp</strong>, danach Studienfamilie und Studiendesign und extrahiert strukturierte Evidenz mit Textbelegen. Bei Multi-Study-Reports können enthaltene Teilstudien separat beschrieben werden.</li>
+                    <li><strong>3. Design-spezifisches Appraisal:</strong> Agent 3 bewertet <em>jede Publikation einzeln</em>. Anwendbare Qualitätsdimensionen hängen vom Studiendesign ab; nicht anwendbare Kriterien werden ausgeschlossen.</li>
+                    <li><strong>4. Evidence Validation:</strong> Agent 4 prüft die Bewertungsbegründungen nochmals gegen den bereitgestellten Evidenzkontext und liefert zu jeder gestützten Dimension kurze Originalbelege mit PDF-Seite. Der Browser prüft das Zitat anschließend nochmals gegen den tatsächlich extrahierten Seitentext. Erst aus den validierten Dimensionswerten wird der CASQ deterministisch berechnet.</li>
+                    <li><strong>5. Evidenzgewichtete Synthese:</strong> Agent 5 führt Ergebnisse über Studien hinweg zusammen und berücksichtigt dabei Studiendesign, validierten CASQ, Bias-Risiken und Limitationen.</li>
+                </ul>
+
+                <h2>Workflow-Prompts anpassen</h2>
+                <p>Die Prompts können versioniert angepasst werden. Die JSON-Struktur am Ende eines Prompts sollte nicht verändert werden, weil die Oberfläche diese Felder verarbeitet. Platzhalter wie <code>{{SOURCE_TEXT}}</code> werden automatisch befüllt. Für verlässliche Ergebnisse sollten die Regeln zur Evidenzpflicht und zu fehlenden Angaben erhalten bleiben.</p>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 2: Evidence Extraction</h3><div class="prompt-controls"><select id="history-extraction" onchange="restorePrompt('extraction')"></select><button class="btn btn-small" onclick="savePrompt('extraction')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{TITLE}}, {{SOURCE_TEXT}}</p>
+                    <textarea id="prompt-extraction" rows="18"></textarea>
+                    <div id="save-note-extraction" class="save-note">✓ Als neue Version gespeichert (Max. 5 Versionen)</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 3: Etablierte Instrumente + ergänzender CASQ</h3><div class="prompt-controls"><select id="history-analysis" onchange="restorePrompt('analysis')"></select><button class="btn btn-small" onclick="savePrompt('analysis')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{STUDY_DATA}}, {{SOURCE_TEXT}}</p>
+                    <textarea id="prompt-analysis" rows="18"></textarea>
+                    <div id="save-note-analysis" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 4: Evidence- & Score-Validation</h3><div class="prompt-controls"><select id="history-validation" onchange="restorePrompt('validation')"></select><button class="btn btn-small" onclick="savePrompt('validation')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{VALIDATION_DATA}}, {{SOURCE_TEXT}}</p>
+                    <textarea id="prompt-validation" rows="16"></textarea>
+                    <div id="save-note-validation" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 5: Evidenzsynthese + GRADE</h3><div class="prompt-controls"><select id="history-synthesis" onchange="restorePrompt('synthesis')"></select><button class="btn btn-small" onclick="savePrompt('synthesis')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{APPRAISALS_DATA}}</p>
+                    <textarea id="prompt-synthesis" rows="14"></textarea>
+                    <div id="save-note-synthesis" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 2rem 0;">
+                
+                <h2>Kontext-Limit & Max. Evidenz-Zeichen</h2>
+                <p>Ein Sprachmodell verarbeitet Text in sogenannten "Tokens". Bei deutschen wissenschaftlichen Texten entspricht <strong>1 Token etwa 3,5 Zeichen</strong>. Das Context Window deines Modells (z. B. 16.384 Tokens) muss sich aufteilen in: den Prompt, den Evidenztext und die ausführliche JSON-Antwort.</p>
+                <p>Damit das Modell die Antwort nicht mittendrin abschneidet (was zu Parser-Fehlern führt), musst du genug Platz ("Atemluft") für die komplexe JSON-Struktur lassen – einstellbar als "Max Output Tokens" (Standard: 8.192).</p>
+                
+                <div style="background: #f1f5f9; padding: 0.75rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-family: monospace; font-size: 0.9rem; color: #0f172a;">
+                    <strong>Formel:</strong> Max. Zeichen = (Context Window - Max_Output_Tokens) × 3,5
+                </div>
+
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 2rem; font-size: 0.9rem; text-align: left;">
+                    <thead>
+                        <tr style="background: var(--surface); border-bottom: 2px solid var(--border);">
+                            <th style="padding: 0.5rem;">Context Window (Studio)</th>
+                            <th style="padding: 0.5rem;">Max. Evidenz-Zeichen (bei 8k Output)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 0.5rem;"><strong>16k</strong> (16.384 Tokens)</td>
+                            <td style="padding: 0.5rem;">~ 28.000 Zeichen</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 0.5rem;"><strong>32k</strong> (32.768 Tokens)</td>
+                            <td style="padding: 0.5rem;">~ 84.000 Zeichen</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 0.5rem;"><strong>64k</strong> (65.536 Tokens)</td>
+                            <td style="padding: 0.5rem;">~ 200.000 Zeichen</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Was genau passiert beim Evidenz-Limit?</h3>
+                <p>Das "Max. Evidenz-Zeichen"-Limit schneidet das Dokument <strong>nicht</strong> einfach blind nach z. B. 50.000 Zeichen ab. Stattdessen nutzt der Algorithmus ein intelligentes Verfahren, um die wertvollsten Teile herauszusuchen:</p>
+                
+                <ol style="margin-bottom: 1rem;">
+                    <li style="margin-bottom: 0.5rem;"><strong>Komplettübernahme:</strong> Wenn das gesamte PDF weniger Zeichen hat als dein eingestelltes Limit, wird einfach der komplette Text genommen.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Kopf und Fuß sichern:</strong> Wenn das Dokument zu lang ist, sichert der Algorithmus zuerst immer zwingend die <strong>ersten 4 Seiten</strong> (wo Titel, Abstract, Forschungsfrage und Einleitung stehen) sowie die <strong>letzten 3 Seiten</strong> (wo Diskussion und Fazit stehen).</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Keyword-Scanning:</strong> Anschließend durchsucht das Skript alle restlichen Seiten nach spezifischen, methodisch relevanten Schlüsselwörtern (z.B. <em>Methodik, Stichprobe, sample, data collection, Messung, statistical, Ergebnisse, limitations, funding, preregistration</em>). Jede Seite mit Treffern wird markiert.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Zusammensetzen:</strong> All diese markierten, hochrelevanten Seiten werden in der richtigen Reihenfolge aneinandergehängt, bis das harte Zeichen-Limit (z. B. 50.000) erreicht ist.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Auffüllen (Fallback):</strong> Nur falls diese gezielte Stichwortsuche zu wenig Text liefert, füllt der Algorithmus den restlichen Platz der Reihe nach mit den zuvor übersprungenen Seiten auf.</li>
+                </ol>
+                
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--success); margin-bottom: 2rem;">
+                    <strong>Fazit:</strong> Der Evidenzkontext ist quasi ein <strong>Best-of des Papiers</strong>. Er wirft irrelevante Seiten weg, um Platz für die methodischen Kernabschnitte zu machen. Setze das Limit so hoch wie es dein Server-VRAM zulässt, damit keine relevante "Keyword-Seite" aus Platzmangel weggelassen wird!
+                </div>
+
+                <h2>Etablierte Scores und Ratings – was sie bedeuten</h2>
+                <p>Die Instrumente messen <strong>nicht alle dasselbe</strong>. Einige liefern echte numerische Scores, andere bewusst nur Kategorien oder Einzelurteile. Genau diese Original-Logik wird beibehalten, damit Ergebnisse mit Publikationen, Reviews und anderen Forschenden vergleichbar bleiben.</p>
+
+                <div style="overflow-x:auto;margin:1rem 0 1.5rem 0;">
+                    <table style="width:100%;border-collapse:collapse;font-size:.86rem;">
+                        <thead><tr style="border-bottom:2px solid var(--border);"><th style="text-align:left;padding:.55rem;">Instrument</th><th style="text-align:left;padding:.55rem;">Wann eingesetzt?</th><th style="text-align:left;padding:.55rem;">Offizielle Ausgabe</th><th style="text-align:left;padding:.55rem;">Bedeutung</th></tr></thead>
+                        <tbody>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>PEDro Scale</strong></td><td style="padding:.55rem;">Randomisierte klinische Studien, wenn der Anwendungsbereich der PEDro-Skala fachlich passt, insbesondere Physiotherapie/Rehabilitation.</td><td style="padding:.55rem;"><strong>0–10 Punkte</strong> (11 Kriterien; Kriterium 1 zählt nicht zum Score)</td><td style="padding:.55rem;">Höhere Werte bedeuten, dass mehr Kriterien zur internen Validität und statistischen Interpretierbarkeit erfüllt sind. Nicht berichtete Kriterien gelten als nicht erfüllt.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>MINORS</strong></td><td style="padding:.55rem;">Nicht-randomisierte <strong>chirurgische</strong> Studien; nicht-komparativ oder komparativ.</td><td style="padding:.55rem;"><strong>0–16</strong> nicht-komparativ / <strong>0–24</strong> komparativ; Items 0/1/2</td><td style="padding:.55rem;">Höhere Werte stehen für eine methodisch vollständigere und adäquat berichtete nicht-randomisierte Studie. Wegen des ursprünglichen chirurgischen Anwendungsbereichs wird MINORS nicht pauschal auf alle Beobachtungsstudien übertragen.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>AMSTAR 2</strong></td><td style="padding:.55rem;">Systematische Reviews von randomisierten und/oder nicht-randomisierten Studien zu Gesundheitsinterventionen.</td><td style="padding:.55rem;"><strong>High / Moderate / Low / Critically low</strong></td><td style="padding:.55rem;">Kein Summenscore. Die Gesamtvertrauenswürdigkeit hängt vor allem von Fehlern in kritischen Domänen ab; dadurch können gute Einzelpunkte kritische methodische Mängel nicht „wegmitteln“.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>COSMIN Risk of Bias</strong></td><td style="padding:.55rem;">Studien zur Entwicklung oder zu Messeigenschaften von Gesundheits-Messinstrumenten/PROMs.</td><td style="padding:.55rem;"><strong>Very good / Adequate / Doubtful / Inadequate</strong></td><td style="padding:.55rem;">Bewertung pro Mess-Eigenschaft. Nach dem „worst score counts“-Prinzip bestimmt das schwächste relevante Kriterium das Rating der jeweiligen Box.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>MMAT 2018</strong></td><td style="padding:.55rem;">Konkrete empirische qualitative, quantitative und Mixed-Methods-Studien. Nicht für einen bloßen Methodenüberblick über mehrere Studien erzwingen.</td><td style="padding:.55rem;"><strong>2 Screening-Fragen</strong> + anschließend designspezifische <strong>Yes / No / Can't tell</strong>-Kriterien</td><td style="padding:.55rem;">Die zwei Screening-Fragen sind nur Eingangsvoraussetzungen und <strong>kein Qualitäts-Score</strong>. Erst die designspezifischen Kriterien bilden das eigentliche MMAT-Appraisal; auch daraus wird kein offizieller Summenscore erzeugt.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>CASP</strong></td><td style="padding:.55rem;">Designspezifische kritische Bewertung, u. a. qualitative Studien, RCT, Kohorte, Case-Control und Reviews.</td><td style="padding:.55rem;"><strong>Checklistenurteile</strong>; kein offizieller numerischer Score</td><td style="padding:.55rem;">CASP ist besonders gut für transparenten wissenschaftlichen Austausch über konkrete Stärken und Schwächen. Eine qualitative Einordnung ist möglich, aber kein offizieller Summenscore.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>GRADE</strong></td><td style="padding:.55rem;">Nicht für eine einzelne Studie, sondern für einen <strong>Evidenzkörper pro wichtigem Outcome</strong>, vor allem in Gesundheits-/Interventionsfragen.</td><td style="padding:.55rem;"><strong>High / Moderate / Low / Very low certainty</strong></td><td style="padding:.55rem;">Beschreibt, wie sicher wir sind, dass der geschätzte Effekt die Wahrheit ausreichend gut repräsentiert. Bewertet u. a. Risk of Bias, Inkonsistenz, Indirektheit, Unpräzision und Publikationsbias.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>Warum mehrere Instrumente?</h3>
+                <p>Ein universeller Qualitäts-Score für alle Arten wissenschaftlicher Publikationen existiert nicht. Ein RCT, eine qualitative Interviewstudie, ein Mixed-Methods-Projekt und ein systematisches Review haben unterschiedliche Fehlerquellen. Der OnePager wählt deshalb <strong>design- und domänenspezifisch</strong>. So kann das Ergebnis in der Terminologie kommuniziert werden, die Fachkolleginnen und Fachkollegen aus Reviews und Methodendiskussionen kennen.</p>
+
+                <h3>Routing-Regeln des OnePagers</h3>
+                <ul>
+                    <li><strong>Physiotherapie-/Rehabilitations-RCT:</strong> PEDro als primärer numerischer Score; CASP/MMAT können ergänzend dokumentiert werden.</li>
+                    <li><strong>Nicht-randomisierte chirurgische Studie:</strong> MINORS als primärer numerischer Score.</li>
+                    <li><strong>Systematisches Review zu Gesundheitsinterventionen:</strong> AMSTAR 2 als primäres Rating.</li>
+                    <li><strong>Studie zu Messinstrumenten/PROMs:</strong> COSMIN als primäres Rating.</li>
+                    <li><strong>Mixed Methods als echte Primärstudie:</strong> MMAT als primäre kriteriumsbasierte Bewertung.</li>
+                    <li><strong>Qualitative bzw. andere durch CASP abgedeckte Primärstudien:</strong> CASP als transparente Checkliste, ohne künstlichen offiziellen Score.</li>
+                    <li><strong>Methodological paper / Methodenüberblick:</strong> kein MMAT/CASP nur aufgrund der beschriebenen Studienbeispiele. Stattdessen methodologische CASQ-Rubrik und transparente Kennzeichnung „kein direkt anwendbares etabliertes Einzelstudien-Instrument“.</li>
+                    <li><strong>Multiple-study report:</strong> Framework nur dann für das Gesamtdokument, wenn die Teilstudien methodisch einheitlich sind; andernfalls kein erzwungener Gesamtscore.</li>
+                    <li><strong>Narrative Review:</strong> kein AMSTAR-2-Rating erzwingen, da AMSTAR 2 ein systematisches Review voraussetzt.</li>
+                    <li><strong>Theoretische/konzeptionelle oder fachfremde Designs:</strong> kein unpassendes etabliertes Instrument erzwingen; CASQ bleibt dann ausdrücklich nur eine interne Zusatzbewertung.</li>
+                </ul>
+
+                <h3>GRADE – warum erst nach der Einzelstudienbewertung?</h3>
+                <p>GRADE bewertet die <strong>Sicherheit eines gesamten Evidenzkörpers für ein konkretes Outcome</strong>. Deshalb wird GRADE erst in Agent 5 angewendet, nachdem die Einzelstudien bewertet wurden. Bei mehreren Outcomes kann jedes Outcome eine andere GRADE-Stufe besitzen. Wenn die Voraussetzungen für GRADE nicht gegeben sind – etwa bei rein konzeptioneller Literatur – wird <code>not_applicable</code> angezeigt.</p>
+
+                <h2>CASQ bei echten Multiple-Study-Reports</h2>
+                <p>Auch wenn für ein heterogenes Mehrstudien-Paper kein einzelnes offizielles methodisches Gesamtinstrument existiert, kann der interne CASQ auf Dokumentebene berechnet werden. Dafür verwendet der OnePager eine eigene Multiple-Study-Rubrik mit Forschungslogik, Transparenz der Teilstudien, Designqualität, Messqualität, Analyse, Integration der Studien, Cross-Study-Interpretation, Limitationen und Reproduzierbarkeit. Dieser CASQ bleibt ausdrücklich <strong>intern</strong> und wird nicht als offizieller Fachgesellschafts-Score dargestellt.</p>
+
+                <h2>APA JARS-Quant bei Multiple-Study-Reports</h2>
+                <p><strong>JARS</strong> steht für <em>Journal Article Reporting Standards</em> der American Psychological Association (APA). Bei geeigneten quantitativen Multiple-Study-Artikeln nutzt der OnePager JARS-Quant als <strong>offiziellen APA-Reporting-Standard</strong> auf Dokumentebene.</p>
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #22c55e;padding:1rem;border-radius:.5rem;margin:1rem 0;">
+                    <strong>JARS bewertet:</strong> Transparenz und Vollständigkeit der wissenschaftlichen Berichterstattung – etwa gemeinsamen theoretischen Rahmen, Logik der Studienfolge, Method/Results je Teilstudie und General Discussion.<br><br>
+                    <strong>JARS bewertet nicht:</strong> Risk of Bias oder methodische Qualität als offiziellen numerischen Score.
+                </div>
+                <p>Bei <code>multiple_study_report</code> trennt der Agent daher:</p>
+                <ul>
+                    <li><strong>Dokumentebene:</strong> APA JARS-Quant für Reporting Quality.</li>
+                    <li><strong>Teilstudienebene:</strong> jede ausreichend beschriebene Primärstudie separat mit dem fachlich passenden Instrument, sofern möglich.</li>
+                </ul>
+                <p>JARS-Kriterien erscheinen als <code>reported</code>, <code>partial</code>, <code>not_reported</code> oder <code>not_applicable</code>. Ein angezeigter Prozentwert ist ausdrücklich ein <strong>interner Reporting-Erfüllungsgrad</strong> und kein offizieller APA-JARS-Score.</p>
+                <p>Diese Trennung verhindert, dass gute Berichtsqualität mit geringerem Risk of Bias oder hoher methodischer Qualität gleichgesetzt wird.</p>
+
+                <h2>CASQ: nur ergänzender interner Vergleichsindex</h2>
+                <p><strong>CASQ – AI-assisted Critical Appraisal Score for Quality</strong> bleibt als heuristischer, <strong>nicht extern validierter</strong> Index von 0 bis 10 erhalten. Er ist nützlich, um heterogene Publikationen innerhalb des OnePagers strukturiert zu vergleichen, darf aber <strong>nicht als Ersatz</strong> für PEDro, MINORS, AMSTAR 2, COSMIN, MMAT/CASP oder GRADE kommuniziert werden.</p>
+                <p>Der CASQ wird nicht direkt vom LLM vergeben: Agent 3 bewertet anwendbare Dimensionen, Agent 4 prüft Evidenz und kann Werte korrigieren; anschließend berechnet JavaScript den gewichteten Mittelwert. Im Ergebnis steht deshalb zuerst das etablierte Instrument und erst danach der CASQ.</p>
+                <p><strong>Wichtig:</strong> Sind keine validierten CASQ-Dimensionen mit positivem Gewicht vorhanden, zeigt die Oberfläche <strong>„nicht berechenbar“</strong> statt fälschlich <strong>0.0 / 10</strong>. Ein echter CASQ von 0 wäre nur möglich, wenn bewertbare Dimensionen tatsächlich mit 0 Punkten validiert wurden.</p>
+                <ul>
+                    <li><strong>8,0–10,0:</strong> sehr hohe interne CASQ-Bewertung</li>
+                    <li><strong>6,5–7,9:</strong> hohe interne CASQ-Bewertung</li>
+                    <li><strong>5,0–6,4:</strong> mittlere interne CASQ-Bewertung</li>
+                    <li><strong>&lt; 5,0:</strong> niedrige interne CASQ-Bewertung bzw. relevante Einschränkungen</li>
+                </ul>
+                <h3>Methodische Referenzen</h3>
+                <p style="font-size:.84rem;color:var(--text-light);">Für den wissenschaftlichen Austausch sollte im Gutachten bzw. Review immer das verwendete Originalinstrument genannt werden. Offizielle/primäre Informationsquellen:</p>
+                <ul style="font-size:.84rem;">
+                    <li><a href="https://pedro.org.au/english/resources/pedro-scale/" target="_blank" rel="noopener">PEDro Scale</a></li>
+                    <li><a href="https://pubmed.ncbi.nlm.nih.gov/12956787/" target="_blank" rel="noopener">MINORS – Entwicklung und Validierung</a></li>
+                    <li><a href="https://amstar.ca/Amstar-2.php" target="_blank" rel="noopener">AMSTAR 2</a></li>
+                    <li><a href="https://www.cosmin.nl/" target="_blank" rel="noopener">COSMIN</a></li>
+                    <li><a href="https://mixedmethodsappraisaltoolpublic.pbworks.com/" target="_blank" rel="noopener">MMAT</a></li>
+                    <li><a href="https://casp-uk.net/casp-tools-checklists/" target="_blank" rel="noopener">CASP Checklists</a></li>
+                    <li><a href="https://www.gradeworkinggroup.org/" target="_blank" rel="noopener">GRADE Working Group</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- TAB: HISTORIE -->
+        <div id="tab-history" class="container">
+            <div class="card text-content" style="width: 100%;">
+                <h2>Verlauf der Analysen</h2>
+                <p>Hier findest du vergangene Analysen. Du kannst sehen, mit welcher Prompt-Version die jeweilige Analyse durchgeführt wurde.</p>
+                <div class="history-list" id="history-list">
+                    <!-- Injected via JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="source-modal" class="source-modal" onclick="if(event.target===this) closeSourceReference()">
+        <div class="source-modal-card">
+            <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;">
+                <div><h3 style="margin:0;color:#0f172a;">Quellenbeleg</h3><div id="source-modal-meta" class="source-meta"></div></div>
+                <button class="btn btn-secondary btn-small" onclick="closeSourceReference()">Schließen</button>
+            </div>
+            <div id="source-modal-quote" class="source-quote"></div>
+            <div id="source-modal-note" class="source-meta"></div>
+            <div class="source-actions"><button id="source-open-pdf" class="btn" onclick="openCurrentSourcePDF()">PDF auf Seite öffnen</button></div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // DEFAULT PROMPTS
+        // ==========================================
+        const DEFAULT_SYSTEM_PROMPT = "Du bist ein KI-Agent für wissenschaftliche Analysen. EXTREM WICHTIG: Antworte AUSSCHLIESSLICH mit validem JSON. Schreibe KEINE Gedankengänge (kein 'Here is a thinking process' oder '<think>'), keine Erklärungen und keinen Fließtext. Beginne deine Antwort DIREKT und AUSNAHMSLOS mit dem Zeichen '{'.";
+
+        const DEFAULT_PROMPTS = {
+            extraction: `Du bist Agent 2 eines wissenschaftlichen Critical-Appraisal-Systems. Deine Aufgabe ist ausschließlich die strukturierte Evidenzextraktion aus dem bereitgestellten Publikationstext.
+
+REGELN:
+1. Verwende ausschließlich Informationen, die im SOURCE_TEXT nachweisbar sind. Erfinde nichts.
+2. Wenn eine Information nicht auffindbar ist, verwende "not_reported" oder leere Arrays. "Nicht berichtet" bedeutet nicht automatisch "nicht durchgeführt".
+3. Bestimme ZUERST den Dokumenttyp. Zulässige document_type-Werte:
+   - primary_empirical_study = eine klar abgegrenzte Primärstudie
+   - multiple_study_report = ein Artikel berichtet mehrere eigenständige, im selben Paper zentral durchgeführte Primärstudien
+   - systematic_review = systematische Übersichtsarbeit / Meta-Analyse
+   - narrative_review = narrative Literaturübersicht
+   - methodological_paper = Methodenbeitrag, Instrumenten-/Verfahrensdarstellung oder methodischer Überblick
+   - theoretical_conceptual_paper = theoretisch-konzeptioneller Beitrag
+   - other = sonstiger wissenschaftlicher Beitrag
+   - unclear = nicht sicher klassifizierbar
+
+TIE-BREAKER methodological_paper vs. multiple_study_report:
+- Wenn mehrere Studien nur als Beispiele, Validierungsbelege, frühere Erhebungen oder Demonstrationen für ein methodisches/instrumentelles Argument beschrieben werden, klassifiziere als methodological_paper.
+- multiple_study_report nur dann, wenn die mehreren Teilstudien die zentralen originären empirischen Beiträge des Artikels bilden und jeweils mit eigener Method-/Results-Struktur oder funktional gleichwertiger vollständiger Studienberichterstattung erscheinen.
+- Titel, Abstract, Zielsetzung und Gliederungslogik des Gesamtbeitrags haben Vorrang vor der bloßen Anzahl erwähnter Studien.
+- Ein Methodenbeitrag mit mehreren empirischen Beispielen darf NICHT allein wegen dieser Beispiele als multiple_study_report klassifiziert werden.
+3a. Unterscheide DANACH study_family und konkretes study_design. Wichtig: Ein methodischer Überblick, der mehrere fremde oder eigene Studien nur exemplarisch darstellt, ist NICHT automatisch selbst eine einzelne "Quantitative descriptive study".
+3b. Bei multiple_study_report: benenne die enthaltenen Teilstudien in embedded_studies. Extrahiere pro Teilstudie – soweit im Text vorhanden – Design, Stichprobe, Methoden, Hauptergebnisse und Evidenz. Erzwinge KEIN einheitliches Einzelstudien-Framework für das Gesamtdokument, wenn die Teilstudien unterschiedliche Designs haben.
+3c. Prüfe bei multiple_study_report zusätzlich die Berichtsstruktur auf Dokumentebene: gemeinsamer theoretischer Rahmen, Logik der Studienfolge, Method/Results/Discussion je Teilstudie, übergreifende Diskussion und Gesamtlimitationen. Diese Angaben dienen später der APA-JARS-Quant-Bewertung.
+3d. Klassifiziere zusätzlich den fachlichen Kontext, weil etablierte Appraisal-Instrumente domänenspezifische Anwendungsbereiche haben. Markiere insbesondere Gesundheits-/klinischen Kontext, Physiotherapie/Rehabilitation, chirurgischen Kontext, Interventionsstudie und Studien zu Messinstrumenten/PROMs.
+4. Extrahiere kurze Evidenzbelege. SOURCE_TEXT enthält Marker wie --- PAGE 12 ---. Für jeden wichtigen Beleg gib die PDF-Seite als ganze Zahl und ein kurzes möglichst wörtliches Zitat an. Wenn die Seite nicht sicher bestimmbar ist, verwende "unknown".
+5. Effektgrößen, p-Werte und Kennzahlen nur übernehmen, wenn sie explizit berichtet werden.
+6. Antworte NUR mit validem JSON, ohne Markdown-Codeblock.
+
+Titel: {{TITLE}}
+SOURCE_TEXT:
+{{SOURCE_TEXT}}
+
+JSON-SCHEMA:
+{
+  "evidence_locations": [{"claim":"...","section":"... oder unknown","page":12,"quote":"kurzes möglichst wörtliches Zitat"}],
+  "document_type": "primary_empirical_study|multiple_study_report|systematic_review|narrative_review|methodological_paper|theoretical_conceptual_paper|other|unclear",
+  "document_type_rationale": "Begründe anhand von Titel/Abstract/Zielsetzung und Struktur, warum dies der primäre Dokumenttyp ist; bei methodological_paper vs. multiple_study_report ausdrücklich Tie-Breaker anwenden.",
+  "study_family": "Quantitative|Qualitative|Mixed Methods|Review|Theoretical|Methodological|Other|Unclear",
+  "study_design": "konkretes Design oder Unclear",
+  "embedded_studies": [{"label":"...","study_family":"...","study_design":"...","sample_n":"... oder not_reported","methods":["..."],"main_results":["..."],"role_in_document":"primary|illustrative|validation|secondary","evidence":"..."}],
+  "multi_study_reporting": {
+    "shared_introduction":"reported|partial|not_reported|not_applicable",
+    "study_sequence_logic":"reported|partial|not_reported|not_applicable",
+    "per_study_method":"reported|partial|not_reported|not_applicable",
+    "per_study_results":"reported|partial|not_reported|not_applicable",
+    "per_study_discussion":"reported|partial|not_reported|not_applicable",
+    "general_discussion":"reported|partial|not_reported|not_applicable",
+    "overall_limitations":"reported|partial|not_reported|not_applicable"
+  },
+  "research_domain": "z.B. Health/Clinical|Psychology|Social Science|Business|Engineering|Other|Unclear",
+  "clinical_context": {"is_health_clinical":false,"is_physiotherapy_rehabilitation":false,"is_surgical":false,"is_intervention_study":false,"is_measurement_property_study":false,"is_PROM_study":false,"is_comparative":false,"evidence":"... oder not_reported"},
+  "publication_year": "Jahr oder not_reported",
+  "research_question": {"value":"... oder not_reported","evidence":"..."},
+  "hypotheses": [{"value":"...","evidence":"..."}],
+  "theoretical_framework": {"value":"... oder not_reported","evidence":"..."},
+  "sample": {"n":"Zahl oder not_reported","population":"...","sampling":"...","inclusion_exclusion":"...","power_analysis":"..."},
+  "methods": ["..."],
+  "data_collection": ["..."],
+  "measures": [{"construct":"...","instrument":"...","reliability_validity":"...","evidence":"..."}],
+  "analysis_methods": ["..."],
+  "datasets": ["..."],
+  "main_results": [{"result":"...","effect_size":"... oder not_reported","p_value":"... oder not_reported","confidence_interval":"... oder not_reported","evidence":"..."}],
+  "limitations_reported": [{"limitation":"...","evidence":"..."}],
+  "transparency": {"preregistration":"...","data_availability":"...","code_availability":"...","funding":"...","conflicts_of_interest":"..."},
+  "key_arguments": ["..."],
+  "summary": "Sachliche Zusammenfassung in maximal 3 Sätzen",
+  "extraction_uncertainties": ["..."]
+}`,
+            analysis: `Du bist Agent 3, ein methodenkritischer wissenschaftlicher Reviewer. Bewerte GENAU EINE Publikation. PRIORITÄT hat ein wissenschaftlich etabliertes Instrument, sofern dessen offizieller Anwendungsbereich passt. Der CASQ ist nur eine ergänzende interne Bewertung.
+
+GRUNDREGELN:
+- Bewerte ausschließlich belegbare Informationen aus STUDY_DATA oder SOURCE_TEXT. Erfinde nichts.
+- Prüfe zuerst die Anwendbarkeit jedes etablierten Instruments. Ein fachlich unpassendes Instrument darf NICHT nur wegen des Studiendesigns erzwungen werden.
+- Jeder Score, Punkt oder jedes Rating benötigt Evidenz. SOURCE_TEXT enthält --- PAGE N --- Marker.
+- Wenn Informationen fehlen, nutze cant_tell / insufficient_information gemäß Instrument.
+- Halte offizielle Scoring-Logiken getrennt vom internen CASQ.
+- Antworte NUR mit validem JSON.
+
+DOKUMENTTYP-GATE VOR DEM FRAMEWORK-ROUTING:
+0) Prüfe document_type, bevor du ein etabliertes Einzelstudien-Instrument auswählst.
+0a) Bestätige ausdrücklich den Tie-Breaker:
+- methodological_paper, wenn der primäre Zweck Methoden, Messinstrumente, Forschungszugänge oder methodische Grenzen erklärt und mehrere Studien nur als Evidenz/Beispiele dienen.
+- multiple_study_report nur bei mehreren originären, zentral berichteten Teilstudien mit eigener hinreichend vollständiger Studienstruktur.
+- Korrigiere eine zu grobe Extraction-Klassifikation, wenn Titel, Abstract, Ziel und Gliederung eindeutig für methodological_paper sprechen.
+- primary_empirical_study: normales designspezifisches Routing zulässig.
+- systematic_review: Review-Instrumente wie AMSTAR 2 nur bei passendem fachlichem Scope.
+- multiple_study_report: Trenne zwingend zwei Ebenen:
+  (a) Dokumentebene: Prüfe die Berichtsqualität mit APA JARS-Quant, sofern der Beitrag in einem passenden quantitativen psychologischen/sozialwissenschaftlichen Kontext liegt. JARS ist ein offizieller APA-Reporting-Standard, aber KEIN Risk-of-Bias-Instrument und besitzt KEINEN offiziellen numerischen Summenscore.
+  (b) Teilstudienebene: Bewerte jede hinreichend beschriebene eingebettete Primärstudie separat mit dem jeweils passenden methodischen Instrument. Bei heterogenen Teilstudien darf KEIN einheitlicher methodischer Gesamtscore für das Paper erfunden werden.
+- methodological_paper: MMAT, PEDro, MINORS, CASP usw. NICHT allein deshalb anwenden, weil im Beitrag quantitative/qualitative Studienbeispiele vorkommen. Bewerte den Beitrag als Methodenpublikation; einzelne illustrative Studien dürfen nicht mit dem Gesamtdokument gleichgesetzt werden.
+- narrative_review: Kein Systematic-Review-Instrument erzwingen.
+- theoretical_conceptual_paper: Kein empirisches Einzelstudien-Instrument erzwingen.
+- other/unclear: lieber not_applicable/unclear als Scheingenauigkeit.
+
+APA JARS-QUANT BEI MULTIPLE-STUDY-ARTIKELN:
+- Bei document_type="multiple_study_report" prüfe zusätzlich jars_quant auf Dokumentebene.
+- Bewerte: gemeinsamer theoretischer Rahmen, Logik der Studienfolge, transparente Method-Berichterstattung je Teilstudie, Results je Teilstudie, studienspezifische Discussion/Brief Commentary, General Discussion und Gesamtlimitationen.
+- Status je Kriterium: reported|partial|not_reported|not_applicable.
+- Erzeuge KEINEN "offiziellen JARS-Score". Ein Prozentwert darf nur als interner Reporting-Erfüllungsgrad gekennzeichnet werden.
+- JARS bewertet Reporting Quality, nicht Risk of Bias.
+
+ROUTING ETABLIERTER INSTRUMENTE:
+A) PEDro Scale: nur anwenden, wenn es sich um eine randomisierte klinische Studie handelt UND der fachliche Anwendungsbereich zur PEDro-Skala passt, insbesondere Physiotherapie/Rehabilitation. 11 Kriterien dokumentieren; Kriterium 1 (Eligibility) wird NICHT zum PEDro-Score gezählt. Kriterien 2-11 je 0/1; PEDro Score 0-10. Wenn ein Kriterium nicht berichtet ist, gilt es für PEDro als nicht erfüllt.
+B) MINORS: nur für nicht-randomisierte chirurgische Studien. 8 Items bei nicht-komparativen Studien, 12 Items bei komparativen Studien. Jedes Item 0=nicht berichtet, 1=berichtet aber inadäquat, 2=berichtet und adäquat. Maximum 16 bzw. 24.
+C) AMSTAR 2: nur für systematische Reviews von randomisierten und/oder nicht-randomisierten Studien zu Gesundheitsinterventionen. 16 Items; KEIN numerischer Summenscore. Gesamtvertrauen: High, Moderate, Low, Critically low. Kritische Domänen sind insbesondere Item 2 (Protokoll vor Beginn), 4 (Literatursuche), 7 (Liste/Begründung ausgeschlossener Studien), 9 (Risk of Bias der eingeschlossenen Studien), 11 (angemessene Meta-Analyse, falls durchgeführt), 13 (Berücksichtigung von RoB bei Interpretation) und 15 (Publikationsbias bei quantitativer Synthese).
+D) COSMIN Risk of Bias: nur bei Studien zu Entwicklung oder Messeigenschaften von Gesundheits-Messinstrumenten/PROMs. Ratings: Very good, Adequate, Doubtful, Inadequate. Pro relevanter Mess-Eigenschaft gilt das Prinzip "worst score counts".
+E) MMAT 2018: für empirische qualitative, quantitative oder Mixed-Methods-Studien, besonders bei heterogenen/mixed-studies Reviews. Kriteriumsweise Yes/No/Can't tell; KEIN offizieller Summenscore.
+F) CASP: designspezifische Checklisten (z.B. Qualitative, RCT, Cohort, Case Control, Systematic Review). CASP gibt KEINEN offiziellen numerischen Score vor; dokumentiere die Einzelurteile transparent.
+G) Falls keines der etablierten Instrumente fachlich passt: established_appraisal.applicable=false und begründe dies. Erzeuge KEINEN erfundenen "offiziellen" Score.
+
+ETABLIERTE SCORE-ITEMS:
+- PEDro: Gib genau die 11 PEDro-Kriterien in established_appraisal.items zurück, mit item_id "1" bis "11", response yes|no, points 0|1; item 1 max_points=0, Items 2-11 max_points=1. official_score ist die Summe 2-11.
+- MINORS: Gib die 8 bzw. 12 Items mit points 0|1|2 zurück; official_score=sum(points), official_max=16 oder 24.
+- AMSTAR 2: Gib 16 Items mit response yes|partial_yes|no|not_applicable und critical=true/false zurück; official_rating nach kritischen Fehlern, nicht als Summe.
+- COSMIN: Gib relevante Boxen/Messeigenschaften mit response very_good|adequate|doubtful|inadequate|not_applicable zurück; overall/box rating nach worst-score-counts.
+- MMAT/CASP: Nutze framework_appraisal für transparente kriteriumsbasierte Zusatzbewertung ohne numerischen offiziellen Score.
+
+CASQ (NUR ERGÄNZEND):
+- Quantitativ: Research question & theory 10; Design appropriateness 15; Sample & external validity 15; Measurement quality 15; Statistical analysis 15; Bias & internal validity 15; Results interpretation 5; Transparency & reproducibility 5; Limitations 5.
+- Qualitativ: Research question & fit 10; Sampling strategy 15; Data collection quality 15; Reflexivity 10; Analytic rigor 20; Credibility / triangulation / saturation 15; Transferability 5; Transparency 5; Limitations 5.
+- Mixed Methods: Research question & design fit 10; Quantitative component 25; Qualitative component 25; Integration quality 25; Inference quality 10; Transparency 5.
+- Review: Question & protocol 10; Search strategy 20; Screening & study selection 15; Critical appraisal 15; Data extraction 10; Synthesis method 15; Heterogeneity/publication bias 10; Transparency 5.
+- Theoretical: Conceptual clarity 15; Literature foundation 20; Logical coherence 20; Novelty 10; Boundary conditions 10; Testability 10; Integration 10; Limitations & transparency 5.
+- Methodological paper: Methodological objective & scope 10; Conceptual/methodological foundation 15; Description of methods/instruments 20; Empirical support/examples 15; Validity & reliability discussion 15; Critical reflection of strengths/limitations 10; Reproducibility/transferability 5; Literature integration 5; Transparency 5.
+- Multiple-study report: Overarching research logic 10; Transparency of individual study methods 15; Adequacy of designs across studies 15; Measurement quality across studies 10; Statistical/analytic rigor across studies 10; Integration and progression across studies 15; Cross-study interpretation 10; Limitations/bias reflection 10; Reproducibility/transparency 5.
+- Narrative review / overview: Scope & purpose 10; Literature foundation 20; Selection transparency 10; Synthesis rigor 20; Critical appraisal/reflection 15; Balance of evidence 10; Limitations 10; Transparency 5.
+- CASQ-Skala 0-10, bevorzugt ganze/halbe Punkte. Nicht anwendbare Dimensionen weight=0.
+- Wenn keine belastbaren CASQ-Dimensionen bewertet werden können, liefere keine künstlichen 0-Punkte-Dimensionen; nutze insufficient_information.
+
+STUDY_DATA:
+{{STUDY_DATA}}
+
+SOURCE_TEXT:
+{{SOURCE_TEXT}}
+
+JSON-SCHEMA:
+{
+  "document_type_confirmed": "primary_empirical_study|multiple_study_report|systematic_review|narrative_review|methodological_paper|theoretical_conceptual_paper|other|unclear",
+  "study_design_confirmed": "...",
+  "jars_quant": {
+    "applicable": false,
+    "scope_note": "...",
+    "criteria": [
+      {"criterion":"Shared introduction / overarching theoretical framework","status":"reported|partial|not_reported|not_applicable","evidence":[{"page":1,"section":"Introduction","quote":"..."}],"rationale":"..."},
+      {"criterion":"Logic linking the studies","status":"reported|partial|not_reported|not_applicable","evidence":[],"rationale":"..."},
+      {"criterion":"Per-study Method reporting","status":"reported|partial|not_reported|not_applicable","evidence":[],"rationale":"..."},
+      {"criterion":"Per-study Results reporting","status":"reported|partial|not_reported|not_applicable","evidence":[],"rationale":"..."},
+      {"criterion":"Per-study Discussion / brief commentary","status":"reported|partial|not_reported|not_applicable","evidence":[],"rationale":"..."},
+      {"criterion":"General Discussion across studies","status":"reported|partial|not_reported|not_applicable","evidence":[],"rationale":"..."},
+      {"criterion":"Overall limitations / generalizability","status":"reported|partial|not_reported|not_applicable","evidence":[],"rationale":"..."}
+    ],
+    "reporting_summary":"..."
+  },
+  "embedded_study_appraisals": [
+    {"label":"...","study_design":"...","selected_instrument":"MMAT|CASP|PEDro|MINORS|COSMIN|none","applicable":false,"result":"...","criteria":[]}
+  ],
+  "established_appraisal": {
+    "instrument": "PEDro Scale|MINORS|AMSTAR 2|COSMIN Risk of Bias|none",
+    "applicable": true,
+    "applicability_reason": "...",
+    "scope_note": "...",
+    "scoring_type": "numeric|categorical|none",
+    "official_score": 7,
+    "official_max": 10,
+    "official_rating": "High|Moderate|Low|Critically low|Very good|Adequate|Doubtful|Inadequate|not_applicable",
+    "items": [
+      {"item_id":"1","criterion":"...","response":"yes|no|partial_yes|very_good|adequate|doubtful|inadequate|not_applicable","points":0,"max_points":1,"critical":false,"evidence":[{"page":12,"section":"Methods","quote":"..."}],"rationale":"..."}
+    ],
+    "summary": "..."
+  },
+  "framework_appraisal": {
+    "primary_framework": "MMAT 2018|CASP Qualitative|CASP RCT|CASP Cohort|CASP Case Control|CASP Systematic Review|none",
+    "secondary_framework": "MMAT 2018|CASP ...|none",
+    "framework_category": "...",
+    "screening": [{"criterion":"...","framework_response":"yes|no|cant_tell|not_applicable","evidence":[{"page":12,"section":"...","quote":"..."}],"rationale":"..."}],
+    "criteria": [{"criterion":"...","framework_response":"yes|no|cant_tell|not_applicable","evidence":[{"page":12,"section":"...","quote":"..."}],"rationale":"..."}],
+    "framework_summary":"..."
+  },
+  "dimensions": [{"name":"Dimension","evidence":[{"page":12,"section":"Methods","quote":"..."}],"score":7.5,"weight":15,"status":"applicable|not_applicable|insufficient_information","rationale":"..."}],
+  "bias_domains": [{"domain":"...","evidence":"...","rating":"low|some_concerns|high|unclear|not_applicable","rationale":"..."}],
+  "critical_strengths": ["..."],
+  "critical_limitations": ["..."],
+  "reporting_gaps": ["..."],
+  "appraisal_summary": "..."
+}`,
+            synthesis: `Du bist Agent 5 für evidenzgewichtete wissenschaftliche Synthese. Führe die Befunde mehrerer Publikationen zusammen. Wenn ein geeigneter Gesundheits-/Interventions-Evidenzkörper vorliegt, führe zusätzlich eine GRADE-Bewertung PRO wichtigem Outcome durch.
+
+REGELN:
+- Berücksichtige Studiendesign, etablierte validierte Scores/Ratings, CASQ nur ergänzend, Bias-Domänen, Stichprobe, Hauptergebnisse und Limitationen.
+- Unterscheide Konsistenz der Befunde von Sicherheit der Evidenz.
+- GRADE ist NICHT die Qualität einer einzelnen Studie. Es bewertet die Sicherheit des gesamten Evidenzkörpers pro Outcome.
+- Verwende GRADE nur, wenn die Fragestellung und der Evidenzkörper dafür geeignet sind, insbesondere Gesundheits-/Interventionsfragen. Sonst grade_assessment.applicable=false.
+- GRADE-Kategorien: high, moderate, low, very_low. Begründe Downgrades in risk_of_bias, inconsistency, indirectness, imprecision, publication_bias. Berücksichtige Upgrading bei Beobachtungsdaten nur, wenn fachlich begründet (z.B. sehr großer Effekt, Dosis-Wirkung, plausible Residualkonfundierung).
+- Bei mehreren wichtigen Outcomes jeweils separates GRADE-Rating.
+- Behaupte keine Kausalität, wenn die Designs dies nicht erlauben.
+- Berechne keinen gepoolten Effekt, wenn keine echte Meta-Analyse vorliegt.
+- Antworte NUR mit validem JSON.
+
+APPRAISALS_DATA:
+{{APPRAISALS_DATA}}
+
+JSON-SCHEMA:
+{
+  "topics": ["..."],
+  "synthesized_arguments": ["..."],
+  "consistency_of_findings": "high|moderate|low|unclear",
+  "strength_of_evidence": "high|moderate|low|very_low|unclear",
+  "grade_assessment": {
+    "applicable": true,
+    "applicability_reason": "...",
+    "outcomes": [
+      {"outcome":"...","certainty":"high|moderate|low|very_low|unclear","starting_point":"high|low|unclear","downgrading":{"risk_of_bias":"none|one|two","inconsistency":"none|one|two","indirectness":"none|one|two","imprecision":"none|one|two","publication_bias":"none|one|two"},"upgrading_factors":["..."],"rationale":"..."}
+    ],
+    "summary":"..."
+  },
+  "heterogeneity_notes": ["..."],
+  "cross_study_limitations": ["..."],
+  "narrative_summary": "Evidenzgewichtete Zusammenfassung",
+  "meta_analysis_performed": false
+}`,
+            validation: `Du bist Agent 4, Evidence- und Score-Validator. Prüfe das Critical Appraisal GENAU EINER Publikation gegen den SOURCE_TEXT. Kontrolliere insbesondere, ob ein etabliertes Instrument korrekt ausgewählt und nach seiner offiziellen Logik bewertet wurde.
+
+REGELN:
+- Prüfe ZUERST document_type. Ein Methodenbeitrag, narrativer Überblick oder heterogener Multi-Study-Report darf nicht als einzelne quantitative/qualitative Primärstudie behandelt werden, nur weil er entsprechende Beispiele enthält.
+- Bei multiple_study_report validiere jars_quant separat auf Dokumentebene. JARS bewertet Reporting Quality, nicht Risk of Bias.
+- Prüfe embedded_study_appraisals separat; ohne ausreichende studienspezifische Evidenz muss applicable=false bzw. insufficient_information verwendet werden.
+- Bei methodological_paper dürfen fehlende vollständige Method-/Results-Blöcke der nur referierten oder exemplarisch herangezogenen Teilstudien NICHT automatisch als Reporting-Gaps des Gesamtbeitrags gewertet werden. Bewerte stattdessen die Transparenz und methodische Reflexion gemessen am Zweck des Methodenbeitrags.
+- Prüfe established_appraisal danach auf fachliche Anwendbarkeit. Wenn Scope/Studiendesign nicht passen, setze applicable=false und erzeuge keinen Score durch Fantasie.
+- PEDro: Item 1 zählt nie zum Score; Items 2-11 je 0/1. Nicht berichtet = 0.
+- MINORS: nur nicht-randomisierte chirurgische Studien; 8 Items (max 16) nicht-komparativ, 12 Items (max 24) komparativ; Items 0/1/2.
+- AMSTAR 2: kein numerischer Summenscore; validiere das Gesamtvertrauen anhand kritischer Domänen und Fehler.
+- COSMIN: validiere Ratings pro relevanter Mess-Eigenschaft; worst-score-counts darf nicht durch Mittelwert ersetzt werden.
+- MMAT: trenne die 2 Screening-Fragen strikt von den designspezifischen Kriterien. Zwei erfolgreiche Screening-Fragen sind KEINE vollständige MMAT-Qualitätsbewertung. CASP/MMAT: validiere Einzelurteile; kein offizieller numerischer Summenscore.
+- Für jede CASQ-Dimension supported, partially_supported, unsupported oder insufficient_information. CASQ bleibt intern.
+- Erfinde keine Quellenstellen. Für entscheidbare Items liefere kurze Evidenz mit PDF-Seite und Zitat.
+- Antworte NUR mit validem JSON.
+
+VALIDATION_DATA:
+{{VALIDATION_DATA}}
+
+SOURCE_TEXT:
+{{SOURCE_TEXT}}
+
+JSON-SCHEMA:
+{
+  "evidence_coverage": 85,
+  "validated_jars_quant": {
+    "applicable": false,
+    "scope_note": "...",
+    "criteria": [{"criterion":"...","status":"reported|partial|not_reported|not_applicable","source_refs":[{"page":1,"section":"...","quote":"..."}],"validation_note":"..."}],
+    "reporting_summary":"..."
+  },
+  "validated_embedded_study_appraisals": [
+    {"label":"...","study_design":"...","selected_instrument":"...","applicable":false,"result":"...","criteria":[]}
+  ],
+  "validated_established_appraisal": {
+    "instrument":"PEDro Scale|MINORS|AMSTAR 2|COSMIN Risk of Bias|none",
+    "applicable":true,
+    "applicability_reason":"...",
+    "scope_note":"...",
+    "scoring_type":"numeric|categorical|none",
+    "official_score":7,
+    "official_max":10,
+    "official_rating":"High|Moderate|Low|Critically low|Very good|Adequate|Doubtful|Inadequate|not_applicable",
+    "items":[{"item_id":"1","criterion":"...","response":"yes|no|partial_yes|very_good|adequate|doubtful|inadequate|not_applicable","points":0,"max_points":1,"critical":false,"evidence":[{"page":12,"section":"...","quote":"..."}],"validation_note":"..."}],
+    "summary":"..."
+  },
+  "validated_framework": {
+    "primary_framework":"...",
+    "framework_category":"...",
+    "screening":[{"criterion":"...","framework_response":"yes|no|cant_tell|not_applicable","evidence":[{"page":12,"section":"...","quote":"..."}],"validation_note":"..."}],
+    "criteria":[{"criterion":"...","framework_response":"yes|no|cant_tell|not_applicable","evidence":[{"page":12,"section":"...","quote":"..."}],"validation_note":"..."}],
+    "framework_summary":"..."
+  },
+  "validated_dimensions": [{"name":"Dimension","source_refs":[{"page":12,"section":"Methods","quote":"..."}],"original_score":7.5,"adjusted_score":7.0,"weight":15,"validation_status":"supported|partially_supported|unsupported|insufficient_information|not_applicable","validation_note":"..."}],
+  "unsupported_claims": ["..."],
+  "validation_summary": "..."
+}`
+        };
+
+        // ==========================================
+        // AUTHENTICATION & MULTI-USER SYSTEM
+        // ==========================================
+        let currentUser = null;
+        let currentPassKey = null;
+
+        function hashString(str) {
+            let hash = 5381;
+            for (let i = 0; i < str.length; i++) { hash = ((hash << 5) + hash) + str.charCodeAt(i); }
+            return hash.toString();
+        }
+
+        function encryptKey(text, password) {
+            if (!text) return "";
+            const encrypted = Array.from(text, (c, i) => String.fromCharCode(c.charCodeAt(0) ^ password.charCodeAt(i % password.length))).join('');
+            return btoa(encrypted);
+        }
+
+        function decryptKey(base64, password) {
+            if (!base64) return "";
+            try {
+                const decoded = atob(base64);
+                return Array.from(decoded, (c, i) => String.fromCharCode(c.charCodeAt(0) ^ password.charCodeAt(i % password.length))).join('');
+            } catch(e) { return ""; }
+        }
+
+        function getUserDB() { return JSON.parse(localStorage.getItem('agentUsers') || '{}'); }
+        function saveUserDB(db) { localStorage.setItem('agentUsers', JSON.stringify(db)); }
+
+        // MIGRATION
+        function ensureProfileStructure(db, user) {
+            if (!db[user].prompts) {
+                db[user].prompts = {
+                    extraction: [{ text: DEFAULT_PROMPTS.extraction, date: new Date().toLocaleString() }],
+                    analysis: [{ text: DEFAULT_PROMPTS.analysis, date: new Date().toLocaleString() }],
+                    synthesis: [{ text: DEFAULT_PROMPTS.synthesis, date: new Date().toLocaleString() }],
+                    validation: [{ text: DEFAULT_PROMPTS.validation, date: new Date().toLocaleString() }]
+                };
+            }
+            if (!db[user].prompts.validation) {
+                db[user].prompts.validation = [{ text: DEFAULT_PROMPTS.validation, date: new Date().toLocaleString() }];
+            }
+            // ESTABLISHED-SCORES-MIGRATION: stellt sicher, dass bestehende Profile die
+            // aktuelle PEDro/MINORS/AMSTAR2/COSMIN/GRADE-Logik erhalten.
+            const frameworkDate = new Date().toLocaleString();
+            if (!String(db[user].prompts.extraction?.[0]?.text || '').includes('TIE-BREAKER methodological_paper vs. multiple_study_report')) {
+                db[user].prompts.extraction.unshift({ text: DEFAULT_PROMPTS.extraction, date: frameworkDate });
+                db[user].prompts.extraction = db[user].prompts.extraction.slice(0, 5);
+            }
+            if (!String(db[user].prompts.analysis?.[0]?.text || '').includes('Bestätige ausdrücklich den Tie-Breaker')) {
+                db[user].prompts.analysis.unshift({ text: DEFAULT_PROMPTS.analysis, date: frameworkDate });
+                db[user].prompts.analysis = db[user].prompts.analysis.slice(0, 5);
+            }
+            if (!String(db[user].prompts.validation?.[0]?.text || '').includes('validiere jars_quant separat')) {
+                db[user].prompts.validation.unshift({ text: DEFAULT_PROMPTS.validation, date: frameworkDate });
+                db[user].prompts.validation = db[user].prompts.validation.slice(0, 5);
+            }
+            if (!String(db[user].prompts.synthesis?.[0]?.text || '').includes('grade_assessment')) {
+                db[user].prompts.synthesis.unshift({ text: DEFAULT_PROMPTS.synthesis, date: frameworkDate });
+                db[user].prompts.synthesis = db[user].prompts.synthesis.slice(0, 5);
+            }
+            if (!db[user].keys) {
+                db[user].keys = {};
+            }
+            
+            if (db[user].keys.activeProvider === 'custom') {
+                db[user].keys.activeProvider = 'custom1';
+            }
+            if (db[user].keys.custom1Url === undefined) {
+                db[user].keys.custom1Url = db[user].keys.customUrl || "http://localhost:8888/v1";
+                db[user].keys.custom1Key = db[user].keys.customKey || "";
+                db[user].keys.custom1Model = db[user].keys.customModel || "";
+            }
+            if (db[user].keys.custom2Url === undefined) {
+                db[user].keys.custom2Url = "http://10.189.26.81:8000/v1";
+                db[user].keys.custom2Key = "";
+                db[user].keys.custom2Model = "";
+            }
+            if (db[user].keys.custom3Url === undefined) {
+                db[user].keys.custom3Url = "http://localhost:11434/v1";
+                db[user].keys.custom3Key = "";
+                db[user].keys.custom3Model = "";
+            }
+            
+            if (db[user].keys.custom1Thinking === undefined) db[user].keys.custom1Thinking = false;
+            if (db[user].keys.custom2Thinking === undefined) db[user].keys.custom2Thinking = false;
+            if (db[user].keys.custom3Thinking === undefined) db[user].keys.custom3Thinking = false;
+
+            if (!db[user].keys.activeProvider) db[user].keys.activeProvider = 'custom1';
+            if (!db[user].keys.maxEvidence) db[user].keys.maxEvidence = 50000;
+            if (!db[user].keys.maxTokens) db[user].keys.maxTokens = 8192;
+            if (db[user].keys.temperature === undefined) db[user].keys.temperature = 0.0;
+            if (!db[user].keys.systemPrompt) db[user].keys.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+            
+            return db;
+        }
+
+        function handleAuth(action) {
+            const user = document.getElementById('login-user').value.trim();
+            const pass = document.getElementById('login-pass').value.trim();
+            const errDiv = document.getElementById('login-error');
+
+            if (!user || !pass) {
+                errDiv.textContent = "Bitte User-ID und Passwort eingeben.";
+                errDiv.style.display = 'block';
+                return;
+            }
+
+            let db = getUserDB();
+            const hashedPass = hashString(pass);
+
+            if (action === 'register') {
+                if (db[user]) {
+                    errDiv.textContent = "Dieser Benutzer existiert bereits. Bitte einloggen.";
+                    errDiv.style.display = 'block';
+                    return;
+                }
+                db[user] = {
+                    passHash: hashedPass,
+                    keys: { custom1Url: "http://localhost:8888/v1", custom1Key: "", custom1Model: "", custom2Url: "http://10.189.26.81:8000/v1", custom2Key: "", custom2Model: "", custom3Url: "http://localhost:11434/v1", custom3Key: "", custom3Model: "", openaiKey: "", geminiKey: "", maxEvidence: 50000, maxTokens: 8192, temperature: 0.0, systemPrompt: DEFAULT_SYSTEM_PROMPT, activeProvider: 'custom1' },
+                    history: []
+                };
+                db = ensureProfileStructure(db, user);
+                saveUserDB(db);
+            } else if (action === 'login') {
+                if (!db[user] || db[user].passHash !== hashedPass) {
+                    errDiv.textContent = "Falscher Benutzername oder Passwort.";
+                    errDiv.style.display = 'block';
+                    return;
+                }
+                db = ensureProfileStructure(db, user);
+                saveUserDB(db); 
+            }
+
+            currentUser = user;
+            currentPassKey = pass;
+            document.getElementById('display-username').textContent = user;
+            
+            document.getElementById('llm-provider').value = db[user].keys.activeProvider || 'custom1';
+            
+            document.getElementById('custom1-url').value = db[user].keys.custom1Url;
+            document.getElementById('custom1-key').value = decryptKey(db[user].keys.custom1Key, pass);
+            document.getElementById('custom1-model').value = db[user].keys.custom1Model;
+            document.getElementById('custom1-thinking').checked = db[user].keys.custom1Thinking || false;
+
+            document.getElementById('custom2-url').value = db[user].keys.custom2Url;
+            document.getElementById('custom2-key').value = decryptKey(db[user].keys.custom2Key, pass);
+            document.getElementById('custom2-model').value = db[user].keys.custom2Model;
+            document.getElementById('custom2-thinking').checked = db[user].keys.custom2Thinking || false;
+
+            document.getElementById('custom3-url').value = db[user].keys.custom3Url;
+            document.getElementById('custom3-key').value = decryptKey(db[user].keys.custom3Key, pass);
+            document.getElementById('custom3-model').value = db[user].keys.custom3Model;
+            document.getElementById('custom3-thinking').checked = db[user].keys.custom3Thinking || false;
+            
+            document.getElementById('openai-key').value = decryptKey(db[user].keys.openaiKey, pass);
+            document.getElementById('openai-model').value = db[user].keys.openaiModel || 'gpt-4o-mini';
+            
+            document.getElementById('gemini-key').value = decryptKey(db[user].keys.geminiKey, pass);
+            document.getElementById('gemini-model').value = db[user].keys.geminiModel || 'gemini-2.5-flash';
+            
+            document.getElementById('max-evidence-chars').value = db[user].keys.maxEvidence || 50000;
+            document.getElementById('max-output-tokens').value = db[user].keys.maxTokens || 8192;
+            document.getElementById('llm-temperature').value = db[user].keys.temperature;
+            document.getElementById('llm-system-prompt').value = db[user].keys.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+            
+            toggleProviderSettings();
+            
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('app-screen').style.display = 'flex';
+            document.getElementById('login-pass').value = ''; 
+            
+            loadPromptsToUI();
+        }
+
+        function logout() {
+            currentUser = null; currentPassKey = null;
+            document.getElementById('custom1-key').value = ''; 
+            document.getElementById('custom2-key').value = ''; 
+            document.getElementById('custom3-key').value = ''; 
+            document.getElementById('openai-key').value = '';
+            document.getElementById('gemini-key').value = '';
+            document.getElementById('app-screen').style.display = 'none';
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('login-error').style.display = 'none';
+        }
+
+        function saveUserKeys() {
+            if (!currentUser) return;
+            let db = getUserDB();
+            
+            db[currentUser].keys.activeProvider = document.getElementById('llm-provider').value;
+            
+            db[currentUser].keys.custom1Url = document.getElementById('custom1-url').value;
+            db[currentUser].keys.custom1Key = encryptKey(document.getElementById('custom1-key').value, currentPassKey);
+            db[currentUser].keys.custom1Model = document.getElementById('custom1-model').value;
+            db[currentUser].keys.custom1Thinking = document.getElementById('custom1-thinking').checked;
+
+            db[currentUser].keys.custom2Url = document.getElementById('custom2-url').value;
+            db[currentUser].keys.custom2Key = encryptKey(document.getElementById('custom2-key').value, currentPassKey);
+            db[currentUser].keys.custom2Model = document.getElementById('custom2-model').value;
+            db[currentUser].keys.custom2Thinking = document.getElementById('custom2-thinking').checked;
+
+            db[currentUser].keys.custom3Url = document.getElementById('custom3-url').value;
+            db[currentUser].keys.custom3Key = encryptKey(document.getElementById('custom3-key').value, currentPassKey);
+            db[currentUser].keys.custom3Model = document.getElementById('custom3-model').value;
+            db[currentUser].keys.custom3Thinking = document.getElementById('custom3-thinking').checked;
+            
+            db[currentUser].keys.openaiKey = encryptKey(document.getElementById('openai-key').value, currentPassKey);
+            db[currentUser].keys.openaiModel = document.getElementById('openai-model').value;
+            
+            db[currentUser].keys.geminiKey = encryptKey(document.getElementById('gemini-key').value, currentPassKey);
+            db[currentUser].keys.geminiModel = document.getElementById('gemini-model').value;
+            
+            db[currentUser].keys.maxEvidence = parseInt(document.getElementById('max-evidence-chars').value, 10) || 50000;
+            db[currentUser].keys.maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
+            db[currentUser].keys.temperature = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
+            db[currentUser].keys.systemPrompt = document.getElementById('llm-system-prompt').value;
+            
+            saveUserDB(db);
+            
+            const provider = document.getElementById('llm-provider').value;
+            const note = document.getElementById(`save-note-${provider}`);
+            if (note) {
+                note.style.display = 'block';
+                setTimeout(() => note.style.display = 'none', 3000);
+            }
+        }
+
+        // ==========================================
+        // PROMPT MANAGEMENT
+        // ==========================================
+        function loadPromptsToUI() {
+            let db = getUserDB();
+            let prompts = db[currentUser].prompts;
+
+            ['extraction', 'analysis', 'synthesis', 'validation'].forEach(type => {
+                let historyArr = prompts[type];
+                document.getElementById(`prompt-${type}`).value = historyArr[0].text;
+                
+                let select = document.getElementById(`history-${type}`);
+                select.innerHTML = historyArr.map((p, i) => `<option value="${i}">Version vom ${p.date}</option>`).join('');
+                select.value = "0";
+            });
+        }
+
+        function savePrompt(type) {
+            let db = getUserDB();
+            let newText = document.getElementById(`prompt-${type}`).value.trim();
+            
+            let historyArr = db[currentUser].prompts[type];
+            if (historyArr[0].text !== newText) {
+                historyArr.unshift({ text: newText, date: new Date().toLocaleString() });
+                if (historyArr.length > 5) historyArr.pop(); 
+                
+                db[currentUser].prompts[type] = historyArr;
+                saveUserDB(db);
+                loadPromptsToUI(); 
+            }
+
+            const note = document.getElementById(`save-note-${type}`);
+            if(note) {
+                note.style.display = 'block';
+                setTimeout(() => note.style.display = 'none', 3000);
+            }
+        }
+
+        function restorePrompt(type) {
+            let db = getUserDB();
+            let index = document.getElementById(`history-${type}`).value;
+            document.getElementById(`prompt-${type}`).value = db[currentUser].prompts[type][index].text;
+        }
+
+        function getCurrentPrompt(type) {
+            return document.getElementById(`prompt-${type}`).value;
+        }
+
+        function getCurrentPromptDate(type) {
+            let db = getUserDB();
+            return db[currentUser].prompts[type][0].date;
+        }
+
+        // ==========================================
+        // UI & STATE MANAGEMENT
+        // ==========================================
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        let selectedFiles = []; let globalResults = {};
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.container').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('nav button').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function toggleProviderSettings() {
+            const provider = document.getElementById('llm-provider').value;
+            document.getElementById('settings-custom1').style.display = provider === 'custom1' ? 'block' : 'none';
+            document.getElementById('settings-custom2').style.display = provider === 'custom2' ? 'block' : 'none';
+            document.getElementById('settings-custom3').style.display = provider === 'custom3' ? 'block' : 'none';
+            document.getElementById('settings-openai').style.display = provider === 'openai' ? 'block' : 'none';
+            document.getElementById('settings-gemini').style.display = provider === 'gemini' ? 'block' : 'none';
+        }
+
+        function handleFiles(files) {
+            const newFiles = Array.from(files);
+            let addedCount = 0;
+            
+            newFiles.forEach(f => {
+                if (!selectedFiles.some(existing => existing.name === f.name)) {
+                    selectedFiles.push(f);
+                    addedCount++;
+                }
+            });
+            
+            renderFileList();
+            log(`${addedCount} neue Datei(en) hinzugefügt. Gesamt: ${selectedFiles.length}`, 'success');
+            document.getElementById('file-input').value = ''; 
+        }
+
+        function renderFileList() {
+            const list = document.getElementById('file-list');
+            if (selectedFiles.length === 0) {
+                list.innerHTML = 'Keine Dateien ausgewählt.';
+                return;
+            }
+            
+            list.innerHTML = selectedFiles.map((f, i) => `
+                <div class="file-item">
+                    <span class="file-item-name" title="${escapeHTML(f.name)}">📄 ${escapeHTML(f.name)}</span>
+                    <button class="file-item-remove" onclick="removeFile(${i}); event.stopPropagation();" title="Datei entfernen">×</button>
+                </div>
+            `).join('');
+        }
+
+        function removeFile(index) {
+            const removed = selectedFiles.splice(index, 1)[0];
+            renderFileList();
+            log(`Datei entfernt: ${removed.name}`, 'info');
+        }
+
+        function log(msg, type = 'info') {
+            const term = document.getElementById('terminal');
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = `log-${type}`;
+            div.textContent = `[${time}] ${msg}`;
+            term.appendChild(div);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function setStep(stepNum, status) {
+            const step = document.getElementById(`step-${stepNum}`);
+            if (status === 'active') step.classList.add('active');
+            if (status === 'done') { step.classList.remove('active'); step.classList.add('done'); }
+        }
+
+        function toggleTerminal() {
+            const term = document.getElementById('terminal');
+            const btn = document.getElementById('btn-toggle-terminal');
+            if (term.style.display === 'none') {
+                term.style.display = 'flex';
+                btn.textContent = 'Terminal ausblenden';
+            } else {
+                term.style.display = 'none';
+                btn.textContent = 'Terminal anzeigen';
+            }
+        }
+
+        // ==========================================
+        // AUTO-DETECT CONTEXT SIZE
+        // ==========================================
+        async function autoDetectContext() {
+            const provider = document.getElementById('llm-provider').value;
+            let url, key, modelName;
+            
+            if (provider.startsWith('custom')) {
+                let baseUrl = document.getElementById(provider + '-url').value.replace(/\/$/, '');
+                url = baseUrl + '/models';
+                key = document.getElementById(provider + '-key').value || 'lm-studio';
+                modelName = document.getElementById(provider + '-model').value;
+            } else if (provider === 'openai') {
+                url = 'https://api.openai.com/v1/models';
+                key = document.getElementById('openai-key').value;
+                modelName = document.getElementById('openai-model').value || 'gpt-4o-mini';
+            } else if (provider === 'gemini') {
+                alert("Gemini Modelle haben in der Regel ein Context Window von 1.000.000+ Tokens.\nSetze das Limit manuell auf 100.000, das reicht völlig für alle Dokumente.");
+                document.getElementById('max-evidence-chars').value = 100000;
+                saveUserKeys();
+                return;
+            }
+
+            try {
+                if (provider === 'openai') {
+                    if(!key) { alert("Bitte zuerst einen OpenAI API-Key eingeben."); return; }
+                    let ctx = 8192; 
+                    const m = modelName.toLowerCase();
+                    if (m.includes('gpt-4o') || m.includes('gpt-4-turbo')) ctx = 128000;
+                    
+                    const outTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
+                    const chars = Math.floor((ctx - outTokens) * 3.5);
+                    document.getElementById('max-evidence-chars').value = chars;
+                    saveUserKeys();
+                    alert(`OpenAI Modell erkannt (${ctx} Tokens).\nLimit wurde automatisch auf ${chars.toLocaleString()} Zeichen gesetzt.`);
+                    log(`Auto-Detect: OpenAI ${ctx} Tokens -> ${chars} Zeichen`, 'success');
+                    return;
+                }
+
+                const fetchHeaders = {};
+                if (key && key !== 'lm-studio') fetchHeaders['Authorization'] = `Bearer ${key}`;
+                const response = await fetch(url, { headers: fetchHeaders });
+                if (!response.ok) throw new Error(`API Fehler: ${response.status}`);
+                
+                const data = await response.json();
+                let ctx = null;
+                
+                if (data.data && data.data.length > 0) {
+                    const modelData = data.data[0];
+                    ctx = modelData.context_length || 
+                          (modelData.metadata && modelData.metadata.context_length) ||
+                          (modelData.parameters && modelData.parameters.n_ctx) || null;
+                }
+
+                if (ctx) {
+                    const outTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
+                    const chars = Math.floor((ctx - outTokens) * 3.5);
+                    document.getElementById('max-evidence-chars').value = chars;
+                    saveUserKeys();
+                    alert(`Lokales Modell erkannt (${ctx} Tokens).\nLimit wurde automatisch auf ${chars.toLocaleString()} Zeichen gesetzt.`);
+                    log(`Auto-Detect: Lokal ${ctx} Tokens -> ${chars} Zeichen`, 'success');
+                } else {
+                    alert("Der lokale Server verheimlicht das Kontext-Limit leider in der API-Antwort.\n\nBitte prüfe den n_ctx Wert in deinem Studio und trage ihn manuell anhand der Faustregel ein.");
+                    log('Auto-Detect: Lokaler Server liefert keine Kontext-Größe.', 'warning');
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Fehler bei der Verbindung. Stelle sicher, dass die Base-URL korrekt ist und der Server läuft.");
+            }
+        }
+
+        // ==========================================
+        // LLM API WRAPPER (inkl. Performance-Messung)
+        // ==========================================
+        async function callLLM(prompt) {
+            const provider = document.getElementById('llm-provider').value;
+            let url, key, model;
+            
+            if (provider.startsWith('custom')) {
+                let baseUrl = document.getElementById(provider + '-url').value.replace(/\/$/, '');
+                url = baseUrl + '/chat/completions';
+                model = document.getElementById(provider + '-model').value || 'local-model';
+                key = document.getElementById(provider + '-key').value || 'lm-studio';
+            } else if (provider === 'openai') {
+                url = 'https://api.openai.com/v1/chat/completions';
+                key = document.getElementById('openai-key').value;
+                model = document.getElementById('openai-model').value || 'gpt-4o-mini';
+                if(!key) throw new Error("OpenAI API-Key fehlt in der Konfiguration!");
+            } else if (provider === 'gemini') {
+                url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+                key = document.getElementById('gemini-key').value;
+                model = document.getElementById('gemini-model').value || 'gemini-2.5-flash';
+                if(!key) throw new Error("Google Gemini API-Key fehlt in der Konfiguration!");
+            }
+
+            const maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
+            const temperature = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
+            let systemPrompt = document.getElementById('llm-system-prompt').value || DEFAULT_SYSTEM_PROMPT;
+
+            let isThinkingAllowed = false;
+            if (provider.startsWith('custom')) {
+                isThinkingAllowed = document.getElementById(provider + '-thinking').checked;
+            }
+
+            if (isThinkingAllowed) {
+                systemPrompt += "\n\nHINWEIS: Du bist ein Reasoning-Modell. Du darfst vor der JSON-Ausgabe nachdenken. Nutze dafür ggf. <think> Tags. Dein finales Ergebnis MUSS jedoch zwingend mit '{' beginnen und ein valides JSON sein.";
+            }
+
+            const payload = {
+                model: model,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: prompt }
+                ],
+                temperature: temperature
+            };
+
+            if (provider === 'openai') {
+                payload.max_completion_tokens = maxTokens;
+            } else {
+                payload.max_tokens = maxTokens;
+            }
+
+            if (provider.startsWith('custom') && url.includes('8000') && !isThinkingAllowed) {
+                const m = model.toLowerCase();
+                if (m.includes('qwen') || m.includes('nvidia') || m.includes('deepseek')) {
+                    payload.response_format = { type: "json_object" };
+                }
+            }
+
+            const fetchHeaders = { 'Content-Type': 'application/json' };
+            if (key && key !== 'lm-studio') fetchHeaders['Authorization'] = `Bearer ${key}`;
+
+            const startTime = performance.now(); // Startzeit messen
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: fetchHeaders,
+                body: JSON.stringify(payload)
+            });
+
+            const endTime = performance.now(); // Endzeit messen
+            const durationSec = (endTime - startTime) / 1000;
+
+            if (!response.ok) {
+                const err = await response.text();
+                throw new Error(`API Fehler (${response.status}): ${err}`);
+            }
+            const data = await response.json();
+            
+            // Token/s Metrik aus den OpenAI-Usage-Daten extrahieren (falls vorhanden) oder schätzen
+            const completionTokens = data.usage?.completion_tokens || Math.round(data.choices[0].message.content.length / 4);
+            const tokensPerSec = durationSec > 0 ? Math.round(completionTokens / durationSec) : 0;
+
+            // Global für den Historien-Run zwischenspeichern
+            if (!window.currentRunMetrics) window.currentRunMetrics = [];
+            window.currentRunMetrics.push(tokensPerSec);
+
+            return data.choices[0].message.content;
+        }
+
+        // ==========================================
+        // JSON HARDCORE PARSER (Ultra-Stable Edition)
+        // ==========================================
+        function parseJSONRobust(str) {
+            if (!str) return {};
+            if (typeof str === 'object') return str; 
+            
+            let cleanStr = String(str).trim();
+            
+            if (cleanStr.startsWith('```')) {
+                const firstNewline = cleanStr.indexOf('\n');
+                if (firstNewline > -1) cleanStr = cleanStr.substring(firstNewline + 1);
+                if (cleanStr.endsWith('```')) cleanStr = cleanStr.substring(0, cleanStr.length - 3).trim();
+            }
+
+            const thinkEnd = cleanStr.indexOf('</think>');
+            if (thinkEnd > -1) {
+                cleanStr = cleanStr.substring(thinkEnd + 8).trim();
+            }
+
+            const firstBrace = cleanStr.indexOf('{');
+            const lastBrace = cleanStr.lastIndexOf('}');
+            if (firstBrace > -1 && lastBrace > -1) {
+                cleanStr = cleanStr.substring(firstBrace, lastBrace + 1);
+            } else {
+                return {};
+            }
+
+            try { 
+                return JSON.parse(cleanStr); 
+            } 
+            catch (e) {
+                let fixed = cleanStr;
+                const lastComma = fixed.lastIndexOf(',');
+                const lastOpenCurly = fixed.lastIndexOf('{');
+                const lastOpenSquare = fixed.lastIndexOf('[');
+                
+                let cutPoint = Math.max(lastComma, lastOpenCurly, lastOpenSquare);
+                if (cutPoint > -1 && cutPoint > fixed.length - 50) {
+                    fixed = fixed.substring(0, cutPoint);
+                }
+                fixed = fixed.replace(/,\s*$/, '');
+                
+                let openCurly = 0;
+                let openSquare = 0;
+                let inString = false;
+                let escapeNext = false;
+                
+                for (let i = 0; i < fixed.length; i++) {
+                    const char = fixed[i];
+                    if (escapeNext) { escapeNext = false; continue; }
+                    if (char === '\\') { escapeNext = true; continue; }
+                    if (char === '"') { inString = !inString; continue; }
+                    if (!inString) {
+                        if (char === '{') openCurly++;
+                        if (char === '}') openCurly--;
+                        if (char === '[') openSquare++;
+                        if (char === ']') openSquare--;
+                    }
+                }
+                
+                if (inString) fixed += '"';
+                while (openSquare > 0) { fixed += ']'; openSquare--; }
+                while (openCurly > 0) { fixed += '}'; openCurly--; }
+
+                try { 
+                    return JSON.parse(fixed);
+                } catch (e2) {
+                    return {};
+                }
+            }
+        }
+
+        // ==========================================
+        // WORKFLOW AGENTEN
+        // ==========================================
+        async function extractTextFromPDF(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+            let fullText = "";
+            const pages = [];
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                const pageText = content.items.map(item => item.str).join(" ");
+                pages.push({ page: i, text: pageText });
+                fullText += `\n--- PAGE ${i} ---\n${pageText}\n`;
+            }
+            return { fullText, pages, numPages: pdf.numPages };
+        }
+
+        function buildEvidenceContext(pages, maxChars = 25000) {
+            if (!Array.isArray(pages) || !pages.length) return "";
+            const renderPage = p => `\n--- PAGE ${p.page} ---\n${p.text}\n`;
+            const complete = pages.map(renderPage).join('');
+            if (complete.length <= maxChars) return complete;
+
+            const keywords = [
+                'method', 'methodology', 'methodik', 'materials and methods', 'stichprobe', 'sample',
+                'participants', 'data collection', 'datenerhebung', 'measures', 'measurement', 'messung',
+                'analysis', 'statistical', 'statistik', 'results', 'ergebnisse', 'findings',
+                'limitations', 'limitationen', 'discussion', 'diskussion', 'conflict of interest',
+                'funding', 'preregistration', 'data availability', 'ethics', 'hypotheses', 'research question',
+                'abstract', 'conclusion', 'conclusions'
+            ];
+
+            const selected = new Set();
+            pages.slice(0, Math.min(4, pages.length)).forEach(p => selected.add(p.page));
+            pages.slice(Math.max(0, pages.length - 3)).forEach(p => selected.add(p.page));
+
+            for (const p of pages) {
+                const lower = String(p.text || '').toLowerCase();
+                if (keywords.some(k => lower.includes(k))) selected.add(p.page);
+            }
+
+            const ordered = pages.filter(p => selected.has(p.page));
+            let out = '';
+            for (const p of ordered) {
+                const chunk = renderPage(p);
+                if ((out + chunk).length > maxChars) continue;
+                out += chunk;
+            }
+
+            if (out.length < Math.min(18000, maxChars * 0.5)) {
+                for (const p of pages) {
+                    if (selected.has(p.page)) continue;
+                    const chunk = renderPage(p);
+                    if ((out + chunk).length > maxChars) break;
+                    out += chunk;
+                }
+            }
+            return out;
+        }
+
+        function normalizeForMatch(text) {
+            return String(text || '').toLowerCase().replace(/[\u00ad]/g, '').replace(/\s+/g, ' ').replace(/[“”„‟]/g, '"').replace(/[’‘]/g, "'").trim();
+        }
+
+        function findQuoteOnPages(quote, pages) {
+            const nq = normalizeForMatch(quote);
+            if (!nq || nq.length < 12 || !Array.isArray(pages)) return null;
+            for (const p of pages) {
+                const np = normalizeForMatch(p.text);
+                if (np.includes(nq)) return { page: p.page, verified: true, quote: quote };
+            }
+            const words = nq.split(' ').filter(Boolean);
+            if (words.length >= 8) {
+                const probe = words.slice(0, Math.min(words.length, 14)).join(' ');
+                for (const p of pages) {
+                    if (normalizeForMatch(p.text).includes(probe)) return { page: p.page, verified: true, quote: quote };
+                }
+            }
+            return null;
+        }
+
+        function verifyExtractionEvidenceRefs(extraction, pages) {
+            const refs = Array.isArray(extraction?.evidence_locations) ? extraction.evidence_locations : [];
+            extraction.evidence_locations = refs.map(ref => {
+                const quote = String(ref?.quote || '').trim();
+                const claimed = Number(ref?.page);
+                const found = findQuoteOnPages(quote, pages);
+                if (found) return { ...ref, page: found.page, verified: true };
+                const validClaimed = Number.isInteger(claimed) && claimed > 0 && claimed <= (pages?.length || 0);
+                return { ...ref, page: validClaimed ? claimed : null, verified: false };
+            });
+            return extraction;
+        }
+
+        function verifySourceRefs(validation, pages) {
+            const dims = Array.isArray(validation?.validated_dimensions) ? validation.validated_dimensions : [];
+            dims.forEach(d => {
+                let refs = Array.isArray(d.source_refs) ? d.source_refs : [];
+                if (!refs.length && d.evidence && typeof d.evidence === 'object') refs = [d.evidence];
+                d.source_refs = refs.map(ref => {
+                    const quote = String(ref?.quote || '').trim();
+                    const claimed = Number(ref?.page);
+                    const found = findQuoteOnPages(quote, pages);
+                    if (found) return { page: found.page, section: ref?.section || 'unknown', quote, verified: true };
+                    const validClaimed = Number.isInteger(claimed) && claimed > 0 && claimed <= (pages?.length || 0);
+                    return { page: validClaimed ? claimed : null, section: ref?.section || 'unknown', quote, verified: false };
+                }).filter(ref => ref.quote || ref.page);
+            });
+            return validation;
+        }
+
+
+        function verifyFrameworkEvidence(validation, appraisal, pages) {
+            const fw = validation?.validated_framework || appraisal?.framework_appraisal;
+            if (!fw) return validation;
+            ['screening', 'criteria'].forEach(group => {
+                const items = Array.isArray(fw[group]) ? fw[group] : [];
+                items.forEach(item => {
+                    const refs = Array.isArray(item.evidence) ? item.evidence : [];
+                    item.evidence = refs.map(ref => {
+                        const quote = String(ref?.quote || '').trim();
+                        const claimed = Number(ref?.page);
+                        const found = findQuoteOnPages(quote, pages);
+                        if (found) return { page: found.page, section: ref?.section || 'unknown', quote, verified: true };
+                        const validClaimed = Number.isInteger(claimed) && claimed > 0 && claimed <= (pages?.length || 0);
+                        return { page: validClaimed ? claimed : null, section: ref?.section || 'unknown', quote, verified: false };
+                    }).filter(ref => ref.quote || ref.page);
+                });
+            });
+            if (!validation.validated_framework) validation.validated_framework = fw;
+            return validation;
+        }
+
+        function verifyEstablishedEvidence(validation, appraisal, pages) {
+            const ea = validation?.validated_established_appraisal || appraisal?.established_appraisal;
+            if (!ea) return validation;
+            const items = Array.isArray(ea.items) ? ea.items : [];
+            items.forEach(item => {
+                const refs = Array.isArray(item.evidence) ? item.evidence : [];
+                item.evidence = refs.map(ref => {
+                    const quote = String(ref?.quote || '').trim();
+                    const claimed = Number(ref?.page);
+                    const found = findQuoteOnPages(quote, pages);
+                    if (found) return { page: found.page, section: ref?.section || 'unknown', quote, verified: true };
+                    const validClaimed = Number.isInteger(claimed) && claimed > 0 && claimed <= (pages?.length || 0);
+                    return { page: validClaimed ? claimed : null, section: ref?.section || 'unknown', quote, verified: false };
+                }).filter(ref => ref.quote || ref.page);
+            });
+            if (!validation.validated_established_appraisal) validation.validated_established_appraisal = ea;
+            return validation;
+        }
+
+
+        function verifyJARSEvidence(validation, appraisal, pages) {
+            const jq = validation?.validated_jars_quant || appraisal?.jars_quant;
+            if (!jq) return validation;
+            const items = Array.isArray(jq.criteria) ? jq.criteria : [];
+            items.forEach(item => {
+                const refs = Array.isArray(item.source_refs) ? item.source_refs : (Array.isArray(item.evidence) ? item.evidence : []);
+                item.source_refs = refs.map(ref => {
+                    const quote = String(ref?.quote || '').trim();
+                    const claimed = Number(ref?.page);
+                    const found = findQuoteOnPages(quote, pages);
+                    if (found) return { page: found.page, section: ref?.section || 'unknown', quote, verified: true };
+                    const validClaimed = Number.isInteger(claimed) && claimed > 0 && claimed <= (pages?.length || 0);
+                    return { page: validClaimed ? claimed : null, section: ref?.section || 'unknown', quote, verified: false };
+                }).filter(ref => ref.quote || ref.page);
+            });
+            if (!validation.validated_jars_quant) validation.validated_jars_quant = jq;
+            return validation;
+        }
+
+        function calculateJARSMetrics(validation, appraisal) {
+            const jq = validation?.validated_jars_quant || appraisal?.jars_quant || {};
+            const items = Array.isArray(jq.criteria) ? jq.criteria : [];
+            let reported=0, partial=0, notReported=0, notApplicable=0;
+            items.forEach(it => {
+                const s = String(it.status || '').toLowerCase();
+                if (s === 'reported') reported++;
+                else if (s === 'partial') partial++;
+                else if (s === 'not_reported') notReported++;
+                else if (s === 'not_applicable') notApplicable++;
+            });
+            const considered = reported + partial + notReported;
+            const internalCompletion = considered ? Math.round(((reported + 0.5*partial) / considered) * 100) : null;
+            return {reported, partial, not_reported:notReported, not_applicable:notApplicable, considered, internalCompletion};
+        }
+
+        function calculateEstablishedResult(validation, appraisal) {
+            const ea = validation?.validated_established_appraisal || appraisal?.established_appraisal || {};
+            let instrument = String(ea.instrument || 'none');
+            if (!ea.applicable || instrument === 'none') {
+                const fw = validation?.validated_framework || appraisal?.framework_appraisal || {};
+                const fwName = String(fw.primary_framework || 'none');
+                if (fwName !== 'none' && fwName !== 'Internal conceptual appraisal') {
+                    return { instrument:fwName, applicable:true, display:'kriteriumsweise', score:null, max:null, rating:null, items:ea.items||[], reason:'Etabliertes Checklisten-Framework ohne offiziellen numerischen Summenscore.' };
+                }
+                return { instrument, applicable:false, display:'kein passendes etabliertes Score-Instrument', score:null, max:null, rating:'not_applicable', items:ea.items||[], reason:ea.applicability_reason||'' };
+            }
+            const items = Array.isArray(ea.items) ? ea.items : [];
+            if (instrument === 'PEDro Scale') {
+                let score = 0;
+                for (const it of items) {
+                    const id = String(it.item_id || '').trim();
+                    if (id === '1') continue;
+                    if (/^(2|3|4|5|6|7|8|9|10|11)$/.test(id)) score += String(it.response||'').toLowerCase()==='yes' ? 1 : 0;
+                }
+                return {instrument, applicable:true, score, max:10, rating:null, display:`${score} / 10`, items, reason:ea.applicability_reason||''};
+            }
+            if (instrument === 'MINORS') {
+                const comparative = Number(ea.official_max) === 24 || items.length >= 12;
+                const max = comparative ? 24 : 16;
+                const used = items.slice(0, comparative ? 12 : 8);
+                const score = used.reduce((a,it) => a + Math.max(0, Math.min(2, Number(it.points)||0)), 0);
+                return {instrument, applicable:true, score, max, rating:null, display:`${score} / ${max}`, items, reason:ea.applicability_reason||''};
+            }
+            if (instrument === 'AMSTAR 2') {
+                let criticalFlaws = 0, nonCriticalWeaknesses = 0;
+                for (const it of items) {
+                    const resp = String(it.response || '').toLowerCase();
+                    if (resp === 'not_applicable') continue;
+                    if (it.critical && resp === 'no') criticalFlaws++;
+                    else if (!it.critical && resp === 'no') nonCriticalWeaknesses++;
+                    else if (resp === 'partial_yes') nonCriticalWeaknesses++;
+                }
+                let rating = 'High';
+                if (criticalFlaws > 1) rating = 'Critically low';
+                else if (criticalFlaws === 1) rating = 'Low';
+                else if (nonCriticalWeaknesses > 1) rating = 'Moderate';
+                return {instrument, applicable:true, score:null, max:null, rating, display:rating, items, reason:ea.applicability_reason||''};
+            }
+            if (instrument === 'COSMIN Risk of Bias') {
+                const order = {very_good:4, adequate:3, doubtful:2, inadequate:1};
+                let worst = null;
+                for (const it of items) {
+                    const r=String(it.response||'').toLowerCase().replace(/ /g,'_');
+                    if (order[r] && (!worst || order[r] < order[worst])) worst=r;
+                }
+                const rating = ea.official_rating && ea.official_rating !== 'not_applicable' ? ea.official_rating : (worst ? worst.replace(/_/g,' ') : 'unclear');
+                return {instrument, applicable:true, score:null, max:null, rating, display:rating, items, reason:ea.applicability_reason||''};
+            }
+            return {instrument, applicable:true, score:ea.official_score??null, max:ea.official_max??null, rating:ea.official_rating??null, display: ea.official_rating || (ea.official_score!=null ? `${ea.official_score}${ea.official_max?` / ${ea.official_max}`:''}` : 'siehe Kriterien'), items, reason:ea.applicability_reason||''};
+        }
+
+        let sourceReferenceRegistry = [];
+        let activeSourceReference = null;
+
+        function registerSourceReference(title, ref) {
+            const id = sourceReferenceRegistry.length;
+            sourceReferenceRegistry.push({ title, ...ref });
+            return id;
+        }
+
+        function renderSourceRefs(title, refs) {
+            if (!Array.isArray(refs) || !refs.length) return '';
+            return `<div class="source-ref-wrap">${refs.map(ref => {
+                const id = registerSourceReference(title, ref);
+                const pageLabel = ref.page ? `S. ${ref.page}` : 'Seite ?';
+                const cls = ref.verified ? 'source-ref' : 'source-ref unverified';
+                const mark = ref.verified ? '✓' : '?';
+                return `<button type="button" class="${cls}" onclick="showSourceReference(${id})" title="Quellenbeleg anzeigen">📄 ${escapeHTML(pageLabel)} ${mark}</button>`;
+            }).join('')}</div>`;
+        }
+
+        function showSourceReference(id) {
+            const ref = sourceReferenceRegistry[id];
+            if (!ref) return;
+            activeSourceReference = ref;
+            document.getElementById('source-modal-meta').textContent = `${ref.title || 'Publikation'} · PDF-Seite ${ref.page || '?'} · ${ref.section || 'Sektion unbekannt'} · ${ref.verified ? 'Zitat im Seitentext verifiziert' : 'Zitat nicht eindeutig automatisch verifiziert'}`;
+            document.getElementById('source-modal-quote').textContent = ref.quote || 'Kein wörtlicher Kurzbeleg verfügbar.';
+            document.getElementById('source-modal-note').textContent = ref.verified ? 'Die Seitenzuordnung wurde nach dem LLM-Schritt lokal gegen den mit PDF.js extrahierten Seitentext geprüft.' : 'Bitte diesen Beleg manuell im PDF prüfen. Die Seite stammt gegebenenfalls aus der Modellangabe, das Zitat konnte aber nicht eindeutig im extrahierten Seitentext gefunden werden.';
+            const hasCurrentFile = selectedFiles.some(f => f.name === ref.title) && ref.page;
+            document.getElementById('source-open-pdf').style.display = hasCurrentFile ? 'inline-block' : 'none';
+            document.getElementById('source-modal').classList.add('open');
+        }
+
+        function closeSourceReference() {
+            document.getElementById('source-modal').classList.remove('open');
+            activeSourceReference = null;
+        }
+
+        function openCurrentSourcePDF() {
+            if (!activeSourceReference) return;
+            const file = selectedFiles.find(f => f.name === activeSourceReference.title);
+            if (!file || !activeSourceReference.page) return;
+            const url = URL.createObjectURL(file);
+            window.open(`${url}#page=${activeSourceReference.page}`, '_blank', 'noopener');
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        }
+
+        function countFrameworkItems(items) {
+            let yes = 0, no = 0, cantTell = 0, notApplicable = 0;
+            (Array.isArray(items) ? items : []).forEach(item => {
+                const raw = String(item?.framework_response ?? item?.response ?? 'cant_tell').toLowerCase().trim();
+                if (raw === 'yes') yes++;
+                else if (raw === 'no') no++;
+                else if (raw === 'not_applicable') notApplicable++;
+                else cantTell++;
+            });
+            const decidable = yes + no;
+            const considered = yes + no + cantTell;
+            return {
+                yes, no, cant_tell: cantTell, not_applicable: notApplicable,
+                fulfillment: decidable ? Math.round((yes / decidable) * 100) : null,
+                decidability: considered ? Math.round((decidable / considered) * 100) : null,
+                total_considered: considered
+            };
+        }
+
+        function calculateFrameworkMetrics(validation, appraisal) {
+            const fw = validation?.validated_framework || appraisal?.framework_appraisal || {};
+            const screening = countFrameworkItems(fw.screening || []);
+            const criteria = countFrameworkItems(fw.criteria || []);
+            return {
+                screening,
+                criteria,
+                framework: fw.primary_framework || null,
+                category: fw.framework_category || null,
+                yes: criteria.yes,
+                no: criteria.no,
+                cant_tell: criteria.cant_tell,
+                not_applicable: criteria.not_applicable,
+                fulfillment: criteria.fulfillment,
+                decidability: criteria.decidability
+            };
+        }
+
+        function calculateValidatedCASQ(validation, appraisal) {
+            const validated = Array.isArray(validation?.validated_dimensions) ? validation.validated_dimensions : [];
+            const fallback = Array.isArray(appraisal?.dimensions) ? appraisal.dimensions.map(d => ({
+                name: d.name, adjusted_score: d.score, weight: d.weight,
+                validation_status: d.status === 'not_applicable' ? 'not_applicable' : 'partially_supported'
+            })) : [];
+            const dims = validated.length ? validated : fallback;
+            const appraisalWeights = new Map((appraisal?.dimensions || []).map(d => [String(d.name || '').toLowerCase(), Number(d.weight) || 0]));
+            let weighted = 0, weights = 0, usable = 0, totalApplicable = 0;
+
+            dims.forEach(d => {
+                if (d.validation_status === 'not_applicable') return;
+                totalApplicable++;
+                if (['unsupported','insufficient_information'].includes(d.validation_status)) return;
+                const score = Number(d.adjusted_score);
+                const originalWeight = appraisalWeights.get(String(d.name || '').toLowerCase());
+                const weight = Number.isFinite(originalWeight) ? originalWeight : (Number(d.weight) || 0);
+                if (!Number.isFinite(score) || weight <= 0) return;
+                weighted += Math.max(0, Math.min(10, score)) * weight;
+                weights += weight;
+                usable++;
+            });
+
+            const score = weights > 0 ? weighted / weights : null;
+            const coverageFromAgent = Number(validation?.evidence_coverage);
+            const coverage = Number.isFinite(coverageFromAgent)
+                ? Math.max(0, Math.min(100, coverageFromAgent))
+                : (totalApplicable ? Math.round(usable / totalApplicable * 100) : 0);
+            return { score, coverage };
+        }
+
+        function isFiniteScore(value) {
+            return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+        }
+
+        function formatCASQ(value) {
+            return isFiniteScore(value) ? `${Number(value).toFixed(1)} / 10` : 'nicht berechenbar';
+        }
+
+        function qualityLabel(score, coverage) {
+            if (score === null || coverage < 50) return 'UNSICHER / ZU WENIG EVIDENZ';
+            if (score >= 8.0) return 'SEHR HOCH';
+            if (score >= 6.5) return 'HOCH';
+            if (score >= 5.0) return 'MITTEL';
+            return 'NIEDRIG';
+        }
+
+        function escapeHTML(value) {
+            return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+        }
+
+        async function startWorkflow() {
+            if (selectedFiles.length === 0) { alert("Bitte lade zuerst PDFs hoch!"); return; }
+
+            savePrompt('extraction'); savePrompt('analysis'); savePrompt('validation'); savePrompt('synthesis');
+
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('terminal').style.display = 'flex';
+            document.getElementById('btn-toggle-terminal').textContent = 'Terminal ausblenden';
+            document.getElementById('results-view').classList.remove('active');
+            document.getElementById('terminal').innerHTML = '';
+            [1,2,3,4,5].forEach(i => {
+                const st = document.getElementById(`step-${i}`); st.classList.remove('active','done');
+            });
+
+            const currentProvider = document.getElementById('llm-provider').value;
+            let currentModel = "";
+            if (currentProvider.startsWith('custom')) currentModel = document.getElementById(currentProvider + '-model').value || 'Lokales Custom-Modell';
+            if (currentProvider === 'openai') currentModel = document.getElementById('openai-model').value || 'OpenAI Modell';
+            if (currentProvider === 'gemini') currentModel = document.getElementById('gemini-model').value || 'Gemini Modell';
+
+            const maxEvChars = parseInt(document.getElementById('max-evidence-chars').value, 10) || 50000;
+            const maxOutTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
+            const llmTemp = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
+
+            window.currentRunMetrics = [];
+
+            const promptDates = {
+                extraction: getCurrentPromptDate('extraction'),
+                analysis: getCurrentPromptDate('analysis'),
+                validation: getCurrentPromptDate('validation'),
+                synthesis: getCurrentPromptDate('synthesis')
+            };
+
+            const failures = [];
+            const docs = [];
+            const extractedDocs = [];
+            const appraisedDocs = [];
+            const studyResults = [];
+            let synthesis = {
+                topics: [], synthesized_arguments: [], consistency_of_findings: 'unclear',
+                strength_of_evidence: 'unclear', heterogeneity_notes: [], cross_study_limitations: [],
+                narrative_summary: 'Keine studienübergreifende Synthese verfügbar.', meta_analysis_performed: false,
+                grade_assessment: { applicable: false, outcomes: [] }
+            };
+
+            const registerFailure = (title, phase, err) => {
+                const message = err?.message || String(err);
+                failures.push({ title, phase, error: message });
+                log(`ÜBERSPRUNGEN [${phase}] ${title}: ${message}`, 'error');
+                console.error(`${phase} fehlgeschlagen für ${title}:`, err);
+            };
+
+            try {
+                // PHASE 1: Ingestion – Fehler eines PDFs stoppen nicht den Gesamtlauf.
+                setStep(1, 'active');
+                log('PHASE 1: Lese PDFs vollständig ein und markiere Seiten...', 'info');
+                for (const file of selectedFiles) {
+                    try {
+                        const parsed = await extractTextFromPDF(file);
+                        const evidenceText = buildEvidenceContext(parsed.pages, maxEvChars);
+                        docs.push({ title: file.name, full_text: parsed.fullText, evidence_text: evidenceText, pages: parsed.pages, num_pages: parsed.numPages });
+                        log(`${file.name}: ${parsed.numPages} Seiten, ${parsed.fullText.length.toLocaleString()} Zeichen gelesen, ${evidenceText.length.toLocaleString()} Zeichen Evidenzkontext.`, 'success');
+                    } catch (err) {
+                        registerFailure(file.name, 'Ingestion', err);
+                    }
+                }
+                setStep(1, 'done');
+
+                // PHASE 2: Extraction – nur erfolgreich eingelesene PDFs weiterverarbeiten.
+                setStep(2, 'active');
+                log('PHASE 2: Extrahiere Studiendesign und belegte Methodenevidenz je Publikation...', 'info');
+                const extPromptBase = getCurrentPrompt('extraction');
+                for (const doc of docs) {
+                    try {
+                        log(`Evidence Extraction: ${doc.title}`, 'info');
+                        const prompt = extPromptBase
+                            .replaceAll('{{TITLE}}', doc.title)
+                            .replace('{{SOURCE_TEXT}}', doc.evidence_text);
+                        let ext = parseJSONRobust(await callLLM(prompt));
+                        ext.title = doc.title;
+                        ext = verifyExtractionEvidenceRefs(ext, doc.pages);
+                        extractedDocs.push({ doc, ext });
+                    } catch (err) {
+                        registerFailure(doc.title, 'Extraction', err);
+                    }
+                }
+                setStep(2, 'done');
+
+                // PHASE 3: Appraisal – ein Modell-/Netzwerkfehler betrifft nur die einzelne Studie.
+                setStep(3, 'active');
+                log('PHASE 3: Design-spezifisches Critical Appraisal je Publikation...', 'info');
+                const analysisPromptBase = getCurrentPrompt('analysis');
+                for (const item of extractedDocs) {
+                    const { doc, ext } = item;
+                    try {
+                        log(`Critical Appraisal: ${doc.title} (${ext.study_family || 'Unclear'} / ${ext.study_design || 'Unclear'})`, 'info');
+                        const prompt = analysisPromptBase
+                            .replace('{{STUDY_DATA}}', JSON.stringify(ext, null, 2))
+                            .replace('{{SOURCE_TEXT}}', doc.evidence_text);
+                        const appraisal = parseJSONRobust(await callLLM(prompt));
+                        appraisal.title = doc.title;
+                        appraisedDocs.push({ doc, ext, appraisal });
+                    } catch (err) {
+                        registerFailure(doc.title, 'Critical Appraisal', err);
+                    }
+                }
+                setStep(3, 'done');
+
+                // PHASE 4: Validation – nur vollständig appraisierte Studien validieren.
+                setStep(4, 'active');
+                log('PHASE 4: Evidence Validation – prüfe Scores und Begründungen gegen Originaltext...', 'info');
+                const validationPromptBase = getCurrentPrompt('validation');
+                for (const item of appraisedDocs) {
+                    const { doc, ext, appraisal } = item;
+                    try {
+                        log(`Validiere Evidenz: ${doc.title}`, 'info');
+                        const validationInput = { extraction: ext, appraisal };
+                        const prompt = validationPromptBase
+                            .replace('{{VALIDATION_DATA}}', JSON.stringify(validationInput, null, 2))
+                            .replace('{{SOURCE_TEXT}}', doc.evidence_text);
+                        let validation = parseJSONRobust(await callLLM(prompt));
+                        validation.title = doc.title;
+                        validation = verifySourceRefs(validation, doc.pages);
+                        validation = verifyFrameworkEvidence(validation, appraisal, doc.pages);
+                        validation = verifyEstablishedEvidence(validation, appraisal, doc.pages);
+                        validation = verifyJARSEvidence(validation, appraisal, doc.pages);
+                        const calc = calculateValidatedCASQ(validation, appraisal);
+                        validation.casq_score = calc.score === null ? null : Number(calc.score.toFixed(1));
+                        validation.evidence_coverage = calc.coverage;
+                        validation.quality_label = qualityLabel(validation.casq_score, calc.coverage);
+                        studyResults.push({
+                            title: doc.title, extraction: ext, appraisal, validation,
+                            casq_score: validation.casq_score,
+                            evidence_coverage: calc.coverage,
+                            quality_label: validation.quality_label
+                        });
+                    } catch (err) {
+                        registerFailure(doc.title, 'Evidence Validation', err);
+                    }
+                }
+                setStep(4, 'done');
+
+                // PHASE 5: Synthese – auch ein Fehler hier darf fertige Einzelstudien nicht verwerfen.
+                setStep(5, 'active');
+                log('PHASE 5: Evidenzgewichtete Cross-Study-Synthese...', 'info');
+                if (studyResults.length > 0) {
+                    try {
+                        const synthInput = studyResults.map(r => ({
+                            title: r.title,
+                            study_family: r.extraction.study_family,
+                            study_design: r.extraction.study_design,
+                            sample: r.extraction.sample,
+                            main_results: r.extraction.main_results,
+                            limitations_reported: r.extraction.limitations_reported,
+                            casq_score: r.casq_score,
+                            evidence_coverage: r.evidence_coverage,
+                            quality_label: r.quality_label,
+                            established_appraisal: r.validation.validated_established_appraisal || r.appraisal.established_appraisal,
+                            framework_appraisal: r.validation.validated_framework || r.appraisal.framework_appraisal,
+                            bias_domains: r.appraisal.bias_domains,
+                            critical_limitations: r.appraisal.critical_limitations,
+                            validation_summary: r.validation.validation_summary,
+                            jars_quant: r.validation.validated_jars_quant || r.appraisal.jars_quant || null,
+                            embedded_study_appraisals: r.validation.validated_embedded_study_appraisals || r.appraisal.embedded_study_appraisals || []
+                        }));
+                        const synPrompt = getCurrentPrompt('synthesis').replace('{{APPRAISALS_DATA}}', JSON.stringify(synthInput, null, 2));
+                        synthesis = parseJSONRobust(await callLLM(synPrompt));
+                        synthesis.num_studies_included = studyResults.length;
+                        synthesis.meta_analysis_performed = false;
+                    } catch (err) {
+                        registerFailure('Cross-Study-Synthese', 'Synthesis', err);
+                        synthesis = {
+                            topics: [], synthesized_arguments: [], consistency_of_findings: 'unclear',
+                            strength_of_evidence: 'unclear', heterogeneity_notes: [],
+                            cross_study_limitations: ['Die studienübergreifende Synthese konnte technisch nicht erstellt werden. Die validierten Einzelstudien bleiben verfügbar.'],
+                            narrative_summary: `Die Synthese ist fehlgeschlagen; ${studyResults.length} validierte Einzelstudie(n) wurden dennoch erhalten.`,
+                            meta_analysis_performed: false, num_studies_included: studyResults.length,
+                            grade_assessment: { applicable: false, outcomes: [] }
+                        };
+                    }
+                } else {
+                    log('Keine vollständig validierte Studie verfügbar; Synthese wird übersprungen.', 'warning');
+                }
+                setStep(5, 'done');
+
+                const validScores = studyResults.map(r => r.casq_score).filter(v => Number.isFinite(v));
+                const meanCASQ = validScores.length ? validScores.reduce((a,b) => a+b, 0) / validScores.length : null;
+                const meanCoverage = studyResults.length ? studyResults.reduce((a,r) => a + (Number(r.evidence_coverage)||0), 0) / studyResults.length : 0;
+                const validation = {
+                    casq_score: meanCASQ === null ? null : Number(meanCASQ.toFixed(1)),
+                    evidence_coverage: Math.round(meanCoverage),
+                    overall_quality: qualityLabel(meanCASQ, meanCoverage),
+                    note: 'Der Gesamtwert ist der deskriptive Mittelwert der validierten Studien-CASQ-Werte; die Einzelwerte bleiben maßgeblich.'
+                };
+
+                let avgTokensPerSec = 0;
+                if (window.currentRunMetrics && window.currentRunMetrics.length > 0) {
+                    const sum = window.currentRunMetrics.reduce((a, b) => a + b, 0);
+                    avgTokensPerSec = Math.round(sum / window.currentRunMetrics.length);
+                }
+
+                const extractions = extractedDocs.map(x => x.ext);
+                const appraisals = appraisedDocs.map(x => x.appraisal);
+                const validations = studyResults.map(x => x.validation);
+
+                if (studyResults.length > 0) {
+                    log(`🎉 Workflow abgeschlossen: ${studyResults.length} Studie(n) vollständig ausgewertet${failures.length ? `, ${failures.length} Fehler/Überspringung(en)` : ''}.`, failures.length ? 'warning' : 'success');
+                } else {
+                    log('Workflow beendet, aber keine Studie konnte vollständig ausgewertet werden.', 'error');
+                }
+
+                globalResults = {
+                    date: new Date().toLocaleString(),
+                    model: currentModel,
+                    provider: currentProvider,
+                    temperature: llmTemp,
+                    maxTokens: maxOutTokens,
+                    maxEvidence: maxEvChars,
+                    tokensPerSec: avgTokensPerSec,
+                    prompts_used: promptDates,
+                    extractions, appraisals, validations, study_results: studyResults,
+                    failed_documents: failures,
+                    synthesis, validation
+                };
+                saveToHistory(globalResults);
+                renderResults(globalResults);
+            } catch (err) {
+                // Nur noch unerwartete, laufweite Fehler landen hier. Bereits erzeugte Ergebnisse werden soweit möglich gerettet.
+                log(`KRITISCHER WORKFLOW-FEHLER: ${err.message}`, 'error');
+                console.error(err);
+                if (studyResults.length > 0) {
+                    const validScores = studyResults.map(r => r.casq_score).filter(v => Number.isFinite(v));
+                    const meanCASQ = validScores.length ? validScores.reduce((a,b) => a+b, 0) / validScores.length : null;
+                    const meanCoverage = studyResults.reduce((a,r) => a + (Number(r.evidence_coverage)||0), 0) / studyResults.length;
+                    globalResults = {
+                        date: new Date().toLocaleString(), model: currentModel, provider: currentProvider,
+                        temperature: llmTemp, maxTokens: maxOutTokens, maxEvidence: maxEvChars,
+                        tokensPerSec: 0, prompts_used: promptDates,
+                        extractions: extractedDocs.map(x => x.ext), appraisals: appraisedDocs.map(x => x.appraisal),
+                        validations: studyResults.map(x => x.validation), study_results: studyResults,
+                        failed_documents: [...failures, {title:'Gesamtlauf', phase:'Workflow', error: err.message}],
+                        synthesis,
+                        validation: {
+                            casq_score: meanCASQ === null ? null : Number(meanCASQ.toFixed(1)),
+                            evidence_coverage: Math.round(meanCoverage),
+                            overall_quality: qualityLabel(meanCASQ, meanCoverage),
+                            note: 'Teilergebnis nach kritischem Workflow-Fehler.'
+                        }
+                    };
+                    saveToHistory(globalResults);
+                    renderResults(globalResults);
+                }
+            } finally {
+                document.getElementById('btn-start').disabled = false;
+            }
+        }
+
+        // ==========================================
+        // RENDER & USER HISTORY
+        // ==========================================
+        function renderResults(res) {
+            sourceReferenceRegistry = [];
+            
+            document.getElementById('terminal').style.display = 'none';
+            document.getElementById('btn-toggle-terminal').textContent = 'Terminal anzeigen';
+            
+            document.getElementById('results-view').classList.add('active');
+
+            document.getElementById('res-model').textContent = res.model || 'Unbekannt';
+            const overallScore = res.validation?.casq_score;
+            document.getElementById('res-casq').textContent = formatCASQ(overallScore);
+            document.getElementById('res-evidence').textContent = `${Math.round(Number(res.validation?.evidence_coverage) || 0)} %`;
+
+            const rows = res.study_results || (res.extractions || []).map((ex, i) => ({
+                title: ex.title, extraction: ex, appraisal: res.appraisals?.[i] || {}, validation: res.validations?.[i] || {},
+                casq_score: res.validations?.[i]?.casq_score ?? null,
+                evidence_coverage: res.validations?.[i]?.evidence_coverage ?? 0,
+                quality_label: res.validations?.[i]?.quality_label || 'nicht verfügbar'
+            }));
+
+            const establishedResults = (res.study_results || []).map(r => calculateEstablishedResult(r.validation || {}, r.appraisal || {}));
+            const establishedApplicable = establishedResults.filter(x => x.applicable);
+            const jarsApplicable = rows.filter(r => (r.validation?.validated_jars_quant || r.appraisal?.jars_quant)?.applicable);
+            if (jarsApplicable.length) {
+                const methodCount = establishedApplicable.length;
+                document.getElementById('res-established').textContent = methodCount
+                    ? `APA JARS-Quant (Reporting) + ${methodCount} methodisches Instrument`
+                    : 'APA JARS-Quant (Reporting)';
+            } else {
+                document.getElementById('res-established').textContent = establishedApplicable.length ? `${establishedApplicable.length}/${establishedResults.length} Studie(n)` : 'keines anwendbar';
+            }
+            const grade = res.synthesis?.grade_assessment || {};
+            const gradeOutcomes = Array.isArray(grade.outcomes) ? grade.outcomes : [];
+            const gradeLabel = grade.applicable ? (gradeOutcomes.length === 1 ? String(gradeOutcomes[0].certainty || 'unclear').replace(/_/g,' ') : `${gradeOutcomes.length} Outcome(s)`) : 'nicht anwendbar';
+            document.getElementById('res-grade').textContent = gradeLabel;
+            document.getElementById('res-grade-detail').innerHTML = grade.applicable ? `<div style="margin:0 0 1rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.5rem;"><h3 style="margin:0 0 .6rem 0;">GRADE – Sicherheit der Evidenz</h3>${gradeOutcomes.map(o=>`<div style="padding:.55rem 0;border-bottom:1px solid var(--border);"><strong>${escapeHTML(o.outcome||'Outcome')}</strong>: <span style="font-weight:700;">${escapeHTML(String(o.certainty||'unclear').replace(/_/g,' '))}</span><div style="font-size:.82rem;color:var(--text-light);">${escapeHTML(o.rationale||'')}</div></div>`).join('')}<div style="font-size:.75rem;color:var(--text-light);margin-top:.55rem;">GRADE bewertet den Evidenzkörper pro Outcome, nicht die Qualität einer einzelnen Studie.</div></div>` : '';
+
+            document.getElementById('res-topics').innerHTML = (res.synthesis?.topics || []).map(t => `<li>${escapeHTML(t)}</li>`).join('');
+            document.getElementById('res-summary').textContent = res.synthesis?.narrative_summary || '-';
+
+            let studiesHtml = '';
+            const failedDocs = Array.isArray(res.failed_documents) ? res.failed_documents : [];
+            if (failedDocs.length) {
+                studiesHtml += `<div style="margin:0 0 1rem 0;padding:1rem;background:#fff7ed;border:1px solid #fdba74;border-radius:.5rem;">
+                    <h3 style="margin:0 0 .6rem 0;color:#9a3412;">⚠️ Nicht vollständig verarbeitete Dokumente</h3>
+                    <div style="font-size:.85rem;color:#7c2d12;margin-bottom:.5rem;">Der Lauf wurde fortgesetzt. Bereits erfolgreiche Studienergebnisse bleiben erhalten.</div>
+                    ${failedDocs.map(f => `<div style="padding:.35rem 0;border-top:1px solid #fed7aa;"><strong>${escapeHTML(f.title || 'Dokument')}</strong> · ${escapeHTML(f.phase || 'Phase')}<br><span style="font-size:.8rem;">${escapeHTML(f.error || 'Unbekannter Fehler')}</span></div>`).join('')}
+                </div>`;
+            }
+            rows.forEach(r => {
+                const ex = r.extraction || {}, ap = r.appraisal || {}, va = r.validation || {};
+                const scoreTxt = formatCASQ(r.casq_score);
+                const dims = (va.validated_dimensions || ap.dimensions || []).map(d => {
+                    const sc = d.adjusted_score ?? d.score;
+                    const status = d.validation_status ?? d.status ?? '';
+                    const refs = d.source_refs || [];
+                    return `<tr><td>${escapeHTML(d.name)}</td><td>${Number.isFinite(Number(sc)) ? escapeHTML(sc) : '-'}</td><td>${escapeHTML(status)}</td><td>${escapeHTML(d.validation_note || d.rationale || '')}${renderSourceRefs(r.title, refs)}</td></tr>`;
+                }).join('');
+                const strengths = (ap.critical_strengths || []).map(x => `<li>${escapeHTML(x)}</li>`).join('');
+                const limits = (ap.critical_limitations || []).map(x => `<li>${escapeHTML(x)}</li>`).join('');
+                const established = calculateEstablishedResult(va, ap);
+                const ea = va.validated_established_appraisal || ap.established_appraisal || {};
+                const jq = va.validated_jars_quant || ap.jars_quant || {};
+                const eaRows = (ea.items || []).map(item => {
+                    const pts = item.points === undefined || item.points === null ? '' : ` · ${escapeHTML(item.points)}${item.max_points ? '/' + escapeHTML(item.max_points) : ''} P.`;
+                    return `<tr><td>${escapeHTML(item.item_id || '')}</td><td>${escapeHTML(item.criterion || '-')}</td><td>${escapeHTML(item.response || '-')} ${pts}</td><td>${escapeHTML(item.validation_note || item.rationale || '')}${renderSourceRefs(r.title, item.evidence || [])}</td></tr>`;
+                }).join('');
+                const establishedHtml = established.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:4px solid var(--success);border-radius:.55rem;">
+                    <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start;"><div><div style="font-size:.72rem;color:#047857;font-weight:700;">PRIMÄRE WISSENSCHAFTLICHE BEWERTUNG</div><div style="font-size:1.05rem;font-weight:700;">${escapeHTML(established.instrument || 'Instrument')}</div><div style="font-size:.8rem;color:var(--text-light);">${escapeHTML(established.reason || '')}</div></div><div style="font-size:1.25rem;font-weight:800;">${escapeHTML(established.display)}</div></div>
+                    ${established.summary ? `<div style="margin-top:.55rem;font-size:.85rem;"><strong>Instrument-Fazit:</strong> ${escapeHTML(established.summary)}</div>` : ''}
+                </div>` : (jq?.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:4px solid var(--success);border-radius:.55rem;">
+                    <div style="font-size:.72rem;color:#047857;font-weight:700;">PRIMÄRER ETABLIERTER STANDARD</div>
+                    <div style="font-size:1.05rem;font-weight:700;">APA JARS-Quant</div>
+                    <div style="font-size:.82rem;color:var(--text-light);">Offizieller APA-Reporting-Standard auf Dokumentebene; kein numerischer Qualitätsscore und kein Risk-of-Bias-Instrument.</div>
+                </div>` : `<div style="margin:.9rem 0;padding:1rem;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #f97316;border-radius:.55rem;">
+                    <div style="font-size:.72rem;color:#9a3412;font-weight:700;">PRIMÄRE WISSENSCHAFTLICHE BEWERTUNG</div>
+                    <div style="font-size:1.05rem;font-weight:700;">Kein etabliertes Einzelstudien-Instrument direkt anwendbar</div>
+                    <div style="font-size:.82rem;color:var(--text-light);">Für diese Publikation wurde bewusst kein unpassender offizieller Score erzwungen.</div>
+                    ${established.summary ? `<div style="margin-top:.55rem;font-size:.85rem;"><strong>Instrument-Fazit:</strong> ${escapeHTML(established.summary)}</div>` : ''}
+                </div>`);
+
+                const fw = va.validated_framework || ap.framework_appraisal || {};
+                const fwMetric = calculateFrameworkMetrics(va, ap);
+                const renderFwRows = (items) => (items || []).map(item => {
+                    const resp = item.framework_response || item.response || 'cant_tell';
+                    const badgeStyle = resp === 'yes' ? 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;' : resp === 'no' ? 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;' : resp === 'not_applicable' ? 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;' : 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;';
+                    return `<tr><td>${escapeHTML(item.criterion || '-')}</td><td><span style="display:inline-block;padding:.15rem .4rem;border-radius:.3rem;${badgeStyle}">${escapeHTML(resp)}</span></td><td>${escapeHTML(item.validation_note || item.rationale || '')}${renderSourceRefs(r.title, item.evidence || [])}</td></tr>`;
+                }).join('');
+                const fwScreenRows = renderFwRows(fw.screening || []);
+                const fwCriteriaRows = renderFwRows(fw.criteria || []);
+                const jqm = calculateJARSMetrics(va, ap);
+                const jqRows = (jq.criteria || []).map(c => {
+                    const s = c.status || 'not_reported';
+                    const badge = s === 'reported' ? 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;' :
+                                  s === 'partial' ? 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;' :
+                                  s === 'not_applicable' ? 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;' :
+                                  'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;';
+                    const refs = c.source_refs || c.evidence || [];
+                    return `<tr><td>${escapeHTML(c.criterion || '-')}</td><td><span style="display:inline-block;padding:.15rem .4rem;border-radius:.3rem;${badge}">${escapeHTML(s)}</span></td><td>${escapeHTML(c.validation_note || c.rationale || '')}${renderSourceRefs(r.title, refs)}</td></tr>`;
+                }).join('');
+                const jarsHtml = jq.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:.55rem;">
+                    <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:.6rem;">
+                        <div><div style="font-size:.72rem;color:#166534;font-weight:700;">OFFIZIELLER REPORTING-STANDARD</div><div style="font-size:1.05rem;font-weight:700;color:#14532d;">APA JARS-Quant</div><div style="font-size:.78rem;color:#166534;">Dokumentebene · Reporting Quality · kein Risk-of-Bias-Score</div></div>
+                        <div style="background:white;border:1px solid #bbf7d0;padding:.55rem .7rem;border-radius:.4rem;"><div style="font-size:.7rem;color:var(--text-light);">INTERNE ORIENTIERUNG*</div><div style="font-weight:700;font-size:1.1rem;">${jqm.internalCompletion === null ? 'n/a' : jqm.internalCompletion + ' %'}</div><div style="font-size:.7rem;color:var(--text-light);">${jqm.reported} berichtet · ${jqm.partial} teilweise · ${jqm.not_reported} nicht berichtet</div></div>
+                    </div>
+                    ${jq.scope_note ? `<div style="font-size:.82rem;margin-bottom:.5rem;"><strong>Scope:</strong> ${escapeHTML(jq.scope_note)}</div>` : ''}
+                    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">JARS-Quant-Kriterium</th><th>Status</th><th style="text-align:left;">Begründung / Evidenz</th></tr></thead><tbody>${jqRows}</tbody></table></div>
+                    ${jq.reporting_summary ? `<div style="margin-top:.55rem;font-size:.85rem;"><strong>Reporting-Fazit:</strong> ${escapeHTML(jq.reporting_summary)}</div>` : ''}
+                    <div style="margin-top:.5rem;font-size:.74rem;color:#166534;"><strong>* Kein offizieller APA-JARS-Score.</strong> Der Prozentwert ist nur ein interner Reporting-Erfüllungsgrad.</div>
+                </div>` : '';
+
+                const embeddedApps = va.validated_embedded_study_appraisals || ap.embedded_study_appraisals || [];
+                const embeddedHtml = embeddedApps.length ? `<div style="margin:.9rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.55rem;"><strong>Methodische Bewertung der Teilstudien</strong><div style="font-size:.78rem;color:var(--text-light);margin:.25rem 0 .55rem;">Getrennt von der JARS-Reporting-Bewertung des Gesamtartikels.</div>${embeddedApps.map(es => `<div style="padding:.5rem 0;border-top:1px solid var(--border);"><strong>${escapeHTML(es.label || 'Teilstudie')}</strong> · ${escapeHTML(es.study_design || 'Design unklar')}<br><span style="font-size:.8rem;">Instrument: <strong>${escapeHTML(es.selected_instrument || 'none')}</strong> · ${es.applicable ? escapeHTML(es.result || 'bewertet') : 'nicht anwendbar / zu wenig Information'}</span></div>`).join('')}</div>` : '';
+
+                const isMMAT = String(fw.primary_framework || '').toUpperCase().includes('MMAT');
+                const screeningLabel = fwMetric.screening.total_considered
+                    ? `${fwMetric.screening.yes}/${fwMetric.screening.total_considered} yes`
+                    : 'nicht verfügbar';
+                const criteriaLabel = fwMetric.criteria.total_considered
+                    ? `${fwMetric.criteria.yes} yes / ${fwMetric.criteria.no} no / ${fwMetric.criteria.cant_tell} can't tell`
+                    : 'nicht durchgeführt';
+                const frameworkHtml = fw.primary_framework && fw.primary_framework !== 'none' ? `<div style="margin:.9rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.55rem;">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:.6rem;margin-bottom:.8rem;">
+                        <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--primary);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">FRAMEWORK</div><div style="font-weight:700;">${escapeHTML(fw.primary_framework)}</div><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(fw.framework_category || '')}</div></div>
+                        ${isMMAT ? `<div style="background:white;border:1px solid var(--border);border-left:4px solid var(--success);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">MMAT SCREENING</div><div style="font-weight:700;font-size:1.1rem;">${escapeHTML(screeningLabel)}</div><div style="font-size:.72rem;color:var(--text-light);">nur Eingangsvoraussetzung, kein Qualitäts-Score</div></div>` : ''}
+                        <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--success);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">${isMMAT ? 'DESIGNSPEZIFISCHE KRITERIEN' : 'KRITERIEN'}</div><div style="font-weight:700;font-size:1.1rem;">${escapeHTML(criteriaLabel)}</div><div style="font-size:.72rem;color:var(--text-light);">${fwMetric.criteria.fulfillment === null ? 'kein Erfüllungsgrad berechenbar' : 'interner Erfüllungsgrad: ' + fwMetric.criteria.fulfillment + ' %'}</div></div>
+                        <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--warning);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">ENTSCHEIDBARKEIT KRITERIEN</div><div style="font-weight:700;font-size:1.1rem;">${fwMetric.criteria.decidability === null ? 'n/a' : fwMetric.criteria.decidability + ' %'}</div><div style="font-size:.72rem;color:var(--text-light);">${fwMetric.criteria.cant_tell} × cant_tell</div></div>
+                        <div style="background:white;border:1px solid var(--border);border-left:4px solid #64748b;padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">CASQ INTERN</div><div style="font-weight:700;font-size:1.1rem;">${scoreTxt}</div><div style="font-size:.72rem;color:var(--text-light);">separater Vergleichsindex</div></div>
+                    </div>
+                    <div style="margin-bottom:.55rem;"><strong>Critical-Appraisal-Framework:</strong> ${escapeHTML(fw.primary_framework)}${fw.framework_category ? ` · ${escapeHTML(fw.framework_category)}` : ''}${fw.secondary_framework && fw.secondary_framework !== 'none' ? ` <span style="color:var(--text-light);">(+ ${escapeHTML(fw.secondary_framework)})</span>` : ''}</div>
+                    ${isMMAT && fwScreenRows ? `<div style="margin-top:.55rem;"><strong>MMAT Screening (2 Eingangskriterien)</strong><div style="font-size:.75rem;color:var(--text-light);margin:.15rem 0 .35rem;">Die Screening-Fragen prüfen nur, ob eine methodische Bewertung sinnvoll möglich ist. Sie dürfen nicht als vollständige MMAT-Qualitätsbewertung interpretiert werden.</div><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">Screening-Frage</th><th>Antwort</th><th style="text-align:left;">Begründung / Evidenz</th></tr></thead><tbody>${fwScreenRows}</tbody></table></div></div>` : ''}
+                    ${fwCriteriaRows ? `<div style="margin-top:.7rem;"><strong>${isMMAT ? 'MMAT designspezifische Kriterien' : 'Framework-Kriterien'}</strong><div style="overflow-x:auto;margin-top:.3rem;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">Prüfpunkt</th><th>Antwort</th><th style="text-align:left;">Begründung / Evidenz</th></tr></thead><tbody>${fwCriteriaRows}</tbody></table></div></div>` : `<div style="margin-top:.65rem;padding:.6rem;background:#fffbeb;border:1px solid #fde68a;border-radius:.4rem;color:#92400e;font-size:.8rem;"><strong>Framework-Appraisal unvollständig:</strong> Es liegen keine designspezifischen Kriterien vor. Ein positives Screening allein ist keine Qualitätsbewertung.</div>`}
+                    ${fw.framework_summary ? `<div style="margin-top:.5rem;font-size:.85rem;"><strong>Framework-Fazit:</strong> ${escapeHTML(fw.framework_summary)}</div>` : ''}
+                    <div style="margin-top:.5rem;font-size:.75rem;color:var(--text-light);"><strong>MMAT/CASP sind Checklisten ohne offiziellen Summenscore.</strong> Ein ggf. angezeigter Erfüllungsgrad ist ausschließlich eine interne Orientierung und basiert nur auf den designspezifischen Kriterien, niemals auf den Screening-Fragen.</div>
+                </div>` : `<div style="margin:.8rem 0;padding:.75rem;background:#fffbeb;border:1px solid #fde68a;border-radius:.5rem;font-size:.85rem;color:#92400e;"><strong>Framework-Bewertung nicht anwendbar oder nicht verfügbar.</strong> Bei Methodenbeiträgen, narrativen Übersichten oder heterogenen Multi-Study-Reports ist das häufig korrekt und wissenschaftlich sauberer als ein erzwungenes Einzelstudien-Framework.</div>`;
+                studiesHtml += `
+                    <div style="background:white;padding:1rem;border:1px solid var(--border);border-radius:.5rem;margin-bottom:1rem;">
+                        <h4 style="margin-bottom:.4rem;color:#0f172a;">${escapeHTML(r.title)}</h4>
+                        <div style="font-size:.9rem;margin-bottom:.35rem;"><strong>Dokumenttyp:</strong> ${escapeHTML(ex.document_type || ap.document_type_confirmed || 'unclear')}</div>
+                        <div style="font-size:.9rem;margin-bottom:.7rem;"><strong>${escapeHTML(ex.study_family || 'Unclear')} / ${escapeHTML(ex.study_design || 'Unclear')}</strong> &nbsp; | &nbsp; Etabliert: <strong>${escapeHTML(jq?.applicable ? ('APA JARS-Quant (Reporting)' + (established.applicable ? ' + ' + established.display : '')) : established.display)}</strong> &nbsp; | &nbsp; CASQ intern: <strong>${scoreTxt}</strong> &nbsp; | &nbsp; Evidenz: <strong>${Math.round(Number(r.evidence_coverage)||0)} %</strong></div>
+                        <div style="font-size:.9rem;color:var(--text-light);margin-bottom:.7rem;">
+                            <strong>Methoden:</strong> ${escapeHTML((ex.methods || []).join(', ') || '-')}<br>
+                            <strong>Forschungsfrage:</strong> ${escapeHTML(ex.research_question?.value || '-')}<br>
+                            <strong>Stichprobe:</strong> N=${escapeHTML(ex.sample?.n || 'not_reported')}; ${escapeHTML(ex.sample?.population || '')}
+                            ${renderSourceRefs(r.title, (ex.evidence_locations || []).slice(0, 6).map(x => ({page:Number(x.page)||null,section:x.section||'unknown',quote:x.quote||'',verified:!!x.verified})))}
+                        </div>
+                        ${establishedHtml}
+                        ${jarsHtml}
+                        ${embeddedHtml}
+                        ${frameworkHtml}
+                        ${dims ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">CASQ-Dimension</th><th>Score</th><th>Status</th><th style="text-align:left;">Begründung / Validation</th></tr></thead><tbody>${dims}</tbody></table></div>` : ''}
+                        ${strengths ? `<div style="margin-top:.7rem;"><strong>Stärken</strong><ul style="margin-left:1.2rem;">${strengths}</ul></div>` : ''}
+                        ${limits ? `<div style="margin-top:.5rem;"><strong>Kritische Limitationen</strong><ul style="margin-left:1.2rem;">${limits}</ul></div>` : ''}
+                        ${va.validation_summary ? `<div style="margin-top:.5rem;"><strong>Validierung:</strong> ${escapeHTML(va.validation_summary)}</div>` : ''}
+                    </div>`;
+            });
+            document.getElementById('res-studies').innerHTML = studiesHtml || '<p>Keine Studienergebnisse verfügbar.</p>';
+        }
+
+        function saveToHistory(res) {
+            if (!currentUser) return;
+            let db = getUserDB();
+            let hist = db[currentUser].history || [];
+            hist.unshift(res); 
+            if(hist.length > 20) hist.pop(); 
+            db[currentUser].history = hist;
+            saveUserDB(db);
+        }
+
+        function loadHistory() {
+            if (!currentUser) return;
+            let db = getUserDB();
+            let hist = db[currentUser].history || [];
+            
+            const list = document.getElementById('history-list');
+            if (hist.length === 0) {
+                list.innerHTML = "<p>Noch keine Historie vorhanden.</p>";
+                return;
+            }
+            list.innerHTML = hist.map((h, i) => `
+                <div class="history-item" onclick="viewHistoryItem(${i})">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                        <strong>${h.date}</strong>
+                        <span style="font-size: 0.8rem; background: var(--bg); padding: 0.2rem 0.5rem; border-radius: 0.25rem; border: 1px solid var(--border);">
+                            🤖 ${escapeHTML(h.model || 'Unbekannt')}
+                        </span>
+                    </div>
+                    <div style="font-size: 0.9rem; color: var(--text-light);">
+                        ${h.extractions ? h.extractions.length : 0} Dokument(e) analysiert | <strong>Score:</strong> ${h.validation?.casq_score ?? '-'} (${h.validation?.overall_quality || '-'})<br>
+                        
+                        <!-- Detaillierte Parameter- & Performance-Ansicht -->
+                        <div style="margin-top: 0.4rem; font-size: 0.75rem; display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                            <span class="version-badge" title="LLM-Provider">⚙️ ${escapeHTML(h.provider || '-')}</span>
+                            <span class="version-badge" title="Durchschnittliche Token-Rate" style="background: #ecfdf5; color: #065f46; font-weight: bold;">⚡ ${h.tokensPerSec ? h.tokensPerSec + ' Tok/s' : '-'}</span>
+                            <span class="version-badge" title="Temperature">🌡️ Temp: ${h.temperature !== undefined ? h.temperature : '-'}</span>
+                            <span class="version-badge" title="Max Output Tokens">📤 Out: ${h.maxTokens || '-'}</span>
+                            <span class="version-badge" title="Max Evidence (Input Limit)">📥 In: ${h.maxEvidence || '-'}</span>
+                            <span class="version-badge" title="Genutzte Prompt-Version (Extraction)">📝 Prompt: ${h.prompts_used?.extraction || '-'}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function viewHistoryItem(index) {
+            let db = getUserDB();
+            globalResults = db[currentUser].history[index];
+            switchTab('dashboard');
+            [1,2,3,4,5].forEach(i => setStep(i, 'done'));
+            renderResults(globalResults);
+        }
+    </script>
+</body>
+</html>
