@@ -81,6 +81,24 @@ function recordStep(step) {
     currentRunSteps.push({ id: newId(), seq: currentRunSteps.length, at: new Date().toISOString(), ...step });
 }
 
+// Der Browser verrät bei abgelehnten Verbindungen keinen Grund ("NetworkError" / "Failed to fetch").
+// Aus Seiten- und Ziel-Adresse lässt sich die wahrscheinliche Ursache aber eingrenzen.
+function explainNetworkError(url) {
+    let target;
+    try { target = new URL(url); } catch (e) { return 'Die Base-URL ist ungültig.'; }
+    const local = ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname);
+    if (location.protocol === 'https:' && target.protocol === 'http:' && !local) {
+        return `Die App läuft über https, der Endpunkt aber über unverschlüsseltes http auf ${target.host}. Das blockiert der Browser grundsätzlich („Mixed Content“). `
+            + 'Ein Modell auf dem Spark ist von außen erst über die Weiterleitung durch den Spark-Server nutzbar.';
+    }
+    if (local) {
+        return `Auf diesem Gerät antwortet unter ${target.host} kein Server, oder er erlaubt keine Browser-Zugriffe. `
+            + 'LM Studio: Server starten und unter Developer → Settings „Enable CORS“ einschalten. „localhost“ meint immer das Gerät, auf dem der Browser läuft.';
+    }
+    if (!navigator.onLine) return 'Das Gerät ist offline.';
+    return `Der Server ${target.host} ist nicht erreichbar oder erlaubt keine Browser-Zugriffe (CORS).`;
+}
+
 async function callLLM(prompt, meta = {}) {
     const provider = document.getElementById('llm-provider').value;
     let url, key, model;
@@ -154,8 +172,9 @@ async function callLLM(prompt, meta = {}) {
             body: JSON.stringify(payload)
         });
     } catch (err) {
-        recordStep({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: err?.message || String(err) });
-        throw err;
+        const hint = explainNetworkError(url);
+        recordStep({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
+        throw new Error(`Keine Verbindung zu ${url}. ${hint}`);
     }
 
     const endTime = performance.now(); // Endzeit messen
