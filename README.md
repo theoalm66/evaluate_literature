@@ -7,21 +7,64 @@ MMAT/CASP, GRADE) sowie dem internen CASQ bewertet.
 | Ordner | Inhalt |
 |---|---|
 | `app/` | Die App (statische Dateien, kein Build-Schritt) |
+| `server/` | Spark-Backend: Login, SQLite, Synchronisation, Verwaltungsbefehle |
+| `deploy/` | systemd-Dienst als Alternative zu Docker |
 | `original/` | Die bisherige Einzeldatei-Version v21 als Referenz |
 | `docs/` | Vorschlag zu Architektur (Spark-Backend, Sync) und Scoring |
 | `tests/` | Unit-Tests der Scoring-Logik und End-to-End-Test im Browser |
 
-## Auf dem Spark ausliefern
+## Auf dem Spark betreiben
 
-Statt der einzelnen HTML-Datei wird der **Ordner `app/`** unter `/lit` ausgeliefert, z.B. mit Tailscale:
+Der Server (`server/`) liefert die App aus und speichert Konten, Einstellungen, Prompts und Historie in
+SQLite. Er hört nur auf `127.0.0.1:8080`; nach außen geht es über Tailscale:
 
 ```bash
-tailscale funnel --bg --set-path /lit /pfad/zu/evaluate_literature/app
+tailscale funnel --bg --set-path /lit http://127.0.0.1:8080
 ```
 
-(Wird `/lit` bisher anders bereitgestellt, z.B. über einen Webserver, genügt es, dort den Ordner statt der
-Datei einzutragen.) Aufruf wie bisher: `https://thinkstationpgx-afbe.taildf3925.ts.net/lit` – die Seite
-ergänzt den abschließenden Schrägstrich selbst.
+Der Server versteht Pfade mit und ohne `/lit`-Präfix, es spielt also keine Rolle, ob Tailscale das Präfix
+weiterreicht. Aufruf wie bisher: `https://thinkstationpgx-afbe.taildf3925.ts.net/lit`.
+
+**Variante A – Docker** (empfohlen, auf dem Spark muss nichts außer Docker installiert sein):
+
+```bash
+LIT_INVITE_CODE='<geheimer Code>' docker compose up -d --build
+docker compose exec lit node server/cli.js user:add theo          # Konto direkt anlegen (optional)
+docker compose exec lit node server/cli.js backup /data/backup.db  # Sicherung
+```
+
+**Variante B – direkt mit Node** (≥ 22.13, da `node:sqlite` genutzt wird; keine nativen Pakete):
+
+```bash
+npm ci --omit=dev
+LIT_INVITE_CODE='<geheimer Code>' npm start       # oder als Dienst: deploy/lit-agent.service
+npm run admin -- user:add theo                     # weitere Befehle: user:passwd, user:list, user:delete, backup
+```
+
+| Variable | Standard | Bedeutung |
+|---|---|---|
+| `LIT_INVITE_CODE` | – | Einladungscode für die Registrierung über die Web-Oberfläche. Ohne Code ist Registrierung aus; Konten dann nur per `user:add`. |
+| `LIT_DB` | `data/lit.db` | SQLite-Datei |
+| `LIT_HOST` / `LIT_PORT` | `127.0.0.1` / `8080` | Adresse des Servers |
+| `LIT_SESSION_DAYS` | `30` | Gültigkeit einer Anmeldung |
+| `LIT_COOKIE_SECURE` | `true` | nur für lokale Tests ohne HTTPS auf `false` setzen |
+
+Ohne Server (nur die Dateien aus `app/` statisch ausgeliefert) läuft die App weiterhin rein lokal im Browser.
+
+### Konten und Synchronisation
+
+- **Neues Konto:** beim Registrieren den Einladungscode eingeben. Ohne Code entsteht wie bisher ein rein lokales Profil.
+- **Bestehendes lokales Profil** (auch aus der alten Einzeldatei-Version): einloggen → *Konfiguration* →
+  *Mit Spark verknüpfen*. Danach werden Einstellungen, Prompts und die komplette Historie hochgeladen.
+  Kürzere Passwörter als 8 Zeichen müssen dabei durch ein neues ersetzt werden (gilt dann auch lokal).
+- **Weiteres Gerät / Handy:** einfach mit Spark-Benutzername und -Passwort einloggen – das Profil wird vom Spark geladen.
+- Was synchronisiert wird: Einstellungen (Provider-URLs, Modelle, Limits, System-Prompt), alle Prompt-Versionen
+  und die aktive Version je Agent, alle Analyse-Läufe mit Agent-Protokoll, Löschungen.
+- **API-Keys werden nie übertragen** und bleiben auf dem jeweiligen Gerät.
+- Ohne Verbindung landen Änderungen in einer Warteschlange und werden automatisch nachgereicht
+  (Anzeige oben rechts: „☁ synchron“, „☁ 3 ausstehend“, „☁ offline“, „nur lokal“).
+- Konflikte: Läufe und Prompt-Versionen werden nur angelegt oder gelöscht, nie überschrieben. Bei Einstellungen
+  und der aktiven Prompt-Version gewinnt die zuletzt gemachte Änderung.
 
 ## Was sich gegenüber v21 geändert hat
 
@@ -60,7 +103,7 @@ Die Prompts selbst sind unverändert.
 ## Tests
 
 ```bash
-npm test            # Unit-Tests der Scoring-Logik (Node 18+)
-npm run test:e2e    # Browser-Test mit Fake-LLM (benötigt Playwright + Chromium)
-npm run serve       # App lokal unter http://localhost:8765/lit/
+npm test            # Scoring- und Server-Tests (Node ≥ 22.13)
+npm run test:e2e    # Browser-Tests mit Fake-LLM: ohne Backend sowie Synchronisation mit echtem Server
+npm run serve       # nur die App, ohne Backend, unter http://localhost:8765/lit/
 ```

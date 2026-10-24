@@ -63,7 +63,8 @@ async function login(page, user, pass, action = 'login') {
         }, JSON.stringify(legacyProfile));
         const page = await context.newPage();
         page.on('pageerror', e => errors.push(e.message));
-        page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+        // Ohne Backend antwortet api/… mit 404 – das ist hier der erwartete Betriebsmodus.
+        page.on('console', m => { if (m.type() === 'error' && !String(m.location()?.url).includes('/api/')) errors.push(m.text()); });
 
         // 1) /lit ohne Schrägstrich wird auf /lit/ umgeleitet, Migration läuft
         await page.goto(APP_URL);

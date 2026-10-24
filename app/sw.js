@@ -1,8 +1,8 @@
 // Service Worker: hält die App-Dateien für den Offline-Start vor.
 // Strategie "Netz zuerst, Cache als Rückfall": online kommt immer die aktuelle Version vom Spark,
 // offline (oder bei sehr langsamer Verbindung) die zuletzt geladene. Anfragen an LLM-Endpunkte
-// (andere Hosts oder POST) werden nicht angefasst.
-const CACHE_NAME = 'lit-agent-v1';
+// (andere Hosts oder POST) und die Spark-API werden nicht angefasst.
+const CACHE_NAME = 'lit-agent-v2';
 const NETWORK_TIMEOUT_MS = 4000;
 const APP_SHELL = [
     './',
@@ -12,6 +12,7 @@ const APP_SHELL = [
     'js/prompts.js',
     'js/scoring.js',
     'js/storage.js',
+    'js/sync.js',
     'js/profile.js',
     'js/ui.js',
     'js/llm.js',
@@ -50,6 +51,8 @@ self.addEventListener('fetch', event => {
     const url = new URL(request.url);
     const scope = new URL(self.registration.scope);
     if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
+    // API-Antworten (Login, Synchronisation) dürfen nie aus dem Cache kommen.
+    if (url.pathname.startsWith(scope.pathname + 'api/')) return;
 
     event.respondWith((async () => {
         const cache = await caches.open(CACHE_NAME);

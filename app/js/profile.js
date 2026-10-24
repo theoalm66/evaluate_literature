@@ -35,6 +35,8 @@ function promptVersion(text, date) {
 
 // MIGRATION
 function ensureProfileStructure(db, user) {
+    if (!db[user].sync) db[user].sync = { linked: false, promptHeads: {}, settingsUpdatedAt: null };
+    if (!db[user].sync.promptHeads) db[user].sync.promptHeads = {};
     if (!db[user].prompts) {
         db[user].prompts = {
             extraction: [promptVersion(DEFAULT_PROMPTS.extraction, new Date().toLocaleString())],
@@ -53,18 +55,22 @@ function ensureProfileStructure(db, user) {
     const frameworkDate = new Date().toLocaleString();
     if (!String(db[user].prompts.extraction?.[0]?.text || '').includes('TIE-BREAKER methodological_paper vs. multiple_study_report')) {
         db[user].prompts.extraction.unshift(promptVersion(DEFAULT_PROMPTS.extraction, frameworkDate));
+        db[user].sync.promptHeads.extraction = new Date().toISOString();
         db[user].prompts.extraction = db[user].prompts.extraction.slice(0, PROMPT_HISTORY_LIMIT);
     }
     if (!String(db[user].prompts.analysis?.[0]?.text || '').includes('Bestätige ausdrücklich den Tie-Breaker')) {
         db[user].prompts.analysis.unshift(promptVersion(DEFAULT_PROMPTS.analysis, frameworkDate));
+        db[user].sync.promptHeads.analysis = new Date().toISOString();
         db[user].prompts.analysis = db[user].prompts.analysis.slice(0, PROMPT_HISTORY_LIMIT);
     }
     if (!String(db[user].prompts.validation?.[0]?.text || '').includes('validiere jars_quant separat')) {
         db[user].prompts.validation.unshift(promptVersion(DEFAULT_PROMPTS.validation, frameworkDate));
+        db[user].sync.promptHeads.validation = new Date().toISOString();
         db[user].prompts.validation = db[user].prompts.validation.slice(0, PROMPT_HISTORY_LIMIT);
     }
     if (!String(db[user].prompts.synthesis?.[0]?.text || '').includes('grade_assessment')) {
         db[user].prompts.synthesis.unshift(promptVersion(DEFAULT_PROMPTS.synthesis, frameworkDate));
+        db[user].sync.promptHeads.synthesis = new Date().toISOString();
         db[user].prompts.synthesis = db[user].prompts.synthesis.slice(0, PROMPT_HISTORY_LIMIT);
     }
     // Ältere Prompt-Versionen bekommen eine feste ID, damit Läufe auf die exakte Version verweisen können.
@@ -108,89 +114,164 @@ function ensureProfileStructure(db, user) {
     return db;
 }
 
-function handleAuth(action) {
+function defaultKeys() {
+    return { custom1Url: "http://localhost:8888/v1", custom1Key: "", custom1Model: "", custom2Url: "http://10.189.26.81:8000/v1", custom2Key: "", custom2Model: "", custom3Url: "http://localhost:11434/v1", custom3Key: "", custom3Model: "", openaiKey: "", geminiKey: "", maxEvidence: 50000, maxTokens: 8192, temperature: 0.0, systemPrompt: DEFAULT_SYSTEM_PROMPT, activeProvider: 'custom1' };
+}
+
+function showLoginError(text) {
+    const errDiv = document.getElementById('login-error');
+    errDiv.textContent = text;
+    errDiv.style.display = 'block';
+}
+
+// Anmeldung: Ist der Spark erreichbar, wird dort angemeldet (und ein auf diesem Gerät noch fehlendes
+// Profil aus den Spark-Daten aufgebaut). Ohne Spark oder ohne Netz gilt die lokale Prüfung wie bisher.
+async function handleAuth(action) {
     const user = document.getElementById('login-user').value.trim();
     const pass = document.getElementById('login-pass').value.trim();
-    const errDiv = document.getElementById('login-error');
+    const invite = document.getElementById('login-invite').value.trim();
+    document.getElementById('login-error').style.display = 'none';
 
     if (!user || !pass) {
-        errDiv.textContent = "Bitte User-ID und Passwort eingeben.";
-        errDiv.style.display = 'block';
+        showLoginError("Bitte User-ID und Passwort eingeben.");
         return;
     }
+    document.querySelectorAll('.auth-btn').forEach(btn => { btn.disabled = true; });
+    try {
+        await detectServer();
+        let db = getUserDB();
+        const hashedPass = hashString(pass);
+        let notice = '';
 
-    let db = getUserDB();
-    const hashedPass = hashString(pass);
-
-    if (action === 'register') {
-        if (db[user]) {
-            errDiv.textContent = "Dieser Benutzer existiert bereits. Bitte einloggen.";
-            errDiv.style.display = 'block';
-            return;
+        if (action === 'register') {
+            if (db[user]) {
+                showLoginError("Dieser Benutzer existiert auf diesem Gerät bereits. Bitte einloggen.");
+                return;
+            }
+            let linked = false;
+            if (invite) {
+                if (serverStatus !== 'available') { showLoginError('Der Spark ist nicht erreichbar. Ohne Einladungscode wird ein rein lokales Profil angelegt.'); return; }
+                const res = await api('auth/register', { method: 'POST', body: { login: user, password: pass, inviteCode: invite } });
+                if (res.status !== 201) { showLoginError(res.data?.error || `Registrierung auf dem Spark fehlgeschlagen (${res.status}).`); return; }
+                linked = true;
+            }
+            db[user] = { passHash: hashedPass, keys: defaultKeys(), history: [] };
+            db = ensureProfileStructure(db, user);
+            db[user].sync.linked = linked;
+            if (linked) db[user].sync.settingsUpdatedAt = new Date().toISOString();
+        } else {
+            const local = db[user];
+            const localOk = !!local && local.passHash === hashedPass;
+            let serverOk = false;
+            if (serverStatus === 'available') {
+                const res = await api('auth/login', { method: 'POST', body: { login: user, password: pass } });
+                if (res.status === 429) { showLoginError(res.data?.error || 'Zu viele Fehlversuche.'); return; }
+                serverOk = res.status === 200;
+            }
+            if (serverOk && !local) {
+                // Neues Gerät: leeres Profil, das beim ersten Abgleich mit den Spark-Daten gefüllt wird.
+                db[user] = { passHash: hashedPass, keys: defaultKeys(), history: [] };
+                db = ensureProfileStructure(db, user);
+                db[user].sync.settingsUpdatedAt = '';
+                ['extraction', 'analysis', 'synthesis', 'validation'].forEach(t => { db[user].sync.promptHeads[t] = ''; });
+                notice = 'Profil vom Spark geladen. API-Keys werden nicht übertragen und müssen auf diesem Gerät einmal eingegeben werden.';
+            } else if (serverOk && !localOk) {
+                // Passwort wurde auf dem Spark geändert: lokale Prüfung angleichen. Lokal verschlüsselte
+                // API-Keys lassen sich mit dem neuen Passwort nicht entschlüsseln und werden verworfen.
+                local.passHash = hashedPass;
+                SECRET_KEY_FIELDS.forEach(k => { local.keys[k] = ''; });
+                db = ensureProfileStructure(db, user);
+                notice = 'Das Passwort weicht vom lokal gespeicherten ab. Bitte die API-Keys neu eingeben.';
+            } else if (localOk) {
+                db = ensureProfileStructure(db, user);
+                if (db[user].sync.linked && serverStatus === 'available' && !serverOk) {
+                    notice = 'Anmeldung am Spark fehlgeschlagen – es wird nur lokal gearbeitet.';
+                }
+            } else {
+                showLoginError("Falscher Benutzername oder Passwort.");
+                return;
+            }
+            if (serverOk) db[user].sync.linked = true;
         }
-        db[user] = {
-            passHash: hashedPass,
-            keys: { custom1Url: "http://localhost:8888/v1", custom1Key: "", custom1Model: "", custom2Url: "http://10.189.26.81:8000/v1", custom2Key: "", custom2Model: "", custom3Url: "http://localhost:11434/v1", custom3Key: "", custom3Model: "", openaiKey: "", geminiKey: "", maxEvidence: 50000, maxTokens: 8192, temperature: 0.0, systemPrompt: DEFAULT_SYSTEM_PROMPT, activeProvider: 'custom1' },
-            history: []
-        };
-        db = ensureProfileStructure(db, user);
         saveUserDB(db);
-    } else if (action === 'login') {
-        if (!db[user] || db[user].passHash !== hashedPass) {
-            errDiv.textContent = "Falscher Benutzername oder Passwort.";
-            errDiv.style.display = 'block';
-            return;
-        }
-        db = ensureProfileStructure(db, user);
-        saveUserDB(db); 
+        openAppForUser(user, pass);
+        if (notice) alert(notice);
+    } finally {
+        document.querySelectorAll('.auth-btn').forEach(btn => { btn.disabled = false; });
     }
+}
 
+function applyProfileSettingsToUI(profile) {
+    const keys = profile.keys;
+    const pass = currentPassKey;
+    document.getElementById('llm-provider').value = keys.activeProvider || 'custom1';
+
+    document.getElementById('custom1-url').value = keys.custom1Url;
+    document.getElementById('custom1-key').value = decryptKey(keys.custom1Key, pass);
+    document.getElementById('custom1-model').value = keys.custom1Model;
+    document.getElementById('custom1-thinking').checked = keys.custom1Thinking || false;
+
+    document.getElementById('custom2-url').value = keys.custom2Url;
+    document.getElementById('custom2-key').value = decryptKey(keys.custom2Key, pass);
+    document.getElementById('custom2-model').value = keys.custom2Model;
+    document.getElementById('custom2-thinking').checked = keys.custom2Thinking || false;
+
+    document.getElementById('custom3-url').value = keys.custom3Url;
+    document.getElementById('custom3-key').value = decryptKey(keys.custom3Key, pass);
+    document.getElementById('custom3-model').value = keys.custom3Model;
+    document.getElementById('custom3-thinking').checked = keys.custom3Thinking || false;
+
+    document.getElementById('openai-key').value = decryptKey(keys.openaiKey, pass);
+    document.getElementById('openai-model').value = keys.openaiModel || 'gpt-4o-mini';
+
+    document.getElementById('gemini-key').value = decryptKey(keys.geminiKey, pass);
+    document.getElementById('gemini-model').value = keys.geminiModel || 'gemini-2.5-flash';
+
+    document.getElementById('max-evidence-chars').value = keys.maxEvidence || 50000;
+    document.getElementById('max-output-tokens').value = keys.maxTokens || 8192;
+    document.getElementById('llm-temperature').value = keys.temperature;
+    document.getElementById('llm-system-prompt').value = keys.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+
+    toggleProviderSettings();
+}
+
+function openAppForUser(user, pass) {
     currentUser = user;
     currentPassKey = pass;
     document.getElementById('display-username').textContent = user;
-    
-    document.getElementById('llm-provider').value = db[user].keys.activeProvider || 'custom1';
-    
-    document.getElementById('custom1-url').value = db[user].keys.custom1Url;
-    document.getElementById('custom1-key').value = decryptKey(db[user].keys.custom1Key, pass);
-    document.getElementById('custom1-model').value = db[user].keys.custom1Model;
-    document.getElementById('custom1-thinking').checked = db[user].keys.custom1Thinking || false;
+    applyProfileSettingsToUI(getUserDB()[user]);
 
-    document.getElementById('custom2-url').value = db[user].keys.custom2Url;
-    document.getElementById('custom2-key').value = decryptKey(db[user].keys.custom2Key, pass);
-    document.getElementById('custom2-model').value = db[user].keys.custom2Model;
-    document.getElementById('custom2-thinking').checked = db[user].keys.custom2Thinking || false;
-
-    document.getElementById('custom3-url').value = db[user].keys.custom3Url;
-    document.getElementById('custom3-key').value = decryptKey(db[user].keys.custom3Key, pass);
-    document.getElementById('custom3-model').value = db[user].keys.custom3Model;
-    document.getElementById('custom3-thinking').checked = db[user].keys.custom3Thinking || false;
-    
-    document.getElementById('openai-key').value = decryptKey(db[user].keys.openaiKey, pass);
-    document.getElementById('openai-model').value = db[user].keys.openaiModel || 'gpt-4o-mini';
-    
-    document.getElementById('gemini-key').value = decryptKey(db[user].keys.geminiKey, pass);
-    document.getElementById('gemini-model').value = db[user].keys.geminiModel || 'gemini-2.5-flash';
-    
-    document.getElementById('max-evidence-chars').value = db[user].keys.maxEvidence || 50000;
-    document.getElementById('max-output-tokens').value = db[user].keys.maxTokens || 8192;
-    document.getElementById('llm-temperature').value = db[user].keys.temperature;
-    document.getElementById('llm-system-prompt').value = db[user].keys.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-    
-    toggleProviderSettings();
-    
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app-screen').style.display = 'flex';
-    document.getElementById('login-pass').value = ''; 
-    
+    document.getElementById('login-pass').value = '';
+    document.getElementById('login-invite').value = '';
+
     loadPromptsToUI();
+    if (isLinked(user)) {
+        enqueueProfileState(user).then(startSyncLoop);
+    } else {
+        updateSyncStatus();
+    }
+}
+
+// Ändert das lokale Passwort; die lokal verschlüsselten API-Keys werden mit dem neuen Passwort neu verschlüsselt.
+function changeLocalPassword(newPass) {
+    const db = getUserDB();
+    const keys = db[currentUser].keys;
+    SECRET_KEY_FIELDS.forEach(k => { keys[k] = encryptKey(decryptKey(keys[k], currentPassKey), newPass); });
+    db[currentUser].passHash = hashString(newPass);
+    currentPassKey = newPass;
+    saveUserDB(db);
 }
 
 function logout() {
+    if (isLinked()) api('auth/logout', { method: 'POST' });
+    stopSyncLoop();
     currentUser = null; currentPassKey = null;
-    document.getElementById('custom1-key').value = ''; 
-    document.getElementById('custom2-key').value = ''; 
-    document.getElementById('custom3-key').value = ''; 
+    updateSyncStatus();
+    document.getElementById('custom1-key').value = '';
+    document.getElementById('custom2-key').value = '';
+    document.getElementById('custom3-key').value = '';
     document.getElementById('openai-key').value = '';
     document.getElementById('gemini-key').value = '';
     document.getElementById('app-screen').style.display = 'none';
@@ -229,8 +310,10 @@ function saveUserKeys() {
     db[currentUser].keys.maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
     db[currentUser].keys.temperature = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
     db[currentUser].keys.systemPrompt = document.getElementById('llm-system-prompt').value;
-    
+    db[currentUser].sync.settingsUpdatedAt = new Date().toISOString();
+
     saveUserDB(db);
+    enqueueChanges(currentUser, [['settings', 'settings']]);
     
     const provider = document.getElementById('llm-provider').value;
     const note = document.getElementById(`save-note-${provider}`);
@@ -265,6 +348,8 @@ function savePrompt(type) {
     if (historyArr[0].text !== newText) {
         historyArr.unshift(promptVersion(newText));
         if (historyArr.length > PROMPT_HISTORY_LIMIT) historyArr.pop();
+        db[currentUser].sync.promptHeads[type] = historyArr[0].createdAt;
+        enqueueChanges(currentUser, [['prompt_version', historyArr[0].id], ['prompt_head', type]]);
         
         db[currentUser].prompts[type] = historyArr;
         saveUserDB(db);

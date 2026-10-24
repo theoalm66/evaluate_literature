@@ -6,7 +6,7 @@
 // einzelnen Agent-Schritte liegen in eigenen Object Stores und werden erst bei Bedarf gelesen.
 
 const DB_NAME = 'lit-agent';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const LEGACY_STORAGE_KEY = 'agentUsers';
 const EXPORT_FORMAT = 'lit-agent-export';
 
@@ -48,6 +48,8 @@ function openDatabase() {
             if (!db.objectStoreNames.contains('runs')) db.createObjectStore('runs', { keyPath: 'id' }).createIndex('user', 'user');
             if (!db.objectStoreNames.contains('run_steps')) db.createObjectStore('run_steps', { keyPath: 'id' }).createIndex('run', 'run');
             if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+            // v2: Warteschlange der noch nicht zum Spark übertragenen Änderungen
+            if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'key' }).createIndex('user', 'user');
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -139,6 +141,7 @@ async function saveRun(user, result, steps) {
     tx.objectStore('runs').put(record);
     (steps || []).forEach(step => tx.objectStore('run_steps').put({ ...step, run: record.id }));
     await transactionDone(tx);
+    await enqueueChanges(user, [['run', record.id], ['run_steps', record.id]]);
     return record.id;
 }
 
@@ -160,10 +163,80 @@ async function getRunSteps(runId) {
 }
 
 async function deleteRun(id) {
+    const run = await getRun(id);
+    await deleteRunLocal(id);
+    if (run) await enqueueChanges(run.user, [['run_delete', id]]);
+}
+
+// Löscht nur lokal (auch für vom Spark gemeldete Löschungen, die nicht zurückgemeldet werden dürfen).
+async function deleteRunLocal(id) {
     const tx = idb.transaction(['runs', 'run_steps'], 'readwrite');
     tx.objectStore('runs').delete(id);
     const keys = await requestToPromise(tx.objectStore('run_steps').index('run').getAllKeys(id));
     keys.forEach(k => tx.objectStore('run_steps').delete(k));
+    await transactionDone(tx);
+}
+
+async function putRunRecord(record) {
+    const tx = idb.transaction('runs', 'readwrite');
+    tx.objectStore('runs').put(record);
+    await transactionDone(tx);
+}
+
+async function replaceRunSteps(runId, steps) {
+    const tx = idb.transaction('run_steps', 'readwrite');
+    const store = tx.objectStore('run_steps');
+    const keys = await requestToPromise(store.index('run').getAllKeys(runId));
+    keys.forEach(k => store.delete(k));
+    (steps || []).forEach(step => store.put({ ...step, run: runId }));
+    await transactionDone(tx);
+}
+
+// ==========================================
+// WARTESCHLANGE FÜR DIE SYNCHRONISATION
+// ==========================================
+// Einträge verweisen nur auf die geänderte Einheit; der aktuelle Inhalt wird erst beim Hochladen gelesen.
+// Gleiche Einheit = gleicher Schlüssel, mehrfache Änderungen ergeben also nur einen Eintrag.
+let outboxCounter = 0;
+
+async function enqueueChanges(user, refs) {
+    if (!storageAvailable || !idb || !user || !refs.length) return;
+    const tx = idb.transaction('outbox', 'readwrite');
+    const store = tx.objectStore('outbox');
+    refs.forEach(([kind, entityId]) => {
+        store.put({ key: `${user}|${kind}|${entityId}`, user, kind, entityId, order: Date.now() * 1000 + (outboxCounter++ % 1000) });
+    });
+    await transactionDone(tx);
+    if (typeof scheduleSync === 'function') scheduleSync();
+}
+
+async function listOutbox(user) {
+    if (!storageAvailable || !idb) return [];
+    const entries = await requestToPromise(idb.transaction('outbox').objectStore('outbox').index('user').getAll(user));
+    return entries.sort((a, b) => a.order - b.order);
+}
+
+// Entfernt erledigte Einträge, aber nur wenn sie sich während der Übertragung nicht erneut geändert haben.
+async function removeOutboxEntries(entries) {
+    const tx = idb.transaction('outbox', 'readwrite');
+    const store = tx.objectStore('outbox');
+    for (const entry of entries) {
+        const current = await requestToPromise(store.get(entry.key));
+        if (current && current.order === entry.order) store.delete(entry.key);
+    }
+    await transactionDone(tx);
+}
+
+async function getMeta(key) {
+    if (!storageAvailable || !idb) return null;
+    const row = await requestToPromise(idb.transaction('meta').objectStore('meta').get(key));
+    return row ? row.value : null;
+}
+
+async function setMeta(key, value) {
+    if (!storageAvailable || !idb) return;
+    const tx = idb.transaction('meta', 'readwrite');
+    tx.objectStore('meta').put({ key, value });
     await transactionDone(tx);
 }
 
@@ -213,6 +286,8 @@ async function importUserData(user, data) {
         if (step?.id && importedRuns.has(step.run)) tx.objectStore('run_steps').put(step);
     }
     await transactionDone(tx);
+    await enqueueChanges(user, [...importedRuns].flatMap(id => [['run', id], ['run_steps', id]]));
+    if (typeof enqueueProfileState === 'function') await enqueueProfileState(user);
     return { runs: runCount, prompts: promptCount };
 }
 

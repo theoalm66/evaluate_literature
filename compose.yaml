@@ -1,0 +1,17 @@
+# Start auf dem Spark:  LIT_INVITE_CODE=<geheimer Code> docker compose up -d --build
+# Konto anlegen:        docker compose exec lit node server/cli.js user:add <login>
+# Sicherung:            docker compose exec lit node server/cli.js backup /data/backup.db
+services:
+  lit:
+    build: .
+    restart: unless-stopped
+    environment:
+      LIT_INVITE_CODE: ${LIT_INVITE_CODE:-}
+    volumes:
+      - lit-data:/data
+    # Nur lokal erreichbar; nach außen geht es ausschließlich über Tailscale.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  lit-data:

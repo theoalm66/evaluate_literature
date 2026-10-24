@@ -15,13 +15,23 @@ async function initApp() {
     }
 
     updateNetworkStatus();
-    window.addEventListener('online', updateNetworkStatus);
+    window.addEventListener('online', () => { updateNetworkStatus(); serverStatus = 'unknown'; scheduleSync(500); });
     window.addEventListener('offline', updateNetworkStatus);
+    detectServer().then(status => {
+        if (status === 'absent') hideInviteField();
+    });
 
     // Der Service Worker hält App und pdf.js für den Offline-Start vor (nur über HTTPS oder localhost).
     if ('serviceWorker' in navigator && window.isSecureContext) {
         navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service Worker nicht registriert:', err));
     }
+}
+
+// Ohne Spark-Backend gibt es keine Konten auf dem Server – dann ist der Einladungscode überflüssig.
+function hideInviteField() {
+    const input = document.getElementById('login-invite');
+    input.style.display = 'none';
+    if (input.previousElementSibling?.tagName === 'LABEL') input.previousElementSibling.style.display = 'none';
 }
 
 function updateNetworkStatus() {

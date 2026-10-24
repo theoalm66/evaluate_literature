@@ -147,3 +147,11 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
     #login-screen { height: auto; min-height: 100vh; padding: 1rem; }
     .login-card { padding: 1.5rem; }
 }
+
+/* Sync-Status im Kopf */
+.user-controls .sync-status { font-size: 0.75rem; font-weight: 600; border-radius: 0.25rem; padding: 0.1rem 0.45rem; border: 1px solid var(--border); color: var(--text-light); background: var(--bg); }
+.user-controls .sync-status:empty { display: none; }
+.user-controls .sync-status.ok { color: #065f46; background: #ecfdf5; border-color: #a7f3d0; }
+.user-controls .sync-status.pending, .user-controls .sync-status.running { color: #1e40af; background: #eff6ff; border-color: #bfdbfe; }
+.user-controls .sync-status.offline { color: #92400e; background: #fffbeb; border-color: #fde68a; }
+.user-controls .sync-status.error { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }

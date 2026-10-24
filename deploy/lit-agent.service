@@ -1,0 +1,21 @@
+# Alternative zu Docker: systemd-Dienst (Node >= 22.13 auf dem Spark nötig).
+# Installation:  sudo cp deploy/lit-agent.service /etc/systemd/system/ && sudo systemctl enable --now lit-agent
+[Unit]
+Description=Publikations-Agent (App + Spark-Backend)
+After=network-online.target
+
+[Service]
+User=lit
+WorkingDirectory=/opt/evaluate_literature
+Environment=LIT_DB=/opt/evaluate_literature/data/lit.db
+Environment=LIT_PORT=8080
+# Einladungscode in einer Datei außerhalb des Repos ablegen, z.B. LIT_INVITE_CODE=...
+EnvironmentFile=-/etc/lit-agent.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server/index.js
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/evaluate_literature/data
+
+[Install]
+WantedBy=multi-user.target

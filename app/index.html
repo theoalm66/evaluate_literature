@@ -22,12 +22,15 @@
         <div class="login-card">
             <h2>🔐 Login / Registrierung</h2>
             <p style="font-size: 0.85rem; color: var(--text-light); text-align: center; margin-bottom: 1.5rem;">
-                Deine API-Keys, Prompts und Historie werden lokal im Browser verschlüsselt gespeichert.
+                Einstellungen, Prompts und Historie liegen in diesem Browser und – mit Konto auf dem Spark – zusätzlich dort. API-Keys bleiben immer nur auf diesem Gerät.
             </p>
             <label>User-ID</label>
             <input type="text" id="login-user" placeholder="Dein Benutzername" autocomplete="username">
             <label>Passwort</label>
             <input type="password" id="login-pass" placeholder="Dein Passwort" autocomplete="current-password">
+
+            <label>Einladungscode <span style="font-weight:normal;color:var(--text-light);">(nur für ein neues Konto auf dem Spark)</span></label>
+            <input type="text" id="login-invite" placeholder="leer lassen für ein rein lokales Profil" autocomplete="off">
 
             <button class="btn auth-btn" onclick="handleAuth('login')" disabled>Einloggen</button>
             <button class="btn btn-secondary auth-btn" onclick="handleAuth('register')" disabled>Neu registrieren</button>
@@ -47,6 +50,7 @@
                 <button data-tab="history" onclick="switchTab('history'); loadHistory();">Historie</button>
             </nav>
             <div class="user-controls">
+                <span id="sync-status" class="sync-status"></span>
                 <span id="net-status" class="net-status" title="Keine Internetverbindung – nur lokale Modelle (z.B. LM Studio auf diesem Gerät) sind nutzbar.">offline</span>
                 👤 <span id="display-username">User</span>
                 <button class="btn-logout" onclick="logout()">Logout</button>
@@ -136,6 +140,20 @@
         <!-- TAB: KONFIGURATION -->
         <div id="tab-config" class="container">
             <div class="full-center">
+                <div class="card" style="width: 100%; max-width: 650px; margin-bottom: 1.5rem;">
+                    <h2 style="font-size: 1.25rem; border: none; margin-bottom: .5rem;">☁️ Synchronisation mit dem Spark</h2>
+                    <div id="sync-detail" style="font-size:.9rem;"></div>
+                    <button class="btn btn-secondary btn-small" id="btn-sync-now" onclick="syncNow()" style="margin-top:.75rem;display:none;">Jetzt synchronisieren</button>
+                    <div id="sync-link" style="display:none;margin-top:.75rem;">
+                        <label>Einladungscode <span style="font-weight:normal;color:var(--text-light);">(leer lassen, wenn das Konto auf dem Spark schon existiert)</span></label>
+                        <input type="text" id="link-invite" autocomplete="off">
+                        <label>Neues Passwort <span style="font-weight:normal;color:var(--text-light);">(optional; nötig, wenn das bisherige kürzer als 8 Zeichen ist – gilt dann auch lokal)</span></label>
+                        <input type="password" id="link-password" autocomplete="new-password">
+                        <button class="btn btn-small" onclick="linkAccount()" style="margin-top:.25rem;">Mit Spark verknüpfen</button>
+                        <div id="link-message" style="font-size:.85rem;margin-top:.5rem;"></div>
+                    </div>
+                </div>
+
                 <div class="card" style="width: 100%; max-width: 650px;">
                     <h2 style="font-size: 1.5rem; text-align: center; border: none; margin-bottom: 1.5rem;">⚙️ Systemeinstellungen</h2>
 
@@ -485,6 +503,7 @@
     <script src="js/prompts.js"></script>
     <script src="js/scoring.js"></script>
     <script src="js/storage.js"></script>
+    <script src="js/sync.js"></script>
     <script src="js/profile.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/llm.js"></script>
