@@ -23,8 +23,14 @@ function toggleProviderSettings() {
     document.getElementById('settings-gemini').style.display = provider === 'gemini' ? 'block' : 'none';
 }
 
+function isPdfFile(f) {
+    return f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+}
+
 function handleFiles(files) {
-    const newFiles = Array.from(files);
+    const all = Array.from(files || []);
+    const newFiles = all.filter(isPdfFile);
+    if (newFiles.length < all.length) log(`${all.length - newFiles.length} Datei(en) ignoriert – nur PDFs werden angenommen.`, 'warning');
     let addedCount = 0;
     
     newFiles.forEach(f => {
@@ -87,3 +93,27 @@ function toggleTerminal() {
         btn.textContent = 'Terminal anzeigen';
     }
 }
+
+// Drag & Drop auf die Ablagefläche. Außerhalb der Fläche abgelegte Dateien werden abgefangen,
+// damit der Browser das PDF nicht anstelle der App öffnet.
+function initFileDrop() {
+    const zone = document.querySelector('.file-drop');
+    if (!zone) return;
+    const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files');
+    ['dragenter', 'dragover'].forEach(type => zone.addEventListener(type, e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        zone.classList.add('dragover');
+    }));
+    zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files);
+    });
+    window.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+    window.addEventListener('drop', e => { if (hasFiles(e) && !zone.contains(e.target)) e.preventDefault(); });
+}
+
+initFileDrop();

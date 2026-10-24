@@ -85,7 +85,20 @@ async function login(page, user, pass, action = 'login') {
         await page.fill('#custom1-url', `http://localhost:${LLM_PORT}/v1`);
         await page.dispatchEvent('#custom1-url', 'change');
         await page.click('nav button[data-tab="dashboard"]');
-        await page.setInputFiles('#file-input', pdfFile);
+        // Drag & Drop: ein PDF und eine Nicht-PDF-Datei auf die Ablagefläche ziehen
+        const pdfBase64 = fs.readFileSync(pdfFile).toString('base64');
+        const dataTransfer = await page.evaluateHandle(({ b64, name }) => {
+            const dt = new DataTransfer();
+            const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+            dt.items.add(new File([bytes], name, { type: 'application/pdf' }));
+            dt.items.add(new File(['x'], 'notiz.txt', { type: 'text/plain' }));
+            return dt;
+        }, { b64: pdfBase64, name: path.basename(pdfFile) });
+        await page.dispatchEvent('.file-drop', 'dragover', { dataTransfer });
+        await page.dispatchEvent('.file-drop', 'drop', { dataTransfer });
+        const dropped = await page.evaluate(() => selectedFiles.map(f => f.name));
+        assert.deepEqual(dropped, [path.basename(pdfFile)], 'Drag & Drop hat nicht genau das PDF übernommen');
+        console.log('✓ Drag & Drop: PDF angenommen, andere Datei ignoriert');
         await page.click('#btn-start');
         await page.waitForSelector('#results-view.active', { timeout: 60000 });
         assert.equal(llm.calls.length, 4, 'erwartet 4 LLM-Aufrufe');
