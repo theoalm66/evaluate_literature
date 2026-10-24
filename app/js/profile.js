@@ -249,6 +249,9 @@ function applyProfileSettingsToUI(profile) {
     document.getElementById('gemini-key').value = decryptKey(keys.geminiKey, pass);
     document.getElementById('gemini-model').value = keys.geminiModel || 'gemini-2.5-flash';
 
+    document.getElementById('spark-model').value = keys.sparkModel || '';
+    document.getElementById('spark-thinking').checked = keys.sparkThinking || false;
+
     document.getElementById('max-evidence-chars').value = keys.maxEvidence || 50000;
     document.getElementById('max-output-tokens').value = keys.maxTokens || 8192;
     document.getElementById('llm-temperature').value = keys.temperature;
@@ -327,6 +330,9 @@ function saveUserKeys() {
     
     db[currentUser].keys.geminiKey = encryptKey(document.getElementById('gemini-key').value, currentPassKey);
     db[currentUser].keys.geminiModel = document.getElementById('gemini-model').value;
+
+    db[currentUser].keys.sparkModel = document.getElementById('spark-model').value.trim();
+    db[currentUser].keys.sparkThinking = document.getElementById('spark-thinking').checked;
     
     db[currentUser].keys.maxEvidence = parseInt(document.getElementById('max-evidence-chars').value, 10) || 50000;
     db[currentUser].keys.maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;

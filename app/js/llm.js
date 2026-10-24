@@ -14,6 +14,9 @@ async function autoDetectContext() {
         url = 'https://api.openai.com/v1/models';
         key = document.getElementById('openai-key').value;
         modelName = document.getElementById('openai-model').value || 'gpt-4o-mini';
+    } else if (provider === 'spark') {
+        url = 'api/llm/models';
+        modelName = document.getElementById('spark-model').value;
     } else if (provider === 'gemini') {
         alert("Gemini Modelle haben in der Regel ein Context Window von 1.000.000+ Tokens.\nSetze das Limit manuell auf 100.000, das reicht völlig für alle Dokumente.");
         document.getElementById('max-evidence-chars').value = 100000;
@@ -46,8 +49,8 @@ async function autoDetectContext() {
         let ctx = null;
         
         if (data.data && data.data.length > 0) {
-            const modelData = data.data[0];
-            ctx = modelData.context_length || 
+            const modelData = data.data.find(m => modelName && m.id === modelName) || data.data[0];
+            ctx = modelData.context_length || modelData.max_model_len || 
                   (modelData.metadata && modelData.metadata.context_length) ||
                   (modelData.parameters && modelData.parameters.n_ctx) || null;
         }
@@ -85,7 +88,8 @@ function recordStep(step) {
 // Aus Seiten- und Ziel-Adresse lässt sich die wahrscheinliche Ursache aber eingrenzen.
 function explainNetworkError(url) {
     let target;
-    try { target = new URL(url); } catch (e) { return 'Die Base-URL ist ungültig.'; }
+    try { target = new URL(url, location.href); } catch (e) { return 'Die Base-URL ist ungültig.'; }
+    if (target.origin === location.origin) return 'Der Spark-Server ist nicht erreichbar (offline?).';
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname);
     if (location.protocol === 'https:' && target.protocol === 'http:' && !local) {
         return `Die App läuft über https, der Endpunkt aber über unverschlüsseltes http auf ${target.host}. Das blockiert der Browser grundsätzlich („Mixed Content“). `
@@ -118,6 +122,12 @@ async function callLLM(prompt, meta = {}) {
         key = document.getElementById('gemini-key').value;
         model = document.getElementById('gemini-model').value || 'gemini-2.5-flash';
         if(!key) throw new Error("Google Gemini API-Key fehlt in der Konfiguration!");
+    } else if (provider === 'spark') {
+        // Über den Spark-Server weitergeleitet; ohne Modellnamen wählt der Server sein Standardmodell.
+        if (!isLinked()) throw new Error('Das Spark-Modell ist nur mit einem Konto auf dem Spark nutzbar (Konfiguration → Mit Spark verknüpfen).');
+        url = 'api/llm/chat/completions';
+        model = document.getElementById('spark-model').value.trim();
+        key = null;
     }
 
     const maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
@@ -125,7 +135,7 @@ async function callLLM(prompt, meta = {}) {
     let systemPrompt = document.getElementById('llm-system-prompt').value || DEFAULT_SYSTEM_PROMPT;
 
     let isThinkingAllowed = false;
-    if (provider.startsWith('custom')) {
+    if (provider.startsWith('custom') || provider === 'spark') {
         isThinkingAllowed = document.getElementById(provider + '-thinking').checked;
     }
 
@@ -134,7 +144,7 @@ async function callLLM(prompt, meta = {}) {
     }
 
     const payload = {
-        model: model,
+        ...(model ? { model } : {}),
         messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: prompt }
@@ -148,15 +158,18 @@ async function callLLM(prompt, meta = {}) {
         payload.max_tokens = maxTokens;
     }
 
-    if (provider.startsWith('custom') && url.includes('8000') && !isThinkingAllowed) {
-        const m = model.toLowerCase();
-        if (m.includes('qwen') || m.includes('nvidia') || m.includes('deepseek')) {
+    const vllmLike = provider === 'spark' || (provider.startsWith('custom') && url.includes('8000'));
+    if (vllmLike && !isThinkingAllowed) {
+        const m = (model || '').toLowerCase();
+        // Ohne Modellnamen (Spark-Standardmodell) wird JSON-Modus ebenfalls angefordert; vLLM unterstützt ihn generell.
+        if (!m || m.includes('qwen') || m.includes('nvidia') || m.includes('deepseek')) {
             payload.response_format = { type: "json_object" };
         }
     }
 
     const fetchHeaders = { 'Content-Type': 'application/json' };
     if (key && key !== 'lm-studio') fetchHeaders['Authorization'] = `Bearer ${key}`;
+    if (provider === 'spark') fetchHeaders['X-Lit-Request'] = '1';
 
     const startTime = performance.now(); // Startzeit messen
 
@@ -165,12 +178,13 @@ async function callLLM(prompt, meta = {}) {
         provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt
     };
     let response;
+    const send = () => fetch(url, { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) });
     try {
-        response = await fetch(url, {
-            method: 'POST',
-            headers: fetchHeaders,
-            body: JSON.stringify(payload)
-        });
+        response = await send();
+        // Abgelaufene Spark-Sitzung: einmal still neu anmelden und wiederholen.
+        if (provider === 'spark' && response.status === 401 && await serverLogin(currentUser, currentPassKey)) {
+            response = await send();
+        }
     } catch (err) {
         const hint = explainNetworkError(url);
         recordStep({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
@@ -183,7 +197,9 @@ async function callLLM(prompt, meta = {}) {
     if (!response.ok) {
         const err = await response.text();
         recordStep({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: err });
-        throw new Error(`API Fehler (${response.status}): ${err}`);
+        let message = err;
+        try { message = JSON.parse(err).error?.message || JSON.parse(err).error || err; } catch (e) { /* kein JSON */ }
+        throw new Error(`API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}`);
     }
     const data = await response.json();
     

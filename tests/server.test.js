@@ -152,3 +152,47 @@ test('App-Dateien werden unter /lit/ und / ausgeliefert, Präfix-Varianten funkt
     assert.equal((await app.inject({ url: '/lit/api/gibtsnicht' })).statusCode, 404);
     await app.close();
 });
+
+test('LLM-Weiterleitung: nur angemeldet, Standardmodell, Key bleibt auf dem Server, Fehler bei Ausfall', async () => {
+    const http = require('http');
+    const seen = [];
+    const upstream = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', c => { body += c; });
+        req.on('end', () => {
+            seen.push({ url: req.url, auth: req.headers.authorization, body: body ? JSON.parse(body) : null });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            if (req.url === '/v1/models') return res.end(JSON.stringify({ data: [{ id: 'qwen-spark', max_model_len: 65536 }] }));
+            res.end(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }));
+        });
+    });
+    await new Promise(r => upstream.listen(0, '127.0.0.1', r));
+    const baseUrl = `http://127.0.0.1:${upstream.address().port}/v1`;
+    const app = buildApp({ inviteCode: 'einladung', llm: { baseUrl, apiKey: 'server-geheim' } });
+    const { cookie } = await register(app, 'hanna');
+
+    assert.equal((await app.inject({ url: '/api/health' })).json().llm.available, true);
+    const anon = await app.inject({ method: 'POST', url: '/lit/api/llm/chat/completions', headers: H, payload: { messages: [] } });
+    assert.equal(anon.statusCode, 401);
+
+    const res = await app.inject({ method: 'POST', url: '/lit/api/llm/chat/completions', headers: { ...H, cookie, authorization: 'Bearer vom-browser' },
+        payload: { messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 } });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().choices[0].message.content, '{"ok":true}');
+    const call = seen.find(s => s.url === '/v1/chat/completions');
+    assert.equal(call.body.model, 'qwen-spark', 'Standardmodell aus /models');
+    assert.equal(call.auth, 'Bearer server-geheim', 'nur der Server-Key wird weitergegeben');
+
+    const models = await app.inject({ url: '/api/llm/models', headers: { cookie } });
+    assert.equal(models.json().data[0].max_model_len, 65536);
+
+    await new Promise(r => upstream.close(r));
+    const down = await app.inject({ method: 'POST', url: '/api/llm/chat/completions', headers: { ...H, cookie }, payload: { model: 'x', messages: [] } });
+    assert.equal(down.statusCode, 502);
+    assert.match(down.json().error, /nicht erreichbar/);
+    await app.close();
+
+    const noLlm = buildApp({ inviteCode: 'einladung' });
+    assert.equal((await noLlm.inject({ method: 'POST', url: '/api/llm/chat/completions', headers: H, payload: {} })).statusCode, 404);
+    await noLlm.close();
+});

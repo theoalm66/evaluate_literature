@@ -165,6 +165,7 @@
                         <option value="custom3">🖥️ Lokales Profil 3 (z.B. Ollama)</option>
                         <option value="openai">🟢 OpenAI (ChatGPT API)</option>
                         <option value="gemini">✨ Google Gemini (API)</option>
+                        <option value="spark">🚀 Spark-Modell (über den Server, auch von unterwegs)</option>
                     </select>
 
                     <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
@@ -235,6 +236,19 @@
                     </div>
 
                     <!-- Gemini Settings -->
+                    <div id="settings-spark" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🚀 Spark-Modell</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-light); margin-bottom: 1rem;">Die Anfragen gehen an den Spark-Server, der sie intern an das dort laufende Modell weiterleitet. Funktioniert überall, wo die App erreichbar ist – auch vom Handy. Voraussetzung: ein mit dem Spark verknüpftes Konto.</p>
+                        <div id="spark-model-hint" style="font-size: 0.85rem; margin-bottom: .5rem;"></div>
+                        <label>Modell-Name (Optional)</label>
+                        <input type="text" id="spark-model" placeholder="leer = Standardmodell des Spark" onchange="saveUserKeys()">
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="spark-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+                        <div id="save-note-spark" class="save-note">✓ Im Profil gespeichert</div>
+                    </div>
+
                     <div id="settings-gemini" style="display: none;">
                         <h3 style="margin-bottom: 1rem; color: #8b5cf6;">Google Gemini API</h3>
                         <p style="font-size: 0.8rem; color: var(--text-light); margin-bottom: 1rem;">Nutzt die offizielle OpenAI-kompatible Schnittstelle von Google.</p>

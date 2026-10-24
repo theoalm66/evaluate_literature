@@ -34,6 +34,7 @@ async function startWorkflow() {
     const currentProvider = document.getElementById('llm-provider').value;
     let currentModel = "";
     if (currentProvider.startsWith('custom')) currentModel = document.getElementById(currentProvider + '-model').value || 'Lokales Custom-Modell';
+    if (currentProvider === 'spark') currentModel = document.getElementById('spark-model').value || 'Spark-Modell (Standard)';
     if (currentProvider === 'openai') currentModel = document.getElementById('openai-model').value || 'OpenAI Modell';
     if (currentProvider === 'gemini') currentModel = document.getElementById('gemini-model').value || 'Gemini Modell';
 

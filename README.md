@@ -57,8 +57,24 @@ npm run admin -- user:add theo                     # weitere Befehle: user:passw
 | `LIT_HOST` / `LIT_PORT` | `127.0.0.1` / `8080` | Adresse des Servers |
 | `LIT_SESSION_DAYS` | `30` | Gültigkeit einer Anmeldung |
 | `LIT_COOKIE_SECURE` | `true` | nur für lokale Tests ohne HTTPS auf `false` setzen |
+| `LIT_LLM_URL` | – | Modell-Server auf dem Spark (OpenAI-kompatibel, z.B. vLLM): `http://10.189.26.81:8000/v1`. Aktiviert den Provider „Spark-Modell“. |
+| `LIT_LLM_MODEL` | – | Standardmodell; ohne Angabe das erste, das der Modell-Server meldet |
+| `LIT_LLM_KEY` | – | API-Key, falls der Modell-Server einen verlangt (bleibt auf dem Server) |
+| `LIT_LLM_TIMEOUT_MIN` | `30` | maximale Dauer einer Modell-Antwort |
 
 Ohne Server (nur die Dateien aus `app/` statisch ausgeliefert) läuft die App weiterhin rein lokal im Browser.
+
+### Spark-Modell von überall nutzen
+
+Ein Modell auf dem Spark (z.B. vLLM auf Port 8000) ist aus dem Browser nicht direkt erreichbar: Die Adresse ist
+intern und unverschlüsselt (`http`), und aus einer `https`-Seite blockiert der Browser solche Aufrufe. Der Server
+leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm → Modell-Server`).
+
+1. In `.env` eintragen: `LIT_LLM_URL=http://10.189.26.81:8000/v1` (die Adresse, unter der das Modell im lokalen
+   Netz erreichbar ist; läuft es nur auf `127.0.0.1` des Spark, stattdessen `http://host.docker.internal:8000/v1`
+   und den Modell-Server auf `0.0.0.0` lauschen lassen).
+2. `docker compose up -d --build`
+3. In der App unter *Konfiguration* den Provider **„🚀 Spark-Modell“** wählen. Nur für verknüpfte Spark-Konten.
 
 ### Konten und Synchronisation
 

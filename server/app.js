@@ -7,6 +7,7 @@ const fastifyStatic = require('@fastify/static');
 const { openDatabase, transaction } = require('./db');
 const { hashPassword, verifyPassword, validateCredentials, newSessionToken, hashToken, LoginLimiter } = require('./auth');
 const { pushChanges, pullChanges } = require('./sync');
+const { registerLlmProxy } = require('./llm-proxy');
 
 const SESSION_COOKIE = 'lit_session';
 const PATH_PREFIX = '/lit';
@@ -33,7 +34,8 @@ function buildApp(options = {}) {
         inviteCode: options.inviteCode || null,
         cookieSecure: options.cookieSecure !== false,
         sessionDays: options.sessionDays || 30,
-        logger: options.logger ?? false
+        logger: options.logger ?? false,
+        llm: options.llm && options.llm.baseUrl ? options.llm : null
     };
     const db = options.db || openDatabase(config.dbPath);
     const limiter = new LoginLimiter(options.limiter);
@@ -93,7 +95,11 @@ function buildApp(options = {}) {
     }
 
     // --- Auth ----------------------------------------------------------------
-    app.get('/api/health', async () => ({ ok: true, registration: config.inviteCode ? 'invite' : 'closed' }));
+    app.get('/api/health', async () => ({
+        ok: true,
+        registration: config.inviteCode ? 'invite' : 'closed',
+        llm: config.llm ? { available: true, label: config.llm.label || 'Spark-Modell' } : { available: false }
+    }));
 
     app.post('/api/auth/register', async (request, reply) => {
         const { login, password, inviteCode } = request.body || {};
@@ -153,6 +159,9 @@ function buildApp(options = {}) {
         const { since, device, limit } = request.query || {};
         return pullChanges(db, request.user.id, { since: Number(since) || 0, deviceId: typeof device === 'string' ? device : null, limit });
     });
+
+    if (config.llm) registerLlmProxy(app, { ...config.llm, requireUser });
+    else app.all('/api/llm/*', async (request, reply) => reply.code(404).send({ error: 'Auf diesem Spark ist kein Modell eingerichtet (LIT_LLM_URL fehlt).' }));
 
     app.setNotFoundHandler((request, reply) => {
         if (request.url.startsWith('/api/')) return reply.code(404).send({ error: 'Nicht gefunden.' });

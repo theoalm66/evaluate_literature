@@ -21,6 +21,7 @@ function toggleProviderSettings() {
     document.getElementById('settings-custom3').style.display = provider === 'custom3' ? 'block' : 'none';
     document.getElementById('settings-openai').style.display = provider === 'openai' ? 'block' : 'none';
     document.getElementById('settings-gemini').style.display = provider === 'gemini' ? 'block' : 'none';
+    document.getElementById('settings-spark').style.display = provider === 'spark' ? 'block' : 'none';
 }
 
 function isPdfFile(f) {

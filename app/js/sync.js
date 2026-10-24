@@ -11,6 +11,7 @@ const PUSH_BATCH_COUNT = 200;
 const SECRET_KEY_FIELDS = ['custom1Key', 'custom2Key', 'custom3Key', 'openaiKey', 'geminiKey'];
 
 let serverStatus = 'unknown';   // unknown | available | absent | unreachable
+let serverInfo = null;          // Antwort von api/health (u.a. ob ein Spark-Modell eingerichtet ist)
 let syncTimer = null;
 let syncDebounce = null;
 let syncRunning = false;
@@ -36,10 +37,22 @@ async function api(pathname, { method = 'GET', body } = {}) {
 async function detectServer() {
     if (!navigator.onLine) { serverStatus = 'unreachable'; return serverStatus; }
     const res = await api('health');
-    if (res.status === 200 && res.data?.ok) serverStatus = 'available';
+    if (res.status === 200 && res.data?.ok) { serverStatus = 'available'; serverInfo = res.data; }
     else if (res.status === 0) serverStatus = 'unreachable';
     else serverStatus = 'absent';  // z.B. 404: App wird ohne Backend ausgeliefert
     return serverStatus;
+}
+
+function updateSparkModelHint() {
+    const el = document.getElementById('spark-model-hint');
+    if (!el) return;
+    let text = '', color = 'var(--text-light)';
+    if (serverStatus === 'absent') { text = 'Diese Installation hat keinen Spark-Server.'; color = 'var(--danger)'; }
+    else if (serverStatus === 'available' && !serverInfo?.llm?.available) { text = 'Auf dem Spark ist noch kein Modell eingerichtet (LIT_LLM_URL).'; color = 'var(--danger)'; }
+    else if (serverStatus === 'available') { text = `✓ ${serverInfo.llm.label} ist eingerichtet.`; color = 'var(--success)'; }
+    if (currentUser && !isLinked()) { text += ' Dieses Profil ist noch nicht mit dem Spark verknüpft.'; color = 'var(--danger)'; }
+    el.textContent = text.trim();
+    el.style.color = color;
 }
 
 function isLinked(user = currentUser) {
@@ -323,6 +336,7 @@ function updateSyncStatus() {
         }
     }
     if (linkBox) linkBox.style.display = linked || serverStatus === 'absent' ? 'none' : 'block';
+    updateSparkModelHint();
     const syncButton = document.getElementById('btn-sync-now');
     if (syncButton) syncButton.style.display = linked ? 'inline-block' : 'none';
 }

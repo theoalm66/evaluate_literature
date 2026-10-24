@@ -142,7 +142,7 @@ sync_log         (seq INTEGER PK, user_id, table, row_id, op, at)     -- Server-
 | 0 ✅ | HTML in Module zerlegen, pdf.js lokal (umgesetzt **ohne** Build-Schritt: `app/js/*.js` als normale Skripte, `scoring.js` zusätzlich in Node testbar) | Gleiche App, aber wartbar und testbar |
 | 1 ✅ | `localStorage` → IndexedDB, `run_steps` mitschreiben, PWA/Service Worker, Export/Import | Offline + vollständige Historie, noch ohne Server |
 | 2 ✅ | Backend auf Spark: Auth, SQLite, Sync-Endpoints, Verknüpfen alter lokaler Profile (umgesetzt mit `node:sqlite` und scrypt statt argon2 – keine nativen Pakete auf dem ARM-Spark; Registrierung nur mit Einladungscode) | Daten auf Spark **und** lokal |
-| 3 | LLM-Proxy + Provider-Modell (`direct`/`proxy`), serverseitige Keys | Spark-Modell aus dem Internet nutzbar |
+| 3 ✅ | LLM-Proxy für das Spark-Modell (Provider „Spark-Modell“, Ziel und Key nur in der Server-Konfiguration); Weiterleitung von OpenAI/Gemini über den Server noch offen | Spark-Modell aus dem Internet nutzbar |
 | 4 | Optional: serverseitige Jobs mit SSE | Lange Läufe unabhängig vom Browser |
 | 5 | Funnel-Pfade auf das Backend umstellen (Funnel ist schon aktiv), Rate-Limits, Backups (`sqlite3 .backup` per Cron) | Öffentlicher Betrieb |
 

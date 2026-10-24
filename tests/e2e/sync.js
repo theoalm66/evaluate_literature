@@ -21,7 +21,7 @@ function legacyHash(str) {
 }
 
 async function startServer(dbPath) {
-    const app = buildApp({ dbPath, inviteCode: INVITE, cookieSecure: false });
+    const app = buildApp({ dbPath, inviteCode: INVITE, cookieSecure: false, llm: { baseUrl: `http://127.0.0.1:${LLM_PORT}/v1` } });
     await app.listen({ host: '127.0.0.1', port: APP_PORT });
     return app;
 }
@@ -181,6 +181,17 @@ const runCount = (page, user) => page.evaluate(u => listRuns(u).then(r => r.leng
         const doraRuns = db().prepare(`SELECT COUNT(*) c FROM runs r JOIN users u ON u.id = r.user_id WHERE u.login = 'dora'`).get().c;
         assert.equal(doraRuns, 1);
         console.log('✓ Einloggen mit Einladungscode verknüpft ein lokales Profil direkt');
+
+        // 7) Analyse mit dem Spark-Modell über die Weiterleitung des Servers
+        await D.page.click('nav button[data-tab="config"]');
+        await D.page.selectOption('#llm-provider', 'spark');
+        await D.page.waitForFunction(() => document.getElementById('spark-model-hint').textContent.includes('eingerichtet'));
+        const callsBefore = llm.calls.length;
+        await analyse(D.page, pdfFile);
+        assert.equal(llm.calls.length - callsBefore, 4, 'erwartet 4 Modell-Aufrufe über den Server');
+        const sparkRun = await D.page.evaluate(async () => (await listRuns('dora'))[0].model);
+        assert.equal(sparkRun, 'Spark-Modell (Standard)');
+        console.log('✓ Analyse mit dem Spark-Modell über die Server-Weiterleitung');
 
         assert.deepEqual(errors, [], 'Fehler in der Browser-Konsole');
         ok = true;

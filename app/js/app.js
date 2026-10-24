@@ -17,7 +17,7 @@ async function initApp() {
     updateNetworkStatus();
     window.addEventListener('online', () => { updateNetworkStatus(); serverStatus = 'unknown'; scheduleSync(500); });
     window.addEventListener('offline', updateNetworkStatus);
-    detectServer().then(showServerStatus);
+    detectServer().then(status => { showServerStatus(status); updateSparkModelHint(); });
 
     // Der Service Worker hält App und pdf.js für den Offline-Start vor (nur über HTTPS oder localhost).
     if ('serviceWorker' in navigator && window.isSecureContext) {
