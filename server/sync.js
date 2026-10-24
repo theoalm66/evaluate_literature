@@ -4,7 +4,7 @@
 // "letzte Änderung gewinnt" (updatedAt) zusammengeführt.
 const { transaction } = require('./db');
 
-const AGENTS = new Set(['extraction', 'analysis', 'validation', 'synthesis']);
+const AGENTS = new Set(['extraction', 'analysis', 'validation', 'synthesis', 'integrity']);
 const KINDS = new Set(['run', 'run_steps', 'run_delete', 'prompt_version', 'prompt_head', 'settings']);
 const MAX_ID_LENGTH = 100;
 const PULL_DEFAULT_LIMIT = 25;

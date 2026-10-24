@@ -45,7 +45,7 @@ function ensureProfileStructure(db, user) {
             validation: [promptVersion(DEFAULT_PROMPTS.validation, new Date().toLocaleString())]
         };
     }
-    ['extraction', 'analysis', 'synthesis', 'validation'].forEach(type => {
+    PROMPT_TYPES.forEach(type => {
         if (!Array.isArray(db[user].prompts[type]) || !db[user].prompts[type].length) {
             db[user].prompts[type] = [promptVersion(DEFAULT_PROMPTS[type], new Date().toLocaleString())];
         }
@@ -177,7 +177,7 @@ async function handleAuth(action) {
                 db[user] = { passHash: hashedPass, keys: defaultKeys(), history: [] };
                 db = ensureProfileStructure(db, user);
                 db[user].sync.settingsUpdatedAt = '';
-                ['extraction', 'analysis', 'synthesis', 'validation'].forEach(t => { db[user].sync.promptHeads[t] = ''; });
+                PROMPT_TYPES.forEach(t => { db[user].sync.promptHeads[t] = ''; });
                 notice = 'Profil vom Spark geladen. API-Keys werden nicht übertragen und müssen auf diesem Gerät einmal eingegeben werden.';
             } else if (serverOk && !localOk) {
                 // Passwort wurde auf dem Spark geändert: lokale Prüfung angleichen. Lokal verschlüsselte
@@ -253,6 +253,9 @@ function applyProfileSettingsToUI(profile) {
     document.getElementById('gemini-model').value = keys.geminiModel || 'gemini-2.5-flash';
 
     document.getElementById('spark-model').value = keys.sparkModel || '';
+    document.getElementById('opt-integrity-computed').checked = keys.integrityComputed !== false;
+    document.getElementById('opt-integrity-online').checked = keys.integrityOnline !== false;
+    document.getElementById('opt-integrity-llm').checked = keys.integrityLLM !== false;
     document.getElementById('spark-thinking').checked = keys.sparkThinking || false;
 
     document.getElementById('max-evidence-chars').value = keys.maxEvidence || 50000;
@@ -275,6 +278,7 @@ function openAppForUser(user, pass) {
     document.getElementById('login-invite').value = '';
 
     loadPromptsToUI();
+    startLlmStatusMonitor();
     if (isLinked(user)) {
         enqueueProfileState(user).then(startSyncLoop);
     } else {
@@ -295,6 +299,7 @@ function changeLocalPassword(newPass) {
 function logout() {
     if (isLinked()) api('auth/logout', { method: 'POST' });
     stopSyncLoop();
+    stopLlmStatusMonitor();
     currentUser = null; currentPassKey = null;
     updateSyncStatus();
     document.getElementById('custom1-key').value = '';
@@ -336,6 +341,9 @@ function saveUserKeys() {
 
     db[currentUser].keys.sparkModel = document.getElementById('spark-model').value.trim();
     db[currentUser].keys.sparkThinking = document.getElementById('spark-thinking').checked;
+    db[currentUser].keys.integrityComputed = document.getElementById('opt-integrity-computed').checked;
+    db[currentUser].keys.integrityOnline = document.getElementById('opt-integrity-online').checked;
+    db[currentUser].keys.integrityLLM = document.getElementById('opt-integrity-llm').checked;
     
     db[currentUser].keys.maxEvidence = parseInt(document.getElementById('max-evidence-chars').value, 10) || 50000;
     db[currentUser].keys.maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
@@ -345,6 +353,7 @@ function saveUserKeys() {
 
     saveUserDB(db);
     enqueueChanges(currentUser, [['settings', 'settings']]);
+    scheduleLlmStatusCheck();
     
     const provider = document.getElementById('llm-provider').value;
     const note = document.getElementById(`save-note-${provider}`);
@@ -361,7 +370,7 @@ function loadPromptsToUI() {
     let db = getUserDB();
     let prompts = db[currentUser].prompts;
 
-    ['extraction', 'analysis', 'synthesis', 'validation'].forEach(type => {
+    PROMPT_TYPES.forEach(type => {
         let historyArr = prompts[type];
         document.getElementById(`prompt-${type}`).value = historyArr[0].text;
         

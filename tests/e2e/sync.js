@@ -35,7 +35,7 @@ async function newDevice(browser, errors, initScript) {
     page.on('console', m => {
         const url = String(m.location()?.url);
         // Fehlgeschlagene API-Aufrufe sind in den Offline- und Falsch-Passwort-Schritten gewollt.
-        if (m.type() === 'error' && !url.includes('/api/')) errors.push(m.text());
+        if (m.type() === 'error' && !url.includes('/api/') && (!url.startsWith('http') || url.startsWith(`http://localhost:${APP_PORT}/`))) errors.push(m.text());
     });
     await page.goto(APP_URL);
     return { context, page };
@@ -61,6 +61,8 @@ async function sync(page) {
 
 async function analyse(page, pdfFile) {
     await page.click('nav button[data-tab="dashboard"]');
+    // Keine Crossref-Abfrage im Test (kein Internet)
+    await page.evaluate(() => { document.getElementById('opt-integrity-online').checked = false; });
     await page.setInputFiles('#file-input', pdfFile);
     await page.click('#btn-start');
     await page.waitForSelector('#results-view.active', { timeout: 60000 });
@@ -102,7 +104,7 @@ const runCount = (page, user) => page.evaluate(u => listRuns(u).then(r => r.leng
         assert.match(state.badge, /\bok\b/);
         const db = () => server.db;
         assert.equal(db().prepare('SELECT COUNT(*) c FROM runs WHERE deleted_at IS NULL').get().c, 1);
-        assert.equal(JSON.parse(db().prepare('SELECT data FROM run_steps').get().data).length, 4);
+        assert.equal(JSON.parse(db().prepare('SELECT data FROM run_steps').get().data).length, 5);
         const storedSettings = db().prepare('SELECT data FROM settings').get().data;
         assert.ok(storedSettings.includes(`localhost:${LLM_PORT}`), 'Einstellungen nicht auf dem Spark');
         assert.ok(!storedSettings.includes('Key"') && !storedSettings.includes('geheimer'), 'API-Key darf nicht übertragen werden');
@@ -115,7 +117,7 @@ const runCount = (page, user) => page.evaluate(u => listRuns(u).then(r => r.leng
         await sync(B.page);
         assert.equal(await runCount(B.page, 'anna'), 1);
         const bRun = await B.page.evaluate(async () => { const r = (await listRuns('anna'))[0]; return (await getRunSteps(r.id)).length; });
-        assert.equal(bRun, 4, 'Agent-Protokoll fehlt auf Gerät B');
+        assert.equal(bRun, 5, 'Agent-Protokoll fehlt auf Gerät B');
         assert.equal(await B.page.inputValue('#custom1-url'), `http://localhost:${LLM_PORT}/v1`);
         assert.equal(await B.page.inputValue('#custom1-key'), '', 'API-Key darf auf B nicht auftauchen');
         assert.equal(await B.page.inputValue('#prompt-extraction'), 'EIGENER PROMPT {{TITLE}} {{SOURCE_TEXT}}');
@@ -188,7 +190,7 @@ const runCount = (page, user) => page.evaluate(u => listRuns(u).then(r => r.leng
         await D.page.waitForFunction(() => document.getElementById('spark-model-hint').textContent.includes('eingerichtet'));
         const callsBefore = llm.calls.length;
         await analyse(D.page, pdfFile);
-        assert.equal(llm.calls.length - callsBefore, 4, 'erwartet 4 Modell-Aufrufe über den Server');
+        assert.equal(llm.calls.length - callsBefore, 5, 'erwartet 5 Modell-Aufrufe über den Server (inkl. Agent 6)');
         const sparkRun = await D.page.evaluate(async () => (await listRuns('dora'))[0].model);
         assert.equal(sparkRun, 'Spark-Modell (Standard)');
         console.log('✓ Analyse mit dem Spark-Modell über die Server-Weiterleitung');

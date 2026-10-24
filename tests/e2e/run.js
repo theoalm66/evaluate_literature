@@ -32,7 +32,9 @@ async function makePdf(browser, file) {
     const page = await browser.newPage();
     await page.setContent(`<html><body style="font-family:sans-serif;font-size:12pt">
         <h1>Supervised exercise for chronic low back pain</h1>
+        <p>doi: 10.1234/test.2026.001 · Registered at ClinicalTrials.gov (NCT01234567).</p>
         <p>${QUOTES.rq}</p><p>${QUOTES.alloc}</p><p>${QUOTES.stats}</p>
+        <p>In total N = 60 patients took part. Pain decreased, t(28) = 2.10, p = .045, and the group effect was F(2, 57) = 1.20, p < .05.</p>
         <div style="page-break-before:always"></div>
         <h2>Discussion</h2><p>${QUOTES.limits}</p></body></html>`);
     await page.pdf({ path: file, format: 'A4' });
@@ -64,7 +66,12 @@ async function login(page, user, pass, action = 'login') {
         const page = await context.newPage();
         page.on('pageerror', e => errors.push(e.message));
         // Ohne Backend antwortet api/… mit 404 – das ist hier der erwartete Betriebsmodus.
-        page.on('console', m => { if (m.type() === 'error' && !String(m.location()?.url).includes('/api/')) errors.push(m.text()); });
+        // Ohne Backend antwortet api/… mit 404, und die Status-Lampe prüft absichtlich auch unerreichbare
+        // Modell-Adressen – beides erzeugt erwartete Ladefehler fremder Adressen.
+        page.on('console', m => {
+            const url = String(m.location()?.url);
+            if (m.type() === 'error' && !url.includes('/api/') && (!url.startsWith('http') || url.startsWith(`http://localhost:${APP_PORT}/`))) errors.push(m.text());
+        });
 
         // 1) /lit ohne Schrägstrich wird auf /lit/ umgeleitet, Migration läuft
         await page.goto(APP_URL);
@@ -80,11 +87,19 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(promptInfo.length >= 2 && promptInfo.every(p => p.id && p.createdAt), 'Prompt-Versionen ohne ID');
         console.log(`✓ Login mit migriertem Profil, ${promptInfo.length} Extraction-Prompt-Versionen mit ID`);
 
+        // Status-Lampe: altes Profil zeigt auf einen nicht erreichbaren Server → rot
+        await page.waitForFunction(() => document.getElementById('llm-lamp').classList.contains('err'));
+        console.log('✓ Status-Lampe rot bei unerreichbarem Modell:', await page.textContent('#llm-status-text'));
+
         // 3) Provider auf den Fake-LLM stellen und Analyse ausführen
         await page.click('nav button[data-tab="config"]');
         await page.fill('#custom1-url', `http://localhost:${LLM_PORT}/v1`);
         await page.dispatchEvent('#custom1-url', 'change');
+        await page.waitForFunction(() => document.getElementById('llm-lamp').classList.contains('ok'));
+        assert.equal(await page.textContent('#llm-status-text'), 'Lokales Profil 1 · mock-model');
+        console.log('✓ Status-Lampe grün mit Modellname nach Umstellung:', await page.textContent('#llm-status-text'));
         await page.click('nav button[data-tab="dashboard"]');
+        await page.uncheck('#opt-integrity-online');   // kein Internet im Test
         // Drag & Drop: ein PDF und eine Nicht-PDF-Datei auf die Ablagefläche ziehen
         const pdfBase64 = fs.readFileSync(pdfFile).toString('base64');
         const dataTransfer = await page.evaluateHandle(({ b64, name }) => {
@@ -101,7 +116,15 @@ async function login(page, user, pass, action = 'login') {
         console.log('✓ Drag & Drop: PDF angenommen, andere Datei ignoriert');
         await page.click('#btn-start');
         await page.waitForSelector('#results-view.active', { timeout: 60000 });
-        assert.equal(llm.calls.length, 4, 'erwartet 4 LLM-Aufrufe');
+        assert.equal(llm.calls.length, 5, 'erwartet 5 LLM-Aufrufe (inkl. Agent 6)');
+        assert.equal(await page.textContent('#llm-status-text'), 'Lokales Profil 1 · mock-model', 'Lampe zeigt nicht das antwortende Modell');
+        const integ = await page.textContent('#res-studies');
+        assert.ok(integ.includes('INTEGRITÄTSPRÜFUNG'), 'Integritätsprüfung fehlt');
+        assert.ok(integ.includes('2 Tests1 abweichend · 1 Signifikanz geändert'), 'statcheck-Zusammenfassung falsch');
+        assert.ok(integ.includes('50 %'), 'Übereinstimmung Code/LLM falsch');
+        assert.ok(integ.includes('NCT01234567 (ClinicalTrials.gov'), 'Registrierung fehlt');
+        assert.ok(integ.includes('Testfazit Integrität.'), 'LLM-Fazit fehlt');
+        console.log('✓ Integritätsprüfung: statcheck findet den Fehler, LLM nicht → Übereinstimmung 50 %');
         assert.ok(llm.calls[0].includes(QUOTES.rq), 'PDF-Text fehlt im Extraction-Prompt');
 
         const study = await page.textContent('#res-studies');
@@ -124,18 +147,18 @@ async function login(page, user, pass, action = 'login') {
             const steps = await getRunSteps(runs[0].id);
             return { runs: runs.length, legacy: runs.filter(r => r.legacy).length, steps: steps.map(s => s.agent), hasPrompt: steps.every(s => s.prompt && s.response && s.prompt_version_id) };
         });
-        assert.deepEqual(stored.steps, ['extraction', 'analysis', 'validation', 'synthesis']);
+        assert.deepEqual(stored.steps, ['extraction', 'analysis', 'validation', 'integrity', 'synthesis']);
         assert.equal(stored.runs, 2);
         assert.equal(stored.legacy, 1);
         assert.ok(stored.hasPrompt, 'Protokoll unvollständig');
-        console.log('✓ IndexedDB: 2 Läufe (1 übernommen), Protokoll mit 4 Schritten inkl. Prompt-Version');
+        console.log('✓ IndexedDB: 2 Läufe (1 übernommen), Protokoll mit 5 Schritten inkl. Prompt-Version');
 
         // 5) Historie, Export, Agent-Protokoll-Download
         await page.click('nav button[data-tab="history"]');
         await page.waitForSelector('.history-item >> nth=1');
         let download = await Promise.all([page.waitForEvent('download'), page.click('text=Agent-Protokoll (JSON)')]).then(([d]) => d);
         const protocol = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
-        assert.equal(protocol.steps.length, 4);
+        assert.equal(protocol.steps.length, 5);
         download = await Promise.all([page.waitForEvent('download'), page.click('text=Export (JSON)')]).then(([d]) => d);
         const exported = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
         assert.equal(exported.format, 'lit-agent-export');

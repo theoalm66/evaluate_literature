@@ -230,7 +230,7 @@ async function pullChanges(user, deviceId) {
 // Aktualisiert die Prompt-Felder nur, wenn dort keine ungespeicherten Änderungen stehen.
 function refreshPromptsAfterSync(previousHeads) {
     const prompts = getUserDB()[currentUser].prompts;
-    ['extraction', 'analysis', 'synthesis', 'validation'].forEach(type => {
+    PROMPT_TYPES.forEach(type => {
         const field = document.getElementById(`prompt-${type}`);
         const select = document.getElementById(`history-${type}`);
         const unchanged = previousHeads[type] === undefined || field.value.trim() === String(previousHeads[type]).trim();

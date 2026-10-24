@@ -84,6 +84,113 @@ function recordStep(step) {
     currentRunSteps.push({ id: newId(), seq: currentRunSteps.length, at: new Date().toISOString(), ...step });
 }
 
+// ==========================================
+// STATUS-LAMPE: Ist das gewählte Modell erreichbar?
+// ==========================================
+const PROVIDER_LABELS = { custom1: 'Lokales Profil 1', custom2: 'Lokales Profil 2', custom3: 'Lokales Profil 3', openai: 'OpenAI', gemini: 'Gemini', spark: 'Spark-Modell' };
+const LLM_STATUS_INTERVAL_MS = 2 * 60 * 1000;
+let llmStatusSeq = 0;
+let llmStatusDebounce = null;
+let llmStatusInterval = null;
+let lastRespondedModel = {};   // Provider → Modell, das zuletzt tatsächlich geantwortet hat
+
+function setLlmStatus(state, text, title = '') {
+    const lamp = document.getElementById('llm-lamp');
+    const label = document.getElementById('llm-status-text');
+    if (!lamp || !label) return;
+    lamp.className = `lamp ${state}`;
+    label.textContent = text;
+    document.getElementById('llm-status').title = `${title ? title + '\n' : ''}Klicken zum erneuten Prüfen.`;
+}
+
+// Ermittelt Modellliste-Endpunkt, Header und eingestelltes Modell des aktiven Providers.
+function currentLlmConfig() {
+    const provider = document.getElementById('llm-provider').value;
+    const label = PROVIDER_LABELS[provider] || provider;
+    if (provider.startsWith('custom')) {
+        const base = document.getElementById(provider + '-url').value.trim().replace(/\/$/, '');
+        const key = document.getElementById(provider + '-key').value;
+        if (!base) return { provider, label, error: 'keine Base-URL eingetragen' };
+        return { provider, label, url: base + '/models', headers: key && key !== 'lm-studio' ? { Authorization: `Bearer ${key}` } : {}, model: document.getElementById(provider + '-model').value.trim(), checkModel: true };
+    }
+    if (provider === 'openai') {
+        const key = document.getElementById('openai-key').value;
+        if (!key) return { provider, label, error: 'API-Key fehlt' };
+        return { provider, label, url: 'https://api.openai.com/v1/models', headers: { Authorization: `Bearer ${key}` }, model: document.getElementById('openai-model').value.trim() || 'gpt-4o-mini', checkModel: true };
+    }
+    if (provider === 'gemini') {
+        const key = document.getElementById('gemini-key').value;
+        if (!key) return { provider, label, error: 'API-Key fehlt' };
+        return { provider, label, url: 'https://generativelanguage.googleapis.com/v1beta/openai/models', headers: { Authorization: `Bearer ${key}` }, model: document.getElementById('gemini-model').value.trim() || 'gemini-2.5-flash', checkModel: true };
+    }
+    if (provider === 'spark') {
+        if (!isLinked()) return { provider, label, error: 'Profil nicht mit dem Spark verknüpft' };
+        return { provider, label, url: 'api/llm/models', headers: {}, model: document.getElementById('spark-model').value.trim(), checkModel: true };
+    }
+    return { provider, label, error: 'unbekannter Provider' };
+}
+
+async function checkLlmStatus() {
+    if (!currentUser) return;
+    const seq = ++llmStatusSeq;
+    const cfg = currentLlmConfig();
+    if (cfg.error) { setLlmStatus('err', `${cfg.label}: ${cfg.error}`); return; }
+    setLlmStatus('checking', `${cfg.label}: ${cfg.model || 'Standardmodell'} – prüfe…`);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+        const res = await fetch(cfg.url, { headers: cfg.headers, signal: ctrl.signal });
+        if (seq !== llmStatusSeq) return;
+        if (!res.ok) {
+            const reason = res.status === 401 || res.status === 403 ? 'nicht berechtigt (API-Key/Anmeldung prüfen)' : res.status === 502 ? 'Modell-Server antwortet nicht' : `Fehler ${res.status}`;
+            setLlmStatus('err', `${cfg.label}: ${reason}`);
+            return;
+        }
+        const data = await res.json();
+        const ids = (Array.isArray(data?.data) ? data.data : []).map(m => String(m.id || ''));
+        const shown = cfg.model || (ids.includes(lastRespondedModel[cfg.provider]) ? lastRespondedModel[cfg.provider] : ids[0]) || 'Standardmodell';
+        const known = !cfg.model || !ids.length || ids.some(id => id === cfg.model || id.endsWith('/' + cfg.model));
+        const checkedAt = new Date().toLocaleTimeString();
+        if (cfg.checkModel && !known) {
+            setLlmStatus('warn', `${cfg.label}: Modell „${cfg.model}“ nicht gefunden`, `Verbunden, aber das eingestellte Modell fehlt in der Liste (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? ', …' : ''}). Geprüft um ${checkedAt}.`);
+        } else {
+            setLlmStatus('ok', `${cfg.label} · ${shown}`, `Verbunden, ${ids.length} Modell(e) verfügbar. Geprüft um ${checkedAt}.`);
+        }
+    } catch (err) {
+        if (seq !== llmStatusSeq) return;
+        setLlmStatus('err', `${cfg.label}: nicht erreichbar`, err?.name === 'AbortError' ? 'Keine Antwort innerhalb von 8 Sekunden.' : explainNetworkError(new URL(cfg.url, location.href).href));
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+function scheduleLlmStatusCheck(delayMs = 800) {
+    clearTimeout(llmStatusDebounce);
+    llmStatusDebounce = setTimeout(checkLlmStatus, delayMs);
+}
+
+function startLlmStatusMonitor() {
+    stopLlmStatusMonitor();
+    checkLlmStatus();
+    llmStatusInterval = setInterval(() => { if (!document.hidden) checkLlmStatus(); }, LLM_STATUS_INTERVAL_MS);
+}
+
+function stopLlmStatusMonitor() {
+    clearInterval(llmStatusInterval);
+    clearTimeout(llmStatusDebounce);
+    llmStatusInterval = null;
+    llmStatusSeq++;
+}
+
+// Nach einem echten Modellaufruf: Das Modell, das geantwortet hat, ist der sicherste Nachweis.
+function markLlmCall(ok, provider, modelOrError) {
+    llmStatusSeq++;   // laufende Prüfung soll diese Information nicht überschreiben
+    const label = PROVIDER_LABELS[provider] || provider;
+    if (ok && modelOrError) lastRespondedModel[provider] = modelOrError;
+    if (ok) setLlmStatus('ok', `${label} · ${modelOrError || 'Standardmodell'}`, `Letzte Antwort um ${new Date().toLocaleTimeString()} von diesem Modell erhalten.`);
+    else setLlmStatus('err', `${label}: Aufruf fehlgeschlagen`, modelOrError);
+}
+
 // Der Browser verrät bei abgelehnten Verbindungen keinen Grund ("NetworkError" / "Failed to fetch").
 // Aus Seiten- und Ziel-Adresse lässt sich die wahrscheinliche Ursache aber eingrenzen.
 function explainNetworkError(url) {
@@ -188,6 +295,7 @@ async function callLLM(prompt, meta = {}) {
     } catch (err) {
         const hint = explainNetworkError(url);
         recordStep({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
+        markLlmCall(false, provider, hint);
         throw new Error(`Keine Verbindung zu ${url}. ${hint}`);
     }
 
@@ -199,7 +307,9 @@ async function callLLM(prompt, meta = {}) {
         recordStep({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: err });
         let message = err;
         try { message = JSON.parse(err).error?.message || JSON.parse(err).error || err; } catch (e) { /* kein JSON */ }
-        throw new Error(`API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}`);
+        const errorText = `API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}`;
+        markLlmCall(false, provider, errorText);
+        throw new Error(errorText);
     }
     const data = await response.json();
     
@@ -210,6 +320,8 @@ async function callLLM(prompt, meta = {}) {
     // Global für den Historien-Run zwischenspeichern
     if (!window.currentRunMetrics) window.currentRunMetrics = [];
     window.currentRunMetrics.push(tokensPerSec);
+
+    markLlmCall(true, provider, data.model || model);
 
     recordStep({
         ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status,

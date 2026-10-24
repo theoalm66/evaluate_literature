@@ -123,6 +123,27 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
   Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.
 
+**Integritätsprüfung – rechnerisch und per LLM zum Vergleich** (`app/js/integrity.js`, Agent 6)
+- Auswahl per Häkchen auf dem Dashboard: *rechnerisch*, *online bei Crossref*, *per LLM*. Alle drei sind
+  voreingestellt; die Auswahl wird mit dem Profil synchronisiert.
+- Rechnerisch (im Browser, gesamter PDF-Text):
+  - **statcheck:** t, F, χ², r und z mit Freiheitsgraden und p-Wert werden erkannt und der zweiseitige p-Wert
+    exakt nachgerechnet (Rundung berücksichtigt). Markiert werden Abweichungen und Fälle, in denen sich die
+    Signifikanz bei α = .05 ändert; „einseitig?“, wenn die Angabe nur einseitig passt.
+  - **GRIM:** Mittelwert und n in einer Klammer werden darauf geprüft, ob sie bei ganzzahligen Einzelwerten möglich sind.
+  - **Stichprobengrößen:** alle N/n-Angaben, mehrere verschiedene Gesamt-N, Abgleich mit dem extrahierten N.
+  - **Registrierung:** NCT, DRKS, ISRCTN, PROSPERO (CRD), ANZCTR, ChiCTR, EudraCT, OSF, AsPredicted, INPLASY – mit Links.
+  - **DOI** der Publikation; online zusätzlich Crossref-Metadaten, Titelabgleich mit dem PDF und
+    **Retractions, Corrections, Expressions of Concern** (Crossref enthält die Daten von Retraction Watch).
+- Per LLM: Agent 6 bekommt dieselben Aufgaben (eigener, versionierter Prompt im Tab *Prompts & Info*).
+- Ergebnis: Code und LLM nebeneinander, statistische Angaben einander zugeordnet, Übereinstimmungsquote.
+  Die Auffälligkeiten gehen zusätzlich an die Synthese (Agent 5).
+
+**Status-Lampe** neben „Workflow Status & Ergebnisse“: grün = Modell erreichbar (mit Modellname), gelb = eingestelltes
+Modell nicht in der Modellliste, rot = nicht erreichbar bzw. API-Key fehlt. Geprüft wird beim Login, nach jeder
+Änderung der Einstellungen, alle 2 Minuten und per Klick; nach jedem Modellaufruf zeigt sie das Modell, das tatsächlich
+geantwortet hat.
+
 **Scoring – frühere Korrekturen**
 - **CASQ-Gewichte sind fest im Code** (Rubriken wie in Agent 3 beschrieben) und werden nicht mehr aus der
   Modellantwort übernommen. Die Dimensionsnamen des Modells werden der passenden Rubrik zugeordnet; passt keine,

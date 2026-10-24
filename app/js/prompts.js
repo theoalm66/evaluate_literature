@@ -3,6 +3,9 @@
 // ==========================================
 const DEFAULT_SYSTEM_PROMPT = "Du bist ein KI-Agent für wissenschaftliche Analysen. EXTREM WICHTIG: Antworte AUSSCHLIESSLICH mit validem JSON. Schreibe KEINE Gedankengänge (kein 'Here is a thinking process' oder '<think>'), keine Erklärungen und keinen Fließtext. Beginne deine Antwort DIREKT und AUSNAHMSLOS mit dem Zeichen '{'.";
 
+// Alle Agenten mit eigenem, versioniertem Prompt (Reihenfolge = Anzeige im Tab "Prompts & Info")
+const PROMPT_TYPES = ['extraction', 'analysis', 'validation', 'synthesis', 'integrity'];
+
 const DEFAULT_PROMPTS = {
     extraction: `Du bist Agent 2 eines wissenschaftlichen Critical-Appraisal-Systems. Deine Aufgabe ist ausschließlich die strukturierte Evidenzextraktion aus dem bereitgestellten Publikationstext.
 
@@ -279,5 +282,34 @@ JSON-SCHEMA:
   "validated_casq_checklist": [{"id":"QN-1.1","original_response":"yes","response":"yes|partial|no|not_reported|not_applicable","evidence":[{"page":12,"section":"Methods","quote":"..."}],"validation_note":"..."}],
   "unsupported_claims": ["..."],
   "validation_summary": "..."
+}`,
+    integrity: `Du bist Agent 6, Prüfer für die formale Integrität GENAU EINER Publikation. Prüfe ausschließlich anhand des SOURCE_TEXT. Erfinde nichts; was nicht im Text steht, ist not_reported bzw. unclear.
+
+AUFGABEN:
+1. Statistische Angaben: Finde ALLE berichteten Teststatistiken mit p-Wert (t, F, chi2, r, z) in der Form wie z.B. "t(28) = 2.10, p = .045". Rechne für jede möglichst genau nach, welcher zweiseitige p-Wert zu Teststatistik und Freiheitsgraden passt (estimated_p). Setze consistent = "no", wenn der berichtete p-Wert auch unter Berücksichtigung der Rundung nicht passt, und significance_changed = true, wenn sich dadurch die Signifikanzaussage bei alpha = .05 ändern würde.
+2. GRIM: Prüfe bei Mittelwerten ganzzahliger Einzelwerte (z.B. ein Likert-Item) mit angegebenem n, ob der Mittelwert mit n überhaupt erreichbar ist. Bei Skalenmittelwerten aus mehreren Items: not_applicable.
+3. Stichprobengrößen: Stelle die genannten Stichprobengrößen (Abstract, Methoden, Ergebnisse, Tabellen, Flussdiagramm) gegenüber und benenne Widersprüche, die nicht durch Ausfälle erklärt sind.
+4. Registrierung: Nenne Registrierungsnummern (z.B. NCT, DRKS, ISRCTN, PROSPERO/CRD, OSF) und ob eine Präregistrierung erwähnt wird.
+5. DOI der Publikation und Hinweise auf Retraction, Correction, Erratum oder Expression of Concern im Text.
+Antworte NUR mit validem JSON.
+
+Titel: {{TITLE}}
+SOURCE_TEXT:
+{{SOURCE_TEXT}}
+
+JSON-SCHEMA:
+{
+  "statistical_tests": [{"page":12,"reported":"t(28) = 2.10, p = .045","test":"t|F|chi2|r|z","df":"28 bzw. 2, 57","statistic":2.10,"reported_p":"= .045","estimated_p":0.045,"consistent":"yes|no|unclear","significance_changed":false,"note":"..."}],
+  "grim": [{"page":3,"reported":"M = 3.47, n = 15","consistent":"yes|no|not_applicable","note":"..."}],
+  "sample_sizes": [{"page":2,"value":120,"context":"..."}],
+  "sample_size_consistent": "yes|no|unclear",
+  "sample_size_note": "...",
+  "registrations": [{"id":"NCT01234567","registry":"ClinicalTrials.gov","page":2}],
+  "preregistration_mentioned": "yes|no",
+  "doi": "10.xxxx/... oder not_reported",
+  "retraction_or_correction_mentioned": "yes|no",
+  "retraction_note": "...",
+  "issues": ["..."],
+  "summary": "Kurze Gesamteinschätzung in maximal 3 Sätzen"
 }`
 };

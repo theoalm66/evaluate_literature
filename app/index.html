@@ -72,6 +72,13 @@
                     </div>
                     <div class="file-list" id="file-list">Keine Dateien ausgewählt.</div>
 
+                    <div class="run-options">
+                        <div class="run-options-title">Integritätsprüfung (p-Werte, GRIM, Stichproben, Registrierung, DOI)</div>
+                        <label><input type="checkbox" id="opt-integrity-computed" onchange="saveUserKeys()"> 🔢 rechnerisch (im Browser, ohne LLM)</label>
+                        <label><input type="checkbox" id="opt-integrity-online" onchange="saveUserKeys()"> 🌐 DOI und Retractions online bei Crossref prüfen</label>
+                        <label><input type="checkbox" id="opt-integrity-llm" onchange="saveUserKeys()"> 🤖 per LLM (Agent 6, ein zusätzlicher Aufruf je PDF)</label>
+                    </div>
+
                     <button class="btn" id="btn-start" onclick="startWorkflow()" style="padding: 1rem; font-size: 1.1rem; margin-top: 1.5rem;">🚀 Analyse Starten</button>
                 </div>
             </div>
@@ -80,7 +87,8 @@
             <div class="col-right">
                 <div class="card" style="flex: 1; display: flex; flex-direction: column;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
-                        <h2 style="margin: 0; border: none; padding: 0;">Workflow Status & Ergebnisse</h2>
+                        <div class="workflow-title"><h2 style="margin: 0; border: none; padding: 0;">Workflow Status & Ergebnisse</h2>
+                            <button type="button" id="llm-status" class="llm-status" onclick="checkLlmStatus()" title="Verbindung zum Sprachmodell erneut prüfen"><span class="lamp" id="llm-lamp"></span><span id="llm-status-text">Modell wird geprüft…</span></button></div>
                         <button class="btn btn-secondary btn-small" id="btn-toggle-terminal" onclick="toggleTerminal()" style="width: auto; margin: 0; padding: 0.25rem 0.75rem;">Terminal anzeigen</button>
                     </div>
 
@@ -357,6 +365,13 @@
                     <div id="save-note-synthesis" class="save-note">✓ Als neue Version gespeichert</div>
                 </div>
 
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 6: Integritätsprüfung (optional)</h3><div class="prompt-controls"><select id="history-integrity" onchange="restorePrompt('integrity')"></select><button class="btn btn-small" onclick="savePrompt('integrity')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{TITLE}}, {{SOURCE_TEXT}} · läuft nur, wenn auf dem Dashboard „Integritätsprüfung per LLM“ angehakt ist</p>
+                    <textarea id="prompt-integrity" rows="14"></textarea>
+                    <div id="save-note-integrity" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
                 <hr style="border: 0; border-top: 1px solid var(--border); margin: 2rem 0;">
 
                 <h2>Kontext-Limit & Max. Evidenz-Zeichen</h2>
@@ -517,6 +532,7 @@
 
     <script src="js/prompts.js"></script>
     <script src="js/scoring.js"></script>
+    <script src="js/integrity.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/sync.js"></script>
     <script src="js/profile.js"></script>

@@ -76,6 +76,15 @@ function answerFor(prompt) {
         }),
         validation_summary: 'Testvalidierung $& mit Sonderzeichen.'
     };
+    if (prompt.includes('Du bist Agent 6')) return {
+        statistical_tests: [
+            { page: 1, reported: 't(28) = 2.10, p = .045', test: 't', df: '28', statistic: 2.10, reported_p: '= .045', estimated_p: 0.045, consistent: 'yes', significance_changed: false },
+            { page: 1, reported: 'F(2, 57) = 1.20, p < .05', test: 'F', df: '2, 57', statistic: 1.20, reported_p: '< .05', estimated_p: 0.04, consistent: 'yes', significance_changed: false, note: 'LLM übersieht den Fehler' }
+        ],
+        grim: [], sample_sizes: [{ page: 1, value: 60, context: 'N = 60' }], sample_size_consistent: 'yes', sample_size_note: 'Stimmig.',
+        registrations: [{ id: 'NCT01234567', registry: 'ClinicalTrials.gov', page: 1 }], preregistration_mentioned: 'yes',
+        doi: '10.1234/test.2026.001', retraction_or_correction_mentioned: 'no', issues: ['Test-Auffälligkeit'], summary: 'Testfazit Integrität.'
+    };
     if (prompt.includes('Du bist Agent 5')) return {
         topics: ['Bewegungstherapie'], narrative_summary: 'Testsynthese.', consistency_of_findings: 'unclear',
         strength_of_evidence: 'low', grade_assessment: { applicable: false, outcomes: [] }
@@ -91,13 +100,13 @@ function startMockLLM(port) {
         let body = '';
         req.on('data', c => { body += c; });
         req.on('end', () => {
-            if (req.url.endsWith('/models')) { res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock' }] })); }
+            if (req.url.endsWith('/models')) { res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock-model', max_model_len: 32768 }] })); }
             const payload = JSON.parse(body || '{}');
             const prompt = payload.messages?.find(m => m.role === 'user')?.content || '';
             calls.push(prompt);
             const content = JSON.stringify(answerFor(prompt));
             res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } }));
+            res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } }));
         });
     });
     return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls })));

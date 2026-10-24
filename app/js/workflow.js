@@ -17,10 +17,57 @@ async function extractTextFromPDF(file) {
 }
 
 
+// Integritätsprüfung einer Publikation: rechnerisch im Browser und/oder per LLM (Agent 6), je nach Auswahl.
+// Fehler hier brechen die Analyse nicht ab – das Ergebnis der Studie bleibt erhalten.
+async function runIntegrityChecks(doc, ext, options, promptVersionId) {
+    if (!options.computed && !options.online && !options.llm) return null;
+    const result = { options, computed: null, online: null, llm: null, llm_error: null, comparison: null };
+    if (options.computed) {
+        result.computed = runComputedIntegrity(doc.pages, ext);
+        const st = result.computed.statistics_summary;
+        log(`Integrität (rechnerisch) ${doc.title}: ${st.total} Teststatistik(en), ${st.inconsistent} inkonsistent, ${st.gross_errors} mit geänderter Signifikanz.`, st.gross_errors ? 'warning' : 'info');
+    }
+    if (options.online) {
+        const doi = result.computed?.doi ?? findDoi(doc.pages);
+        const firstPages = doc.pages.slice(0, 2).map(p => p.text).join(' ');
+        result.online = await checkDoiOnline(doi, firstPages);
+        if (result.online.retracted) log(`ACHTUNG ${doc.title}: Laut Crossref liegt eine Retraction vor.`, 'error');
+    }
+    if (options.llm) {
+        try {
+            log(`Integrität (LLM, Agent 6): ${doc.title}`, 'info');
+            const prompt = fillTemplate(getCurrentPrompt('integrity'), { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text });
+            result.llm = parseJSONRobust(await callLLM(prompt, { agent: 'integrity', doc: doc.title, promptVersionId }));
+        } catch (err) {
+            result.llm_error = err?.message || String(err);
+            log(`Integrität (LLM) für ${doc.title} fehlgeschlagen: ${result.llm_error}`, 'warning');
+        }
+    }
+    if (result.computed && result.llm) result.comparison = compareIntegrity(result.computed, result.llm);
+    return result;
+}
+
+function integritySummaryForSynthesis(integrity) {
+    if (!integrity) return null;
+    const st = integrity.computed?.statistics_summary;
+    return {
+        statcheck: st ? { tests: st.total, inconsistent: st.inconsistent, significance_changed: st.gross_errors } : null,
+        retracted: integrity.online?.retracted ?? null,
+        corrected: integrity.online?.corrected ?? null,
+        registrations: integrity.computed?.registrations?.ids?.map(r => r.id) || [],
+        llm_issues: Array.isArray(integrity.llm?.issues) ? integrity.llm.issues.slice(0, 5) : []
+    };
+}
+
 async function startWorkflow() {
     if (selectedFiles.length === 0) { alert("Bitte lade zuerst PDFs hoch!"); return; }
 
-    savePrompt('extraction'); savePrompt('analysis'); savePrompt('validation'); savePrompt('synthesis');
+    PROMPT_TYPES.forEach(type => savePrompt(type));
+    const integrityOptions = {
+        computed: document.getElementById('opt-integrity-computed').checked,
+        online: document.getElementById('opt-integrity-online').checked,
+        llm: document.getElementById('opt-integrity-llm').checked
+    };
 
     document.getElementById('btn-start').disabled = true;
     document.getElementById('terminal').style.display = 'flex';
@@ -45,19 +92,8 @@ async function startWorkflow() {
     window.currentRunMetrics = [];
     currentRunSteps = [];
 
-    const promptVersionIds = {
-        extraction: getCurrentPromptVersionId('extraction'),
-        analysis: getCurrentPromptVersionId('analysis'),
-        validation: getCurrentPromptVersionId('validation'),
-        synthesis: getCurrentPromptVersionId('synthesis')
-    };
-
-    const promptDates = {
-        extraction: getCurrentPromptDate('extraction'),
-        analysis: getCurrentPromptDate('analysis'),
-        validation: getCurrentPromptDate('validation'),
-        synthesis: getCurrentPromptDate('synthesis')
-    };
+    const promptVersionIds = Object.fromEntries(PROMPT_TYPES.map(type => [type, getCurrentPromptVersionId(type)]));
+    const promptDates = Object.fromEntries(PROMPT_TYPES.map(type => [type, getCurrentPromptDate(type)]));
 
     const failures = [];
     const docs = [];
@@ -173,11 +209,13 @@ async function startWorkflow() {
                     validation.evidence_coverage = calc.coverage;
                     validation.quality_label = qualityLabel(validation.casq_score, calc.coverage);
                 }
+                const integrity = await runIntegrityChecks(doc, ext, integrityOptions, promptVersionIds.integrity);
                 studyResults.push({
                     title: doc.title, extraction: ext, appraisal, validation,
                     casq_score: validation.casq_score,
                     evidence_coverage: validation.evidence_coverage,
-                    quality_label: validation.quality_label
+                    quality_label: validation.quality_label,
+                    integrity
                 });
             } catch (err) {
                 registerFailure(doc.title, 'Evidence Validation', err);
@@ -208,7 +246,8 @@ async function startWorkflow() {
                     critical_limitations: r.appraisal.critical_limitations,
                     validation_summary: r.validation.validation_summary,
                     jars_quant: r.validation.validated_jars_quant || r.appraisal.jars_quant || null,
-                    embedded_study_appraisals: r.validation.validated_embedded_study_appraisals || r.appraisal.embedded_study_appraisals || []
+                    embedded_study_appraisals: r.validation.validated_embedded_study_appraisals || r.appraisal.embedded_study_appraisals || [],
+                    integrity_flags: integritySummaryForSynthesis(r.integrity)
                 }));
                 const synPrompt = fillTemplate(getCurrentPrompt('synthesis'), { APPRAISALS_DATA: JSON.stringify(synthInput, null, 2) });
                 synthesis = parseJSONRobust(await callLLM(synPrompt, { agent: 'synthesis', doc: null, promptVersionId: promptVersionIds.synthesis }));

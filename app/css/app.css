@@ -155,3 +155,30 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .user-controls .sync-status.pending, .user-controls .sync-status.running { color: #1e40af; background: #eff6ff; border-color: #bfdbfe; }
 .user-controls .sync-status.offline { color: #92400e; background: #fffbeb; border-color: #fde68a; }
 .user-controls .sync-status.error { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
+
+/* Auswahl der Integritätsprüfung auf dem Dashboard */
+.run-options { margin-top: 1rem; padding: .75rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--bg); }
+.run-options-title { font-size: .8rem; font-weight: 700; color: var(--text-light); margin-bottom: .35rem; }
+.run-options label { display: flex; align-items: center; gap: .5rem; font-weight: normal; font-size: .85rem; margin: .25rem 0; cursor: pointer; }
+.run-options input { width: auto; margin: 0; }
+
+/* Integritätsprüfung */
+.integ-box { margin: .9rem 0; padding: 1rem; background: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid var(--primary); border-radius: .55rem; }
+.integ-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem; margin: .5rem 0; }
+.integ-chip { background: white; border: 1px solid var(--border); border-radius: .4rem; padding: .55rem; font-size: .75rem; color: var(--text-light); }
+.integ-chip-title { font-size: .7rem; font-weight: 700; }
+.integ-chip-value { font-size: 1.05rem; font-weight: 700; color: #0f172a; margin: .1rem 0; }
+.integ-table { width: 100%; border-collapse: collapse; font-size: .8rem; background: white; }
+.integ-table th, .integ-table td { text-align: left; padding: .35rem .4rem; border-bottom: 1px solid var(--border); }
+
+/* Status-Lampe des Sprachmodells */
+.workflow-title { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.llm-status { display: inline-flex; align-items: center; gap: .45rem; border: 1px solid var(--border); background: var(--bg); border-radius: 999px; padding: .2rem .65rem; font-size: .8rem; color: var(--text); cursor: pointer; max-width: 100%; }
+.llm-status:hover { border-color: var(--primary); }
+#llm-status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
+.lamp { width: .7rem; height: .7rem; border-radius: 50%; background: #94a3b8; flex: none; }
+.lamp.ok { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
+.lamp.warn { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.25); }
+.lamp.err { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.25); }
+.lamp.checking { background: #f59e0b; animation: lamp-pulse 1s ease-in-out infinite; }
+@keyframes lamp-pulse { 50% { opacity: .35; } }

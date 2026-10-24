@@ -345,5 +345,5 @@ Diese Flags fließen nicht in den CASQ ein, sondern werden separat und gut sicht
 | 3 ✅ | CASQ 2.0 mit Prüffragen + Deckel + Spannweite (2.4); kritische Frage zählt bei „nein“ und „nicht berichtet“ als Mangel | mittel |
 | 4 | JSON-Schema-Ausgabe, ein Instrument pro Aufruf | mittel |
 | 5 | RoB 2, ROBINS-I, NOS, JBI, QUADAS-2 ergänzen | mittel–groß |
-| 6 | Deterministische Signale (statcheck, GRIM, Registrierung, Retractions) | mittel |
+| 6 ✅ | Deterministische Signale (statcheck, GRIM, Stichproben, Registrierung, DOI/Retractions über Crossref) – zusätzlich per LLM (Agent 6) zum Vergleich, per Häkchen wählbar | mittel |
 | 7 | Mehrfachbewertung + Kalibrierung gegen PEDro-/Cochrane-Daten | groß, aber entscheidend |

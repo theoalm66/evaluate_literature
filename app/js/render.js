@@ -216,6 +216,7 @@ function renderResults(res) {
                 ${frameworkHtml}
                 ${casqDetails?.version === 'casq2' ? renderCASQ2(casqDetails, r.title)
                     : dims ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">CASQ-Dimension</th><th>Score</th><th>Gewicht</th><th>Status</th><th style="text-align:left;">Begründung / Validation</th></tr></thead><tbody>${dims}</tbody></table></div>${casqNote}` : ''}
+                ${r.integrity ? renderIntegrity(r.integrity, r.title) : ''}
                 ${strengths ? `<div style="margin-top:.7rem;"><strong>Stärken</strong><ul style="margin-left:1.2rem;">${strengths}</ul></div>` : ''}
                 ${limits ? `<div style="margin-top:.5rem;"><strong>Kritische Limitationen</strong><ul style="margin-left:1.2rem;">${limits}</ul></div>` : ''}
                 ${va.validation_summary ? `<div style="margin-top:.5rem;"><strong>Validierung:</strong> ${escapeHTML(va.validation_summary)}</div>` : ''}
@@ -259,6 +260,108 @@ function renderCASQ2(d, title) {
             <div style="overflow-x:auto;margin-top:.4rem;"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:.8rem;table-layout:fixed;"><colgroup><col style="width:4.5rem;"><col style="width:40%;"><col style="width:8.5rem;"><col></colgroup><thead><tr><th style="text-align:left;">ID</th><th style="text-align:left;">Prüffrage</th><th style="text-align:left;">Antwort</th><th style="text-align:left;">Begründung / Beleg</th></tr></thead><tbody>${rows}</tbody></table></div>
         </details>
         <div style="font-size:.72rem;color:var(--text-light);margin-top:.5rem;">Berechnung im Code: ja = 1, teilweise = 0,5, nein / nicht berichtet = 0; „ja/teilweise“ ohne im PDF gefundenes Zitat wird eine Stufe herabgesetzt. Teilscore = 10 × Mittelwert, CASQ = gewichtetes Mittel; ein kritischer Mangel begrenzt auf 5, mehrere auf 3. Die Spanne zeigt den Wert, wenn alles nicht Berichtete erfüllt wäre.</div>
+    </div>`;
+}
+
+// ---------- Integritätsprüfung: rechnerisch und per LLM nebeneinander ----------
+function integrityBadge(kind, text) {
+    const styles = {
+        ok: 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;',
+        warn: 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;',
+        bad: 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;',
+        none: 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;'
+    };
+    return `<span style="display:inline-block;padding:.1rem .4rem;border-radius:.3rem;white-space:nowrap;font-size:.75rem;${styles[kind] || styles.none}">${escapeHTML(text)}</span>`;
+}
+
+function codeStatVerdict(s) {
+    if (!s) return integrityBadge('none', 'nicht gefunden');
+    if (s.consistent) return integrityBadge('ok', 'passt');
+    if (s.gross_error) return integrityBadge('bad', s.one_tailed_possible ? 'Signifikanz geändert (einseitig?)' : 'Signifikanz geändert');
+    return integrityBadge('warn', s.one_tailed_possible ? 'abweichend (einseitig?)' : 'abweichend');
+}
+
+function llmStatVerdict(l) {
+    if (!l) return integrityBadge('none', 'nicht gefunden');
+    const v = String(l.consistent || '').toLowerCase();
+    const p = Number.isFinite(Number(l.estimated_p)) ? ` · p≈${Number(l.estimated_p).toPrecision(2)}` : '';
+    if (v === 'yes') return integrityBadge('ok', 'passt' + p);
+    if (v === 'no') return integrityBadge(l.significance_changed ? 'bad' : 'warn', (l.significance_changed ? 'Signifikanz geändert' : 'abweichend') + p);
+    return integrityBadge('none', 'unklar' + p);
+}
+
+function link(url, text) {
+    return `<a href="${escapeHTML(url)}" target="_blank" rel="noopener">${escapeHTML(text)}</a>`;
+}
+
+function renderIntegrity(integ, title) {
+    const { options = {}, computed, online, llm, llm_error: llmError, comparison } = integ;
+    const showCode = !!(computed || online);
+    const showLlm = !!options.llm;
+    const fmtP = p => p === null || p === undefined ? '–' : p < 0.001 ? '< .001' : p.toFixed(3).replace(/^0/, '');
+
+    // Kennzahlen
+    const chips = [];
+    if (computed) {
+        const st = computed.statistics_summary;
+        chips.push(`<div class="integ-chip"><div class="integ-chip-title">RECHNERISCH (statcheck)</div><div class="integ-chip-value">${st.total} Tests</div><div>${st.inconsistent} abweichend · ${st.gross_errors} Signifikanz geändert</div></div>`);
+    }
+    if (showLlm) {
+        const tests = Array.isArray(llm?.statistical_tests) ? llm.statistical_tests : [];
+        const bad = tests.filter(t => String(t.consistent).toLowerCase() === 'no').length;
+        chips.push(`<div class="integ-chip"><div class="integ-chip-title">LLM (Agent 6)</div><div class="integ-chip-value">${llm ? tests.length + ' Tests' : 'fehlgeschlagen'}</div><div>${llm ? `${bad} abweichend` : escapeHTML(llmError || '')}</div></div>`);
+    }
+    if (comparison) {
+        chips.push(`<div class="integ-chip"><div class="integ-chip-title">ÜBEREINSTIMMUNG</div><div class="integ-chip-value">${comparison.verdict_agreement === null ? 'n/a' : Math.round(comparison.verdict_agreement * 100) + ' %'}</div><div>${comparison.found_by_both} gemeinsam · ${comparison.found_by_code - comparison.found_by_both} nur Code · ${comparison.found_by_llm - comparison.found_by_both} nur LLM</div></div>`);
+    }
+    if (online) {
+        const status = !online.checked ? integrityBadge('none', 'nicht geprüft') : online.retracted ? integrityBadge('bad', 'RETRACTED') : online.concern ? integrityBadge('warn', 'Expression of Concern') : online.corrected ? integrityBadge('warn', 'Korrektur vorhanden') : online.found ? integrityBadge('ok', 'keine Rücknahme bekannt') : integrityBadge('warn', 'DOI unbekannt');
+        chips.push(`<div class="integ-chip"><div class="integ-chip-title">CROSSREF</div><div class="integ-chip-value">${status}</div><div>${escapeHTML(online.checked ? (online.journal || '') : online.reason || '')}</div></div>`);
+    }
+
+    // Statistik-Tabelle: Zeilen aus dem Vergleich bzw. aus der jeweils vorhandenen Seite
+    const rows = comparison ? comparison.rows
+        : computed ? computed.statistics.map(c => ({ code: c, llm: null }))
+        : (llm?.statistical_tests || []).map(l => ({ code: null, llm: l }));
+    const statRows = rows.map(({ code, llm: l }) => `<tr>
+        <td>${escapeHTML(code?.page ?? l?.page ?? '')}</td>
+        <td>${escapeHTML(code?.label || l?.reported || '')}</td>
+        ${showCode ? `<td>${code ? fmtP(code.computed_p) : '–'}</td><td>${codeStatVerdict(code)}</td>` : ''}
+        ${showLlm ? `<td>${llmStatVerdict(l)}${l?.note ? `<div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(l.note)}</div>` : ''}</td>` : ''}
+    </tr>`).join('');
+    const statTable = rows.length ? `<div style="overflow-x:auto;"><table class="integ-table"><thead><tr><th>S.</th><th>Angabe im Text</th>${showCode ? '<th>p nachgerechnet</th><th>Rechnerisch</th>' : ''}${showLlm ? '<th>LLM</th>' : ''}</tr></thead><tbody>${statRows}</tbody></table></div>`
+        : '<div style="font-size:.85rem;color:var(--text-light);">Keine Teststatistiken im Format „t(df) = x, p = y“ gefunden.</div>';
+
+    // Weitere Prüfungen nebeneinander
+    const cell = html => `<td style="vertical-align:top;">${html || '<span style="color:var(--text-light);">–</span>'}</td>`;
+    const grimCode = computed ? (computed.grim.length ? computed.grim.map(g => `${g.consistent ? integrityBadge('ok', 'möglich') : integrityBadge('warn', 'unmöglich')} S. ${g.page}: M = ${escapeHTML(g.mean_text ?? g.mean)}, n = ${g.n}`).join('<br>') + '<div style="font-size:.72rem;color:var(--text-light);">Nur aussagekräftig bei ganzzahligen Einzelwerten (z.B. ein Likert-Item).</div>' : 'keine Kandidaten (M und n in einer Klammer)') : '';
+    const grimLlm = (llm?.grim || []).map(g => `${String(g.consistent).toLowerCase() === 'no' ? integrityBadge('warn', 'unmöglich') : String(g.consistent).toLowerCase() === 'yes' ? integrityBadge('ok', 'möglich') : integrityBadge('none', 'n/a')} ${escapeHTML(g.reported || '')}`).join('<br>');
+    const ss = computed?.sample_summary;
+    const sampleCode = ss ? `Gesamt-N: ${ss.totals.length ? escapeHTML(ss.totals.join(', ')) : '–'}${ss.multiple_totals ? ' ' + integrityBadge('warn', 'mehrere Werte') : ''}<br>Teilgruppen n: ${ss.subgroups.length ? escapeHTML(ss.subgroups.slice(0, 8).join(', ')) : '–'}${ss.extracted_n ? `<br>Extrahiertes N = ${escapeHTML(ss.extracted_n)} ${ss.extracted_n_found ? integrityBadge('ok', 'im Text gefunden') : integrityBadge('warn', 'nicht als N/n im Text')}` : ''}` : '';
+    const sampleLlm = llm ? `${String(llm.sample_size_consistent).toLowerCase() === 'no' ? integrityBadge('warn', 'Widerspruch') : String(llm.sample_size_consistent).toLowerCase() === 'yes' ? integrityBadge('ok', 'stimmig') : integrityBadge('none', 'unklar')} ${escapeHTML(llm.sample_size_note || '')}` : '';
+    const reg = computed?.registrations;
+    const regCode = reg ? `${reg.ids.length ? reg.ids.map(x => `${link(x.url, x.id)} (${escapeHTML(x.registry)}, S. ${x.page})`).join('<br>') : 'keine Registrierungsnummer gefunden'}<br>Präregistrierung erwähnt: ${reg.preregistration_mentioned ? 'ja' : 'nein'}` : '';
+    const regLlm = llm ? `${(llm.registrations || []).map(x => escapeHTML(`${x.id} (${x.registry || '?'})`)).join('<br>') || 'keine'}<br>Präregistrierung erwähnt: ${escapeHTML(llm.preregistration_mentioned || '–')}` : '';
+    const doi = online?.checked && online.found ? online : null;
+    const doiValue = computed?.doi || online?.doi || null;
+    const doiCode = (computed || online) ? `${doiValue ? link(`https://doi.org/${doiValue}`, doiValue) : 'keine DOI gefunden'}${doi ? `<br>${escapeHTML(doi.title || '')}${doi.year ? ` (${doi.year})` : ''} ${doi.title_matches_document === false ? integrityBadge('warn', 'Titel passt nicht zum PDF') : doi.title_matches_document ? integrityBadge('ok', 'Titel passt') : ''}${doi.notices.map(n => `<br>${integrityBadge(/retract/i.test(n.type) ? 'bad' : 'warn', n.label || n.type)} ${link(`https://doi.org/${n.notice_doi}`, n.notice_doi)}`).join('')}` : online && !online.checked ? `<br><span style="color:var(--text-light);">${escapeHTML(online.reason)}</span>` : ''}` : '';
+    const doiLlm = llm ? `${escapeHTML(llm.doi || '–')}<br>Retraction/Korrektur im Text erwähnt: ${escapeHTML(llm.retraction_or_correction_mentioned || '–')}${llm.retraction_note ? ` – ${escapeHTML(llm.retraction_note)}` : ''}` : '';
+    const sideBySide = `<div style="overflow-x:auto;margin-top:.6rem;"><table class="integ-table"><thead><tr><th>Prüfung</th>${showCode ? '<th>Rechnerisch</th>' : ''}${showLlm ? '<th>LLM</th>' : ''}</tr></thead><tbody>
+        <tr><td><strong>GRIM</strong></td>${showCode ? cell(grimCode) : ''}${showLlm ? cell(grimLlm) : ''}</tr>
+        <tr><td><strong>Stichprobengrößen</strong></td>${showCode ? cell(sampleCode) : ''}${showLlm ? cell(sampleLlm) : ''}</tr>
+        <tr><td><strong>Registrierung</strong></td>${showCode ? cell(regCode) : ''}${showLlm ? cell(regLlm) : ''}</tr>
+        <tr><td><strong>DOI / Retraction</strong></td>${showCode ? cell(doiCode) : ''}${showLlm ? cell(doiLlm) : ''}</tr>
+    </tbody></table></div>`;
+    const llmIssues = Array.isArray(llm?.issues) && llm.issues.length ? `<div style="margin-top:.5rem;font-size:.85rem;"><strong>Auffälligkeiten laut LLM:</strong><ul style="margin-left:1.2rem;">${llm.issues.map(x => `<li>${escapeHTML(x)}</li>`).join('')}</ul></div>` : '';
+    const llmSummary = llm?.summary ? `<div style="margin-top:.35rem;font-size:.85rem;"><strong>LLM-Fazit:</strong> ${escapeHTML(llm.summary)}</div>` : '';
+
+    return `<div class="integ-box">
+        <div style="font-size:.72rem;color:#1e3a8a;font-weight:700;">INTEGRITÄTSPRÜFUNG</div>
+        <div class="integ-chips">${chips.join('')}</div>
+        <details open><summary style="cursor:pointer;font-weight:600;margin:.4rem 0;">Statistische Angaben (${rows.length})</summary>${statTable}</details>
+        ${sideBySide}
+        ${llmIssues}${llmSummary}
+        <div style="font-size:.72rem;color:var(--text-light);margin-top:.5rem;">Rechnerisch: zweiseitige p-Werte aus Teststatistik und Freiheitsgraden (wie statcheck), Rundung der berichteten Werte berücksichtigt; durchsucht den <em>gesamten</em> PDF-Text. Das LLM sieht nur den Evidenzkontext. Abweichungen sind Hinweise, keine Beweise – z.B. bei einseitigen Tests, Korrekturen für multiples Testen oder Fehlern beim Auslesen des PDFs.</div>
     </div>`;
 }
 

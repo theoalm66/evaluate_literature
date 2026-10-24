@@ -15,7 +15,9 @@ async function initApp() {
     }
 
     updateNetworkStatus();
-    window.addEventListener('online', () => { updateNetworkStatus(); serverStatus = 'unknown'; scheduleSync(500); });
+    window.addEventListener('online', () => { updateNetworkStatus(); serverStatus = 'unknown'; scheduleSync(500); scheduleLlmStatusCheck(1000); });
+    // Offline bleiben nur Modelle auf diesem Gerät erreichbar – die Lampe prüft das gleich selbst.
+    window.addEventListener('offline', () => scheduleLlmStatusCheck(300));
     window.addEventListener('offline', updateNetworkStatus);
     detectServer().then(status => { showServerStatus(status); updateSparkModelHint(); });
 
