@@ -17,7 +17,7 @@ aktuell erreichbar unter `https://thinkstationpgx-afbe.taildf3925.ts.net/lit` au
 | Prompts | max. 5 Versionen je Agent, Datum als `toLocaleString()` | Nicht sortier-/synchronisierbar, keine eindeutige Version-ID |
 | LLM-Aufruf | Browser ruft Endpoint direkt (`fetch` auf `custom2Url = http://10.189.26.81:8000/v1`) | Ein Nutzer im Internet erreicht die Spark-IP `10.x` nicht; HTTP-Endpoint aus HTTPS-Seite = Mixed Content |
 | Offline | pdf.js kommt von cdnjs | Ohne Internet lädt weder die App noch pdf.js |
-| Erreichbarkeit | `*.ts.net` | Nur Tailnet-Mitglieder kommen ran – für „beliebige“ Internet-Nutzer braucht es **Tailscale Funnel** (öffentlich, Port 443/8443/10000) |
+| Erreichbarkeit | `*.ts.net` über **Tailscale Funnel** bereits öffentlich (z.B. Handy im Mobilfunk) | Die Seite ist für jeden im Internet abrufbar. Solange nur statisches HTML ausgeliefert wird und alle Daten im Browser liegen, ist das unkritisch. Sobald Backend, Proxy und Daten auf dem Spark liegen, wird der Login zur echten Schutzgrenze. Ein Handy kann weder `10.189.26.81` noch Laptop-`localhost` erreichen → dort funktionieren nur Spark-Modelle (über den Proxy) und Internet-APIs |
 
 ### 1.2 Zielarchitektur
 
@@ -82,7 +82,7 @@ Laptop. Bei `direct`-Providern (Laptop-LM-Studio) läuft sie zwangsläufig im Br
 ### 1.4 Benutzer und Geheimnisse
 
 - **Login serverseitig:** Passwort mit argon2id, Session als `HttpOnly; Secure; SameSite=Strict`-Cookie,
-  Rate-Limit auf `/auth`. Bei Funnel ist das Pflicht, weil der Dienst öffentlich ist.
+  Rate-Limit auf `/auth`. Pflicht, weil der Dienst über Funnel bereits öffentlich ist. Mit `tailscale funnel status` prüfen, dass **nur** `/lit` (bzw. später das Backend) freigegeben ist und niemals der vLLM-Port `:8000` direkt.
   Alternative für reine Tailnet-Nutzer: Tailscale-Identität (`Tailscale-User-Login`-Header von `tailscale serve`).
 - **Offline-Login:** Nach erstem Online-Login wird ein lokaler Schlüssel (WebCrypto, PBKDF2 → AES-GCM)
   aus dem Passwort abgeleitet; damit entsperrt der Browser die IndexedDB auch ohne Server.
@@ -121,6 +121,7 @@ sync_log         (seq INTEGER PK, user_id, table, row_id, op, at)     -- Server-
 
 1. **PWA:** `manifest.webmanifest` + Service Worker cachet App-Shell, pdf.js + Worker (lokal
    ausliefern statt cdnjs), Icons. App startet ohne Netz.
+   Hinweis: Wird die App per „Zum Home-Bildschirm“ auf dem Handy installiert, startet sie auch ohne Netz.
 2. **IndexedDB** (z.B. mit `Dexie`) ersetzt `localStorage` komplett – kein 5-MB-Limit.
 3. **Outbox:** Jede lokale Änderung wird in die Tabelle geschrieben **und** als Eintrag in `outbox`.
 4. **Sync-Protokoll:**
@@ -143,7 +144,7 @@ sync_log         (seq INTEGER PK, user_id, table, row_id, op, at)     -- Server-
 | 2 | Backend auf Spark: Auth, SQLite, Sync-Endpoints, Migration alter `agentUsers`-Daten (Import-Button) | Daten auf Spark **und** lokal |
 | 3 | LLM-Proxy + Provider-Modell (`direct`/`proxy`), serverseitige Keys | Spark-Modell aus dem Internet nutzbar |
 | 4 | Optional: serverseitige Jobs mit SSE | Lange Läufe unabhängig vom Browser |
-| 5 | Funnel freischalten, Rate-Limits, Backups (`sqlite3 .backup` per Cron) | Öffentlicher Betrieb |
+| 5 | Funnel-Pfade auf das Backend umstellen (Funnel ist schon aktiv), Rate-Limits, Backups (`sqlite3 .backup` per Cron) | Öffentlicher Betrieb |
 
 Kleinere Fehler, die beim Umbau mit behoben werden sollten:
 - `prompt.replace('{{SOURCE_TEXT}}', doc.evidence_text)`: Bei String-Ersetzung interpretiert JS `$&`, `$'`, `` $` `` im
