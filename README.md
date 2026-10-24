@@ -25,7 +25,10 @@ tailscale funnel --bg --set-path /lit http://127.0.0.1:8080
 Der Server versteht Pfade mit und ohne `/lit`-Präfix, es spielt also keine Rolle, ob Tailscale das Präfix
 weiterreicht. Aufruf wie bisher: `https://thinkstationpgx-afbe.taildf3925.ts.net/lit`.
 
-**Variante A – Docker** (empfohlen, auf dem Spark muss nichts außer Docker installiert sein):
+**Variante A – Docker** (empfohlen, auf dem Spark muss nichts außer Docker installiert sein).
+Ist Port 8080 auf dem Spark schon belegt („port is already allocated“), in der Datei `.env` neben
+`compose.yaml` einen anderen Port eintragen, z.B. `LIT_HOST_PORT=8091`, und beim `tailscale funnel`-Befehl
+denselben Port verwenden:
 
 ```bash
 LIT_INVITE_CODE='<geheimer Code>' docker compose up -d --build
