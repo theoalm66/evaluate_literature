@@ -1,0 +1,10 @@
+{
+  "name": "evaluate-literature",
+  "private": true,
+  "description": "Publikations-Agent: KI-gestütztes Critical Appraisal wissenschaftlicher Literatur",
+  "scripts": {
+    "test": "node --test tests/scoring.test.js",
+    "test:e2e": "node tests/e2e/run.js",
+    "serve": "node tests/e2e/static-server.js"
+  }
+}
