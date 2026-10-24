@@ -29,12 +29,13 @@
             <label>Passwort</label>
             <input type="password" id="login-pass" placeholder="Dein Passwort" autocomplete="current-password">
 
-            <label>Einladungscode <span style="font-weight:normal;color:var(--text-light);">(nur für ein neues Konto auf dem Spark)</span></label>
+            <label>Einladungscode <span style="font-weight:normal;color:var(--text-light);">(nur beim ersten Mal, um ein Konto auf dem Spark anzulegen)</span></label>
             <input type="text" id="login-invite" placeholder="leer lassen für ein rein lokales Profil" autocomplete="off">
 
             <button class="btn auth-btn" onclick="handleAuth('login')" disabled>Einloggen</button>
             <button class="btn btn-secondary auth-btn" onclick="handleAuth('register')" disabled>Neu registrieren</button>
             <div id="storage-status" class="storage-status">Lokaler Speicher wird geöffnet…</div>
+            <div id="server-status" class="storage-status"></div>
             <div id="login-error" style="color: var(--danger); font-size: 0.85rem; text-align: center; margin-top: 1rem; display: none;"></div>
         </div>
     </div>

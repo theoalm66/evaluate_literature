@@ -312,7 +312,8 @@ function updateSyncStatus() {
         if (!linked) {
             detail.innerHTML = serverStatus === 'absent'
                 ? 'Diese Installation hat kein Spark-Backend. Alle Daten bleiben in diesem Browser.'
-                : 'Dieses Profil ist nur in diesem Browser gespeichert. Verknüpfe es mit einem Konto auf dem Spark, um Einstellungen, Prompts und Historie auf allen Geräten zu haben.';
+                : 'Dieses Profil ist nur in diesem Browser gespeichert. Verknüpfe es mit einem Konto auf dem Spark, um Einstellungen, Prompts und Historie auf allen Geräten zu haben.'
+                  + (serverStatus === 'unreachable' ? '<br><span style="color:var(--danger);">Der Spark ist im Moment nicht erreichbar.</span>' : '');
         } else {
             const last = syncState.lastSync ? syncState.lastSync.toLocaleString() : 'noch nicht in dieser Sitzung';
             detail.innerHTML = `Verknüpft mit dem Spark-Konto <strong>${escapeHTML(currentUser)}</strong>. Letzte Synchronisation: ${escapeHTML(last)}.`

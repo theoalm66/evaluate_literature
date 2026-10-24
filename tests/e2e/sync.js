@@ -169,6 +169,19 @@ const runCount = (page, user) => page.evaluate(u => listRuns(u).then(r => r.leng
         await C.page.waitForSelector('#app-screen', { state: 'visible' });
         console.log('✓ Altes lokales Profil verknüpft, Passwort auf beiden Seiten geändert, Historie hochgeladen');
 
+        // 6) Altes lokales Profil: Einloggen MIT Einladungscode verknüpft direkt
+        const legacy2 = { dora: { passHash: legacyHash('langesPasswort1'), keys: { activeProvider: 'custom1', custom1Url: 'http://y/v1', custom1Key: '' },
+            history: [{ date: '2.1.2026', model: 'm', extractions: [{ title: 'd.pdf' }], validation: { casq_score: 5 }, study_results: [] }] } };
+        const D = await newDevice(browser, errors, [data => { if (!localStorage.getItem('agentUsers')) localStorage.setItem('agentUsers', data); }, JSON.stringify(legacy2)]);
+        await D.page.waitForFunction(() => document.getElementById('server-status').textContent.includes('Verbunden'));
+        await login(D.page, 'dora', 'langesPasswort1', { invite: INVITE });
+        await D.page.waitForSelector('#app-screen', { state: 'visible' });
+        state = await sync(D.page);
+        assert.match(state.badge, /\bok\b/, 'Profil nicht verknüpft: ' + state.badge);
+        const doraRuns = db().prepare(`SELECT COUNT(*) c FROM runs r JOIN users u ON u.id = r.user_id WHERE u.login = 'dora'`).get().c;
+        assert.equal(doraRuns, 1);
+        console.log('✓ Einloggen mit Einladungscode verknüpft ein lokales Profil direkt');
+
         assert.deepEqual(errors, [], 'Fehler in der Browser-Konsole');
         ok = true;
     } catch (err) {

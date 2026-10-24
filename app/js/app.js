@@ -17,14 +17,21 @@ async function initApp() {
     updateNetworkStatus();
     window.addEventListener('online', () => { updateNetworkStatus(); serverStatus = 'unknown'; scheduleSync(500); });
     window.addEventListener('offline', updateNetworkStatus);
-    detectServer().then(status => {
-        if (status === 'absent') hideInviteField();
-    });
+    detectServer().then(showServerStatus);
 
     // Der Service Worker hält App und pdf.js für den Offline-Start vor (nur über HTTPS oder localhost).
     if ('serviceWorker' in navigator && window.isSecureContext) {
         navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service Worker nicht registriert:', err));
     }
+}
+
+function showServerStatus(status) {
+    const el = document.getElementById('server-status');
+    if (status === 'absent') hideInviteField();
+    el.classList.toggle('error', status === 'unreachable');
+    el.textContent = status === 'available' ? '✓ Verbunden mit dem Spark'
+        : status === 'unreachable' ? 'Spark nicht erreichbar – Anmeldung nur mit lokal gespeichertem Profil.'
+        : status === 'absent' ? 'Ohne Spark-Server: Profile werden nur in diesem Browser gespeichert.' : '';
 }
 
 // Ohne Spark-Backend gibt es keine Konten auf dem Server – dann ist der Einladungscode überflüssig.

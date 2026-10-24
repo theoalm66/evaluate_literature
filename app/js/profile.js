@@ -142,6 +142,7 @@ async function handleAuth(action) {
         let db = getUserDB();
         const hashedPass = hashString(pass);
         let notice = '';
+        let linkedNow = false;
 
         if (action === 'register') {
             if (db[user]) {
@@ -184,16 +185,37 @@ async function handleAuth(action) {
                 notice = 'Das Passwort weicht vom lokal gespeicherten ab. Bitte die API-Keys neu eingeben.';
             } else if (localOk) {
                 db = ensureProfileStructure(db, user);
-                if (db[user].sync.linked && serverStatus === 'available' && !serverOk) {
+                if (invite && !db[user].sync.linked) {
+                    // Einladungscode beim Einloggen: bisher nur lokales Profil direkt mit einem neuen Spark-Konto verknüpfen.
+                    if (serverStatus !== 'available') {
+                        notice = 'Der Spark ist nicht erreichbar – das Profil bleibt vorerst nur lokal.';
+                    } else if (pass.length < 8) {
+                        notice = 'Für ein Spark-Konto braucht das Passwort mindestens 8 Zeichen. Bitte unter Konfiguration → „Mit Spark verknüpfen“ ein neues Passwort vergeben.';
+                    } else {
+                        const res = await api('auth/register', { method: 'POST', body: { login: user, password: pass, inviteCode: invite } });
+                        if (res.status === 201) { serverOk = true; linkedNow = true; }
+                        else notice = res.status === 409
+                            ? 'Auf dem Spark gibt es dieses Konto schon, aber mit einem anderen Passwort. Bitte mit dem Spark-Passwort einloggen.'
+                            : `Verknüpfen mit dem Spark fehlgeschlagen: ${res.data?.error || res.status}`;
+                    }
+                } else if (db[user].sync.linked && serverStatus === 'available' && !serverOk) {
                     notice = 'Anmeldung am Spark fehlgeschlagen – es wird nur lokal gearbeitet.';
                 }
             } else {
                 showLoginError("Falscher Benutzername oder Passwort.");
                 return;
             }
+            // Vorhandenes lokales Profil wird erstmals verknüpft (ein neu vom Spark geladenes hat noch keine eigenen Daten).
+            if (serverOk && local && !db[user].sync.linked) {
+                linkedNow = true;
+                // Bisherige lokale Einstellungen sollen auf dem Spark ankommen.
+                if (!db[user].sync.settingsUpdatedAt) db[user].sync.settingsUpdatedAt = new Date().toISOString();
+            }
             if (serverOk) db[user].sync.linked = true;
         }
         saveUserDB(db);
+        // Erstmals verknüpft: den gesamten lokalen Bestand zum Hochladen einreihen.
+        if (linkedNow) await enqueueAllRuns(user);
         openAppForUser(user, pass);
         if (notice) alert(notice);
     } finally {
