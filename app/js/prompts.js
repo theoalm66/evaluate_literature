@@ -121,17 +121,13 @@ ETABLIERTE SCORE-ITEMS:
 - COSMIN: Gib relevante Boxen/Messeigenschaften mit response very_good|adequate|doubtful|inadequate|not_applicable zurück; overall/box rating nach worst-score-counts.
 - MMAT/CASP: Nutze framework_appraisal für transparente kriteriumsbasierte Zusatzbewertung ohne numerischen offiziellen Score.
 
-CASQ (NUR ERGÄNZEND):
-- Quantitativ: Research question & theory 10; Design appropriateness 15; Sample & external validity 15; Measurement quality 15; Statistical analysis 15; Bias & internal validity 15; Results interpretation 5; Transparency & reproducibility 5; Limitations 5.
-- Qualitativ: Research question & fit 10; Sampling strategy 15; Data collection quality 15; Reflexivity 10; Analytic rigor 20; Credibility / triangulation / saturation 15; Transferability 5; Transparency 5; Limitations 5.
-- Mixed Methods: Research question & design fit 10; Quantitative component 25; Qualitative component 25; Integration quality 25; Inference quality 10; Transparency 5.
-- Review: Question & protocol 10; Search strategy 20; Screening & study selection 15; Critical appraisal 15; Data extraction 10; Synthesis method 15; Heterogeneity/publication bias 10; Transparency 5.
-- Theoretical: Conceptual clarity 15; Literature foundation 20; Logical coherence 20; Novelty 10; Boundary conditions 10; Testability 10; Integration 10; Limitations & transparency 5.
-- Methodological paper: Methodological objective & scope 10; Conceptual/methodological foundation 15; Description of methods/instruments 20; Empirical support/examples 15; Validity & reliability discussion 15; Critical reflection of strengths/limitations 10; Reproducibility/transferability 5; Literature integration 5; Transparency 5.
-- Multiple-study report: Overarching research logic 10; Transparency of individual study methods 15; Adequacy of designs across studies 15; Measurement quality across studies 10; Statistical/analytic rigor across studies 10; Integration and progression across studies 15; Cross-study interpretation 10; Limitations/bias reflection 10; Reproducibility/transparency 5.
-- Narrative review / overview: Scope & purpose 10; Literature foundation 20; Selection transparency 10; Synthesis rigor 20; Critical appraisal/reflection 15; Balance of evidence 10; Limitations 10; Transparency 5.
-- CASQ-Skala 0-10, bevorzugt ganze/halbe Punkte. Nicht anwendbare Dimensionen weight=0.
-- Wenn keine belastbaren CASQ-Dimensionen bewertet werden können, liefere keine künstlichen 0-Punkte-Dimensionen; nutze insufficient_information.
+CASQ (NUR ERGÄNZEND, interner Vergleichsindex):
+- Beantworte JEDE der folgenden Prüffragen. Vergib KEINE Punkte und KEINE Gewichte – der CASQ wird anschließend deterministisch aus deinen Antworten berechnet.
+- Antwortwerte: yes = erfüllt; partial = teilweise erfüllt; no = berichtet, aber nicht erfüllt bzw. unzureichend; not_reported = im Text keine Information; not_applicable = trifft auf diese Publikation nicht zu (sparsam verwenden und begründen).
+- Für yes und partial ist ein kurzes, möglichst wörtliches Zitat mit PDF-Seite Pflicht. Antworten, deren Zitat im Text nicht auffindbar ist, werden automatisch herabgestuft.
+- "Nicht berichtet" ist not_reported, nicht yes. Mit [KRITISCH] markierte Fragen begrenzen den CASQ, wenn sie mit no oder not_reported beantwortet werden.
+- Prüffragen (Rubrik: {{CASQ_RUBRIC}}):
+{{CASQ_CHECKLIST}}
 
 STUDY_DATA:
 {{STUDY_DATA}}
@@ -182,7 +178,7 @@ JSON-SCHEMA:
     "criteria": [{"criterion":"...","framework_response":"yes|no|cant_tell|not_applicable","evidence":[{"page":12,"section":"...","quote":"..."}],"rationale":"..."}],
     "framework_summary":"..."
   },
-  "dimensions": [{"name":"Dimension","evidence":[{"page":12,"section":"Methods","quote":"..."}],"score":7.5,"weight":15,"status":"applicable|not_applicable|insufficient_information","rationale":"..."}],
+  "casq_checklist": [{"id":"QN-1.1","response":"yes|partial|no|not_reported|not_applicable","evidence":[{"page":12,"section":"Methods","quote":"..."}],"rationale":"..."}],
   "bias_domains": [{"domain":"...","evidence":"...","rating":"low|some_concerns|high|unclear|not_applicable","rationale":"..."}],
   "critical_strengths": ["..."],
   "critical_limitations": ["..."],
@@ -237,7 +233,9 @@ REGELN:
 - AMSTAR 2: kein numerischer Summenscore; validiere das Gesamtvertrauen anhand kritischer Domänen und Fehler.
 - COSMIN: validiere Ratings pro relevanter Mess-Eigenschaft; worst-score-counts darf nicht durch Mittelwert ersetzt werden.
 - MMAT: trenne die 2 Screening-Fragen strikt von den designspezifischen Kriterien. Zwei erfolgreiche Screening-Fragen sind KEINE vollständige MMAT-Qualitätsbewertung. CASP/MMAT: validiere Einzelurteile; kein offizieller numerischer Summenscore.
-- Für jede CASQ-Dimension supported, partially_supported, unsupported oder insufficient_information. CASQ bleibt intern.
+- Prüfe jede Antwort in appraisal.casq_checklist gegen den SOURCE_TEXT und gib für JEDE Prüffrage die validierte Antwort zurück. Korrigiere Antworten, die der Text nicht trägt (z.B. yes → partial, no oder not_reported). Für yes und partial liefere ein wörtliches Zitat mit PDF-Seite. Vergib keine Punkte; CASQ bleibt intern.
+- Prüffragen (Rubrik: {{CASQ_RUBRIC}}):
+{{CASQ_CHECKLIST}}
 - Erfinde keine Quellenstellen. Für entscheidbare Items liefere kurze Evidenz mit PDF-Seite und Zitat.
 - Antworte NUR mit validem JSON.
 
@@ -278,7 +276,7 @@ JSON-SCHEMA:
     "criteria":[{"criterion":"...","framework_response":"yes|no|cant_tell|not_applicable","evidence":[{"page":12,"section":"...","quote":"..."}],"validation_note":"..."}],
     "framework_summary":"..."
   },
-  "validated_dimensions": [{"name":"Dimension","source_refs":[{"page":12,"section":"Methods","quote":"..."}],"original_score":7.5,"adjusted_score":7.0,"weight":15,"validation_status":"supported|partially_supported|unsupported|insufficient_information|not_applicable","validation_note":"..."}],
+  "validated_casq_checklist": [{"id":"QN-1.1","original_response":"yes","response":"yes|partial|no|not_reported|not_applicable","evidence":[{"page":12,"section":"Methods","quote":"..."}],"validation_note":"..."}],
   "unsupported_claims": ["..."],
   "validation_summary": "..."
 }`

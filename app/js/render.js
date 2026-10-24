@@ -203,7 +203,7 @@ function renderResults(res) {
             <div style="background:white;padding:1rem;border:1px solid var(--border);border-radius:.5rem;margin-bottom:1rem;">
                 <h4 style="margin-bottom:.4rem;color:#0f172a;">${escapeHTML(r.title)}</h4>
                 <div style="font-size:.9rem;margin-bottom:.35rem;"><strong>Dokumenttyp:</strong> ${escapeHTML(ex.document_type || ap.document_type_confirmed || 'unclear')}</div>
-                <div style="font-size:.9rem;margin-bottom:.7rem;"><strong>${escapeHTML(ex.study_family || 'Unclear')} / ${escapeHTML(ex.study_design || 'Unclear')}</strong> &nbsp; | &nbsp; Etabliert: <strong>${escapeHTML(jq?.applicable ? ('APA JARS-Quant (Reporting)' + (established.applicable ? ' + ' + established.display : '')) : established.display)}</strong> &nbsp; | &nbsp; CASQ intern: <strong>${scoreTxt}</strong> &nbsp; | &nbsp; ${va.casq_details ? 'Evidenz (verifiziert)' : 'Evidenz'}: <strong>${Math.round(Number(r.evidence_coverage)||0)} %</strong></div>
+                <div style="font-size:.9rem;margin-bottom:.7rem;"><strong>${escapeHTML(ex.study_family || 'Unclear')} / ${escapeHTML(ex.study_design || 'Unclear')}</strong> &nbsp; | &nbsp; Etabliert: <strong>${escapeHTML(jq?.applicable ? ('APA JARS-Quant (Reporting)' + (established.applicable ? ' + ' + established.display : '')) : established.display)}</strong> &nbsp; | &nbsp; CASQ intern: <strong>${scoreTxt}</strong> &nbsp; | &nbsp; ${va.casq_details?.version === 'casq2' ? `Informationsgrad: <strong>${Math.round(Number(va.information_grade)||0)} %</strong> &nbsp; | &nbsp; Belege verifiziert` : va.casq_details ? 'Evidenz (verifiziert)' : 'Evidenz'}: <strong>${Math.round(Number(r.evidence_coverage)||0)} %</strong></div>
                 <div style="font-size:.9rem;color:var(--text-light);margin-bottom:.7rem;">
                     <strong>Methoden:</strong> ${escapeHTML((ex.methods || []).join(', ') || '-')}<br>
                     <strong>Forschungsfrage:</strong> ${escapeHTML(ex.research_question?.value || '-')}<br>
@@ -214,13 +214,52 @@ function renderResults(res) {
                 ${jarsHtml}
                 ${embeddedHtml}
                 ${frameworkHtml}
-                ${dims ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">CASQ-Dimension</th><th>Score</th><th>Gewicht</th><th>Status</th><th style="text-align:left;">Begründung / Validation</th></tr></thead><tbody>${dims}</tbody></table></div>${casqNote}` : ''}
+                ${casqDetails?.version === 'casq2' ? renderCASQ2(casqDetails, r.title)
+                    : dims ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">CASQ-Dimension</th><th>Score</th><th>Gewicht</th><th>Status</th><th style="text-align:left;">Begründung / Validation</th></tr></thead><tbody>${dims}</tbody></table></div>${casqNote}` : ''}
                 ${strengths ? `<div style="margin-top:.7rem;"><strong>Stärken</strong><ul style="margin-left:1.2rem;">${strengths}</ul></div>` : ''}
                 ${limits ? `<div style="margin-top:.5rem;"><strong>Kritische Limitationen</strong><ul style="margin-left:1.2rem;">${limits}</ul></div>` : ''}
                 ${va.validation_summary ? `<div style="margin-top:.5rem;"><strong>Validierung:</strong> ${escapeHTML(va.validation_summary)}</div>` : ''}
             </div>`;
     });
     document.getElementById('res-studies').innerHTML = studiesHtml || '<p>Keine Studienergebnisse verfügbar.</p>';
+}
+
+const CASQ_RESPONSE_LABEL = { yes: 'ja', partial: 'teilweise', no: 'nein', not_reported: 'nicht berichtet', not_applicable: 'nicht anwendbar' };
+const CASQ_RESPONSE_STYLE = {
+    yes: 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;',
+    partial: 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;',
+    no: 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;',
+    not_reported: 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;',
+    not_applicable: 'background:#f8fafc;color:#94a3b8;border:1px dashed #cbd5e1;'
+};
+
+// CASQ 2.0: Prüffragen je Dimension mit Antwort, Beleg und berechnetem Teilscore.
+function renderCASQ2(d, title) {
+    const pct = v => v === null || v === undefined ? 'n/a' : `${Math.round(v * 100)} %`;
+    const badge = resp => `<span style="display:inline-block;padding:.1rem .4rem;border-radius:.3rem;white-space:nowrap;${CASQ_RESPONSE_STYLE[resp] || ''}">${escapeHTML(CASQ_RESPONSE_LABEL[resp] || resp)}</span>`;
+    const rows = d.dimensions.map(dim => {
+        const head = `<tr style="background:#f8fafc;"><td colspan="4" style="padding:.4rem;"><strong>${escapeHTML(dim.name)}</strong> · Gewicht ${escapeHTML(dim.weight)} · Teilscore ${dim.score === null ? 'nicht anwendbar' : dim.score.toFixed(1) + ' / 10'}</td></tr>`;
+        const qs = dim.questions.map(q => `<tr>
+            <td style="white-space:nowrap;vertical-align:top;">${escapeHTML(q.id)}</td>
+            <td style="vertical-align:top;">${escapeHTML(q.text)}${q.critical ? ' <span style="font-size:.7rem;font-weight:700;color:#b91c1c;">KRITISCH</span>' : ''}</td>
+            <td style="vertical-align:top;">${badge(q.effective)}${q.downgraded ? `<div style="font-size:.7rem;color:#92400e;margin-top:.15rem;">Modell: ${escapeHTML(CASQ_RESPONSE_LABEL[q.response])} – kein Zitat im PDF gefunden</div>` : ''}</td>
+            <td style="vertical-align:top;">${escapeHTML(q.note)}${renderSourceRefs(title, q.evidence)}</td></tr>`).join('');
+        return head + qs;
+    }).join('');
+    const capNote = d.cap ? `<div style="color:#b91c1c;font-size:.8rem;margin-top:.35rem;"><strong>Gedeckelt auf ${d.cap.toFixed(1)}</strong> wegen kritischer Mängel (${escapeHTML(d.critical_flaws.join(', '))}); ohne Deckel ${d.score_uncapped.toFixed(1)}.</div>` : '';
+    return `<div style="margin:.9rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.55rem;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin-bottom:.6rem;">
+            <div style="background:white;border:1px solid var(--border);border-left:4px solid #64748b;padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">CASQ INTERN · ${escapeHTML(d.rubric_label)}</div><div style="font-weight:700;font-size:1.1rem;">${formatCASQ(d.score)}</div><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(formatCASQRange(d.score_min, d.score_max)) || 'keine Spanne'}</div></div>
+            <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--warning);padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">INFORMATIONSGRAD</div><div style="font-weight:700;font-size:1.1rem;">${pct(d.information_grade)}</div><div style="font-size:.72rem;color:var(--text-light);">Prüffragen mit Angaben im Text</div></div>
+            <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--success);padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">BELEGE VERIFIZIERT</div><div style="font-weight:700;font-size:1.1rem;">${pct(d.evidence_rate)}</div><div style="font-size:.72rem;color:var(--text-light);">„ja/teilweise“ mit Zitat im PDF</div></div>
+            <div style="background:white;border:1px solid var(--border);border-left:4px solid ${d.critical_flaws.length ? 'var(--danger)' : 'var(--success)'};padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">KRITISCHE MÄNGEL</div><div style="font-weight:700;font-size:1.1rem;">${d.critical_flaws.length}</div><div style="font-size:.72rem;color:var(--text-light);">${d.critical_flaws.length ? escapeHTML(d.critical_flaws.join(', ')) : 'keine'}</div></div>
+        </div>
+        ${capNote}
+        <details style="margin-top:.5rem;"><summary style="cursor:pointer;font-weight:600;">CASQ-Prüffragen (${d.dimensions.reduce((a, x) => a + x.questions.length, 0)})</summary>
+            <div style="overflow-x:auto;margin-top:.4rem;"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:.8rem;table-layout:fixed;"><colgroup><col style="width:4.5rem;"><col style="width:40%;"><col style="width:8.5rem;"><col></colgroup><thead><tr><th style="text-align:left;">ID</th><th style="text-align:left;">Prüffrage</th><th style="text-align:left;">Antwort</th><th style="text-align:left;">Begründung / Beleg</th></tr></thead><tbody>${rows}</tbody></table></div>
+        </details>
+        <div style="font-size:.72rem;color:var(--text-light);margin-top:.5rem;">Berechnung im Code: ja = 1, teilweise = 0,5, nein / nicht berichtet = 0; „ja/teilweise“ ohne im PDF gefundenes Zitat wird eine Stufe herabgesetzt. Teilscore = 10 × Mittelwert, CASQ = gewichtetes Mittel; ein kritischer Mangel begrenzt auf 5, mehrere auf 3. Die Spanne zeigt den Wert, wenn alles nicht Berichtete erfüllt wäre.</div>
+    </div>`;
 }
 
 async function saveToHistory(res, steps) {

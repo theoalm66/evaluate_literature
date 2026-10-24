@@ -321,8 +321,8 @@
                 <ul>
                     <li><strong>1. Ingestion:</strong> PDF.js liest den Text lokal und <strong>seitenweise</strong> aus den PDFs. Jede Seite erhält eine interne Seitenmarke. Aus langen Dokumenten werden gezielt Abschnitte zu Forschungsfrage, Theorie, Methodik, Stichprobe, Messung, Analyse, Ergebnissen, Limitationen und Transparenz zusammengestellt.</li>
                     <li><strong>2. Evidence Extraction:</strong> Agent 2 klassifiziert zuerst den <strong>Dokumenttyp</strong>, danach Studienfamilie und Studiendesign und extrahiert strukturierte Evidenz mit Textbelegen. Bei Multi-Study-Reports können enthaltene Teilstudien separat beschrieben werden.</li>
-                    <li><strong>3. Design-spezifisches Appraisal:</strong> Agent 3 bewertet <em>jede Publikation einzeln</em>. Anwendbare Qualitätsdimensionen hängen vom Studiendesign ab; nicht anwendbare Kriterien werden ausgeschlossen.</li>
-                    <li><strong>4. Evidence Validation:</strong> Agent 4 prüft die Bewertungsbegründungen nochmals gegen den bereitgestellten Evidenzkontext und liefert zu jeder gestützten Dimension kurze Originalbelege mit PDF-Seite. Der Browser prüft das Zitat anschließend nochmals gegen den tatsächlich extrahierten Seitentext. Erst aus den validierten Dimensionswerten wird der CASQ deterministisch berechnet.</li>
+                    <li><strong>3. Design-spezifisches Appraisal:</strong> Agent 3 bewertet <em>jede Publikation einzeln</em>. Für den CASQ beantwortet Agent 3 die zum Dokumenttyp passenden Prüffragen (ja / teilweise / nein / nicht berichtet / nicht anwendbar) mit Belegstelle; Punkte vergibt er nicht.</li>
+                    <li><strong>4. Evidence Validation:</strong> Agent 4 prüft die Bewertungsbegründungen nochmals gegen den bereitgestellten Evidenzkontext und korrigiert Antworten auf die Prüffragen, die der Text nicht trägt, und liefert Originalbelege mit PDF-Seite. Der Browser prüft jedes Zitat gegen den tatsächlich extrahierten Seitentext. Erst aus den validierten Antworten wird der CASQ deterministisch berechnet.</li>
                     <li><strong>5. Evidenzgewichtete Synthese:</strong> Agent 5 führt Ergebnisse über Studien hinweg zusammen und berücksichtigt dabei Studiendesign, validierten CASQ, Bias-Risiken und Limitationen.</li>
                 </ul>
 
@@ -338,14 +338,14 @@
 
                 <div class="prompt-editor">
                     <div class="prompt-header"><h3>Agent 3: Etablierte Instrumente + ergänzender CASQ</h3><div class="prompt-controls"><select id="history-analysis" onchange="restorePrompt('analysis')"></select><button class="btn btn-small" onclick="savePrompt('analysis')">Speichern</button></div></div>
-                    <p class="warning-text">Platzhalter: {{STUDY_DATA}}, {{SOURCE_TEXT}}</p>
+                    <p class="warning-text">Platzhalter: {{STUDY_DATA}}, {{SOURCE_TEXT}}, {{CASQ_RUBRIC}}, {{CASQ_CHECKLIST}} (Prüffragen werden vom Programm passend zum Dokumenttyp eingesetzt)</p>
                     <textarea id="prompt-analysis" rows="18"></textarea>
                     <div id="save-note-analysis" class="save-note">✓ Als neue Version gespeichert</div>
                 </div>
 
                 <div class="prompt-editor">
                     <div class="prompt-header"><h3>Agent 4: Evidence- & Score-Validation</h3><div class="prompt-controls"><select id="history-validation" onchange="restorePrompt('validation')"></select><button class="btn btn-small" onclick="savePrompt('validation')">Speichern</button></div></div>
-                    <p class="warning-text">Platzhalter: {{VALIDATION_DATA}}, {{SOURCE_TEXT}}</p>
+                    <p class="warning-text">Platzhalter: {{VALIDATION_DATA}}, {{SOURCE_TEXT}}, {{CASQ_RUBRIC}}, {{CASQ_CHECKLIST}}</p>
                     <textarea id="prompt-validation" rows="16"></textarea>
                     <div id="save-note-validation" class="save-note">✓ Als neue Version gespeichert</div>
                 </div>
@@ -462,7 +462,7 @@
 
                 <h2>CASQ: nur ergänzender interner Vergleichsindex</h2>
                 <p><strong>CASQ – AI-assisted Critical Appraisal Score for Quality</strong> bleibt als heuristischer, <strong>nicht extern validierter</strong> Index von 0 bis 10 erhalten. Er ist nützlich, um heterogene Publikationen innerhalb des OnePagers strukturiert zu vergleichen, darf aber <strong>nicht als Ersatz</strong> für PEDro, MINORS, AMSTAR 2, COSMIN, MMAT/CASP oder GRADE kommuniziert werden.</p>
-                <p>Der CASQ wird nicht direkt vom LLM vergeben: Agent 3 bewertet anwendbare Dimensionen, Agent 4 prüft Evidenz und kann Werte korrigieren; anschließend berechnet JavaScript den gewichteten Mittelwert. Im Ergebnis steht deshalb zuerst das etablierte Instrument und erst danach der CASQ.</p>
+                <p>Der CASQ wird nicht vom LLM vergeben. Je Dokumenttyp gibt es eine feste Rubrik mit gewichteten Dimensionen und 13–27 konkreten Prüffragen. Agent 3 beantwortet sie mit Belegstelle, Agent 4 korrigiert, was der Text nicht trägt. Danach rechnet das Programm: ja = 1, teilweise = 0,5, nein bzw. nicht berichtet = 0; eine „ja/teilweise“-Antwort, deren Zitat im PDF nicht auffindbar ist, wird eine Stufe herabgesetzt. Teilscore je Dimension = 10 × Mittelwert, CASQ = gewichtetes Mittel. Mit KRITISCH markierte Fragen (z.B. „Verfahren passen zu Design und Daten“) begrenzen den CASQ bei einem Mangel auf 5, bei mehreren auf 3 – gute Einzelpunkte können schwere Mängel so nicht „wegmitteln“. Zusätzlich angezeigt werden der <strong>Informationsgrad</strong> (Anteil der Prüffragen, zu denen der Text etwas sagt), die <strong>Belegquote</strong> und eine <strong>Spanne</strong> bis zu dem Wert, der bei vollständiger Berichterstattung höchstens möglich wäre. Im Ergebnis steht zuerst das etablierte Instrument und erst danach der CASQ.</p>
                 <p><strong>Wichtig:</strong> Sind keine validierten CASQ-Dimensionen mit positivem Gewicht vorhanden, zeigt die Oberfläche <strong>„nicht berechenbar“</strong> statt fälschlich <strong>0.0 / 10</strong>. Ein echter CASQ von 0 wäre nur möglich, wenn bewertbare Dimensionen tatsächlich mit 0 Punkten validiert wurden.</p>
                 <ul>
                     <li><strong>8,0–10,0:</strong> sehr hohe interne CASQ-Bewertung</li>

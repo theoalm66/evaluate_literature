@@ -107,7 +107,23 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   Modelle auf demselben Gerät (z.B. LM Studio auf dem Laptop).
 - Einfaches **mobiles Layout**.
 
-**Scoring** (Logik in `app/js/scoring.js`)
+**CASQ 2.0: Prüffragen statt freier Punkte** (Logik in `app/js/scoring.js`)
+- Je Dokumenttyp (quantitativ, qualitativ, Mixed Methods, systematisches Review, theoretisch, Methodenbeitrag,
+  Multiple-Study-Report, narrative Übersicht) gibt es eine feste Rubrik mit 13–27 konkreten, im Text prüfbaren
+  Prüffragen. Welche Rubrik gilt, entscheidet das Programm anhand der Extraktion.
+- Agent 3 beantwortet jede Frage mit ja / teilweise / nein / nicht berichtet / nicht anwendbar und Belegstelle,
+  Agent 4 korrigiert. Das Modell vergibt keine Punkte mehr.
+- Berechnung: ja = 1, teilweise = 0,5, nein / nicht berichtet = 0; „ja/teilweise“ ohne im PDF auffindbares Zitat
+  eine Stufe herab; Teilscore = 10 × Mittelwert je Dimension; CASQ = gewichtetes Mittel (Gewichte wie bisher).
+- Kritische Fragen (z.B. „Verfahren passen zu Design und Daten“, „mind. zwei Datenbanken durchsucht“) begrenzen
+  den CASQ bei einem Mangel auf 5, bei mehreren auf 3.
+- Angezeigt werden zusätzlich Informationsgrad, Belegquote, kritische Mängel, Spanne und die komplette
+  Prüffragen-Tabelle mit Antworten und Belegen.
+- Die Prompts von Agent 3 und 4 wurden dafür angepasst (Platzhalter `{{CASQ_RUBRIC}}`, `{{CASQ_CHECKLIST}}`) und
+  beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
+  Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.
+
+**Scoring – frühere Korrekturen**
 - **CASQ-Gewichte sind fest im Code** (Rubriken wie in Agent 3 beschrieben) und werden nicht mehr aus der
   Modellantwort übernommen. Die Dimensionsnamen des Modells werden der passenden Rubrik zugeordnet; passt keine,
   wird das in der Ergebnisansicht angezeigt und es gelten wie bisher die Modell-Gewichte.

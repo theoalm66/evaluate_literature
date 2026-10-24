@@ -120,10 +120,14 @@ async function startWorkflow() {
             const { doc, ext } = item;
             try {
                 log(`Critical Appraisal: ${doc.title} (${ext.study_family || 'Unclear'} / ${ext.study_design || 'Unclear'})`, 'info');
-                const prompt = fillTemplate(analysisPromptBase, { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text });
+                // CASQ-Prüffragen passend zum Dokumenttyp (vom Code gewählt, nicht vom Modell)
+                const rubricKey = selectCASQRubric(ext);
+                const casqFields = { CASQ_RUBRIC: `${CASQ_RUBRICS[rubricKey].label} (${rubricKey})`, CASQ_CHECKLIST: casqChecklistText(rubricKey) };
+                const prompt = fillTemplate(analysisPromptBase, { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
                 const appraisal = parseJSONRobust(await callLLM(prompt, { agent: 'analysis', doc: doc.title, promptVersionId: promptVersionIds.analysis }));
                 appraisal.title = doc.title;
-                appraisedDocs.push({ doc, ext, appraisal });
+                appraisal.casq_rubric = rubricKey;
+                appraisedDocs.push({ doc, ext, appraisal, rubricKey, casqFields });
             } catch (err) {
                 registerFailure(doc.title, 'Critical Appraisal', err);
             }
@@ -135,30 +139,44 @@ async function startWorkflow() {
         log('PHASE 4: Evidence Validation – prüfe Scores und Begründungen gegen Originaltext...', 'info');
         const validationPromptBase = getCurrentPrompt('validation');
         for (const item of appraisedDocs) {
-            const { doc, ext, appraisal } = item;
+            const { doc, ext, appraisal, rubricKey, casqFields } = item;
             try {
                 log(`Validiere Evidenz: ${doc.title}`, 'info');
                 const validationInput = { extraction: ext, appraisal };
-                const prompt = fillTemplate(validationPromptBase, { VALIDATION_DATA: JSON.stringify(validationInput, null, 2), SOURCE_TEXT: doc.evidence_text });
+                const prompt = fillTemplate(validationPromptBase, { VALIDATION_DATA: JSON.stringify(validationInput, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
                 let validation = parseJSONRobust(await callLLM(prompt, { agent: 'validation', doc: doc.title, promptVersionId: promptVersionIds.validation }));
                 validation.title = doc.title;
                 validation = verifySourceRefs(validation, doc.pages);
                 validation = verifyFrameworkEvidence(validation, appraisal, doc.pages);
                 validation = verifyEstablishedEvidence(validation, appraisal, doc.pages);
                 validation = verifyJARSEvidence(validation, appraisal, doc.pages);
-                const calc = calculateValidatedCASQ(validation, appraisal, ext);
-                const round1 = v => v === null ? null : Number(v.toFixed(1));
-                validation.casq_score = round1(calc.score);
-                validation.casq_min = round1(calc.score_min);
-                validation.casq_max = round1(calc.score_max);
-                validation.casq_details = { weights_source: calc.weights_source, rubric: calc.rubric, rubric_label: calc.rubric_label, dimensions: calc.dimensions, scoring_version: calc.scoring_version };
-                validation.evidence_coverage_agent = calc.agent_coverage;
-                validation.evidence_coverage = calc.coverage;
-                validation.quality_label = qualityLabel(validation.casq_score, calc.coverage);
+                validation = verifyChecklistEvidence(validation, appraisal, doc.pages);
+                const round1 = v => v === null || v === undefined ? null : Number(v.toFixed(1));
+                const casq2 = calculateCASQ2(validation, appraisal, rubricKey);
+                if (casq2) {
+                    validation.casq_score = round1(casq2.score);
+                    validation.casq_min = round1(casq2.score_min);
+                    validation.casq_max = round1(casq2.score_max);
+                    validation.casq_details = casq2;
+                    validation.evidence_coverage = casq2.evidence_rate === null ? 0 : Math.round(casq2.evidence_rate * 100);
+                    validation.information_grade = Math.round(casq2.information_grade * 100);
+                    validation.quality_label = qualityLabel(validation.casq_score, validation.information_grade);
+                    if (casq2.unanswered) log(`${doc.title}: ${casq2.unanswered} CASQ-Prüffrage(n) ohne Antwort – als „nicht berichtet“ gewertet.`, 'warning');
+                } else {
+                    // Ältere bzw. angepasste Prompts ohne Prüffragen: bisherige Dimensionsbewertung
+                    const calc = calculateValidatedCASQ(validation, appraisal, ext);
+                    validation.casq_score = round1(calc.score);
+                    validation.casq_min = round1(calc.score_min);
+                    validation.casq_max = round1(calc.score_max);
+                    validation.casq_details = { weights_source: calc.weights_source, rubric: calc.rubric, rubric_label: calc.rubric_label, dimensions: calc.dimensions, scoring_version: calc.scoring_version };
+                    validation.evidence_coverage_agent = calc.agent_coverage;
+                    validation.evidence_coverage = calc.coverage;
+                    validation.quality_label = qualityLabel(validation.casq_score, calc.coverage);
+                }
                 studyResults.push({
                     title: doc.title, extraction: ext, appraisal, validation,
                     casq_score: validation.casq_score,
-                    evidence_coverage: calc.coverage,
+                    evidence_coverage: validation.evidence_coverage,
                     quality_label: validation.quality_label
                 });
             } catch (err) {

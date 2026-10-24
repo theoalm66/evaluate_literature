@@ -26,6 +26,28 @@ const pedroItems = ['1','2','3','4','5','6','7','8','9'].map(id => ({
     evidence: id === '3' ? [{ page: 2, section: 'Methods', quote: Q.alloc }] : []
 }));
 
+// Prüffragen-IDs werden aus dem Prompt gelesen (wie ein echtes Modell sie sieht).
+function checklistIds(prompt) {
+    return [...prompt.matchAll(/^([A-Z]{2}-\d+\.\d+) \[/gm)].map(m => m[1]);
+}
+
+// Agent 3: fast alles erfüllt; eine Antwort mit nicht auffindbarem Zitat, eine "nicht berichtet",
+// eine "nicht anwendbar", eine "nein". Agent 4 stuft QN-1.2 auf "teilweise" herab.
+const CHECKLIST_SPECIAL = {
+    'QN-3.3': ['yes', 'The sample was clearly representative of all patients worldwide.'],
+    'QN-4.2': ['not_reported', null],
+    'QN-8.1': ['not_applicable', null],
+    'QN-6.3': ['no', null]
+};
+
+function checklist(prompt, validated) {
+    return checklistIds(prompt).map(id => {
+        let [response, quote] = CHECKLIST_SPECIAL[id] || ['yes', id.startsWith('QN-6') ? Q.alloc : id.startsWith('QN-5') ? Q.stats : id.startsWith('QN-9') ? Q.limits : Q.rq];
+        if (validated && id === 'QN-1.2') response = 'partial';
+        return { id, response, evidence: quote ? [{ page: 1, section: 'Methods', quote }] : [], [validated ? 'validation_note' : 'rationale']: `Test ${id}` };
+    });
+}
+
 function answerFor(prompt) {
     if (prompt.includes('Du bist Agent 2')) return {
         document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Randomised controlled trial',
@@ -39,16 +61,19 @@ function answerFor(prompt) {
         document_type_confirmed: 'primary_empirical_study',
         established_appraisal: { instrument: 'PEDro Scale', applicable: true, applicability_reason: 'Physiotherapie-RCT', items: pedroItems },
         framework_appraisal: { primary_framework: 'none' },
-        dimensions: quantitativeDims.map(([name, , score, status]) => ({ name, score, weight: 11, status: status === 'not_applicable' ? 'not_applicable' : 'applicable' })),
+        ...(checklistIds(prompt).length ? { casq_checklist: checklist(prompt, false) }
+            : { dimensions: quantitativeDims.map(([name, , score, status]) => ({ name, score, weight: 11, status: status === 'not_applicable' ? 'not_applicable' : 'applicable' })) }),
         critical_strengths: ['Verdeckte Zuteilung'], critical_limitations: ['Keine Therapeutenverblindung']
     };
     if (prompt.includes('Du bist Agent 4')) return {
         evidence_coverage: 95,
         validated_established_appraisal: { instrument: 'PEDro Scale', applicable: true, applicability_reason: 'Physiotherapie-RCT', items: pedroItems },
-        validated_dimensions: quantitativeDims.map(([name, quote, score, status]) => ({
-            name, original_score: score, adjusted_score: score, weight: 11, validation_status: status,
-            source_refs: quote ? [{ page: 1, section: 'Methods', quote }] : []
-        })),
+        ...(checklistIds(prompt).length ? { validated_casq_checklist: checklist(prompt, true) } : {
+            validated_dimensions: quantitativeDims.map(([name, quote, score, status]) => ({
+                name, original_score: score, adjusted_score: score, weight: 11, validation_status: status,
+                source_refs: quote ? [{ page: 1, section: 'Methods', quote }] : []
+            }))
+        }),
         validation_summary: 'Testvalidierung $& mit Sonderzeichen.'
     };
     if (prompt.includes('Du bist Agent 5')) return {

@@ -384,46 +384,258 @@ function calculateFrameworkMetrics(validation, appraisal) {
 // ==========================================
 // FESTE BEWERTUNGSREGELN (gehören zum Code, nicht zum Prompt)
 // ==========================================
-const SCORING_VERSION = '2026-10-casq-fixed-weights-1';
+const SCORING_VERSION = '2026-10-casq2-1';
 
 const PEDRO_SCORED_ITEMS = ['2','3','4','5','6','7','8','9','10','11'];
 const AMSTAR2_CRITICAL_ITEMS = new Set(['2','4','7','9','11','13','15']);
 
-// CASQ-Rubriken wie in Agent 3 beschrieben. Die Gewichte werden hier erzwungen, damit ein Modell sie
-// nicht verschieben kann; Änderungen an den Gewichten im Prompt wirken sich deshalb nicht mehr aus.
+// CASQ-Rubriken: feste Gewichte je Dimension (wie bisher) und je Dimension konkrete, im Text prüfbare
+// Prüffragen (CASQ 2.0). Das Modell beantwortet nur die Fragen; Punkte, Gewichte und Deckelung rechnet
+// der Code. Mit "!" markierte Fragen sind kritisch: Ein "no" oder "not_reported" begrenzt den CASQ.
+function defineRubric(prefix, label, dims) {
+    return {
+        label, prefix,
+        dimensions: dims.map(([name, weight, questions], i) => ({
+            name, weight,
+            questions: questions.map((q, j) => ({
+                id: `${prefix}-${i + 1}.${j + 1}`,
+                text: q.replace(/^!\s*/, ''),
+                critical: q.startsWith('!')
+            }))
+        }))
+    };
+}
+
 const CASQ_RUBRICS = {
-    quantitative: { label: 'Quantitativ', dimensions: [
-        ['Research question & theory', 10], ['Design appropriateness', 15], ['Sample & external validity', 15],
-        ['Measurement quality', 15], ['Statistical analysis', 15], ['Bias & internal validity', 15],
-        ['Results interpretation', 5], ['Transparency & reproducibility', 5], ['Limitations', 5]] },
-    qualitative: { label: 'Qualitativ', dimensions: [
-        ['Research question & fit', 10], ['Sampling strategy', 15], ['Data collection quality', 15],
-        ['Reflexivity', 10], ['Analytic rigor', 20], ['Credibility / triangulation / saturation', 15],
-        ['Transferability', 5], ['Transparency', 5], ['Limitations', 5]] },
-    mixed: { label: 'Mixed Methods', dimensions: [
-        ['Research question & design fit', 10], ['Quantitative component', 25], ['Qualitative component', 25],
-        ['Integration quality', 25], ['Inference quality', 10], ['Transparency', 5]] },
-    review: { label: 'Review', dimensions: [
-        ['Question & protocol', 10], ['Search strategy', 20], ['Screening & study selection', 15],
-        ['Critical appraisal', 15], ['Data extraction', 10], ['Synthesis method', 15],
-        ['Heterogeneity/publication bias', 10], ['Transparency', 5]] },
-    theoretical: { label: 'Theoretisch', dimensions: [
-        ['Conceptual clarity', 15], ['Literature foundation', 20], ['Logical coherence', 20], ['Novelty', 10],
-        ['Boundary conditions', 10], ['Testability', 10], ['Integration', 10], ['Limitations & transparency', 5]] },
-    methodological: { label: 'Methodenbeitrag', dimensions: [
-        ['Methodological objective & scope', 10], ['Conceptual/methodological foundation', 15],
-        ['Description of methods/instruments', 20], ['Empirical support/examples', 15],
-        ['Validity & reliability discussion', 15], ['Critical reflection of strengths/limitations', 10],
-        ['Reproducibility/transferability', 5], ['Literature integration', 5], ['Transparency', 5]] },
-    multiple: { label: 'Multiple-study report', dimensions: [
-        ['Overarching research logic', 10], ['Transparency of individual study methods', 15],
-        ['Adequacy of designs across studies', 15], ['Measurement quality across studies', 10],
-        ['Statistical/analytic rigor across studies', 10], ['Integration and progression across studies', 15],
-        ['Cross-study interpretation', 10], ['Limitations/bias reflection', 10], ['Reproducibility/transparency', 5]] },
-    narrative: { label: 'Narrative review / overview', dimensions: [
-        ['Scope & purpose', 10], ['Literature foundation', 20], ['Selection transparency', 10],
-        ['Synthesis rigor', 20], ['Critical appraisal/reflection', 15], ['Balance of evidence', 10],
-        ['Limitations', 10], ['Transparency', 5]] }
+    quantitative: defineRubric('QN', 'Quantitativ', [
+        ['Research question & theory', 10, [
+            'Forschungsfrage oder Ziel ist explizit formuliert.',
+            'Hypothesen bzw. erwartete Zusammenhänge sind vorab benannt.',
+            'Theoretischer Rahmen oder Vorbefunde begründen die Fragestellung.']],
+        ['Design appropriateness', 15, [
+            'Das Studiendesign ist explizit benannt.',
+            '! Das Design kann die Fragestellung beantworten (z.B. kausale Aussagen nur mit dafür geeignetem Design).',
+            'Eine Vergleichs- oder Kontrollbedingung ist vorhanden, soweit die Fragestellung sie erfordert.']],
+        ['Sample & external validity', 15, [
+            'Zielpopulation sowie Ein- und Ausschlusskriterien sind beschrieben.',
+            'Rekrutierung bzw. Stichprobenziehung ist beschrieben.',
+            'Der Stichprobenumfang ist begründet (z.B. Power-Analyse).',
+            'Rücklauf, Ausfälle bzw. Drop-outs sind berichtet.',
+            'Merkmale der Stichprobe sind berichtet (z.B. Tabelle).']],
+        ['Measurement quality', 15, [
+            'Zentrale Konstrukte bzw. Outcomes sind operationalisiert (Instrument/Messverfahren benannt).',
+            'Reliabilität der Messinstrumente ist berichtet oder mit Quelle belegt.',
+            'Validität der Messinstrumente ist berichtet oder mit Quelle belegt.']],
+        ['Statistical analysis', 15, [
+            'Die Analyseverfahren sind nachvollziehbar beschrieben.',
+            '! Die Verfahren passen zu Datenniveau, Design und Fragestellung.',
+            'Effektgrößen und Konfidenzintervalle (nicht nur p-Werte) sind berichtet.',
+            'Der Umgang mit fehlenden Daten ist beschrieben.']],
+        ['Bias & internal validity', 15, [
+            '! Confounding bzw. Gruppenunterschiede werden kontrolliert (z.B. Randomisierung, Adjustierung).',
+            'Verblindung oder andere Maßnahmen gegen Mess- bzw. Beobachtungsverzerrung sind beschrieben, soweit möglich.',
+            'Eine Präregistrierung oder vorab festgelegte Analysen sind belegt.']],
+        ['Results interpretation', 5, [
+            'Die Schlussfolgerungen gehen nicht über die Daten hinaus (keine unbegründete Kausalität oder Verallgemeinerung).',
+            'Die Ergebnisse werden im Kontext bisheriger Forschung eingeordnet.']],
+        ['Transparency & reproducibility', 5, [
+            'Daten, Analysecode oder Materialien sind verfügbar oder der Zugang ist beschrieben.',
+            'Finanzierung und Interessenkonflikte sind offengelegt.']],
+        ['Limitations', 5, [
+            'Limitationen werden konkret benannt.',
+            'Mögliche Auswirkungen der Limitationen auf die Ergebnisse werden diskutiert.']]
+    ]),
+    qualitative: defineRubric('QL', 'Qualitativ', [
+        ['Research question & fit', 10, [
+            'Forschungsfrage oder Ziel ist explizit formuliert.',
+            'Der qualitative Zugang ist für die Fragestellung begründet.',
+            'Die methodologische Tradition ist benannt (z.B. Grounded Theory, Phänomenologie, Inhaltsanalyse).']],
+        ['Sampling strategy', 15, [
+            'Die Auswahlstrategie ist beschrieben und begründet (z.B. purposive, theoretisches Sampling).',
+            'Teilnehmende und Setting sind beschrieben.',
+            'Ein Kriterium für den Stichprobenumfang ist genannt (z.B. Sättigung).']],
+        ['Data collection quality', 15, [
+            'Die Erhebungsmethode ist beschrieben (z.B. Interview, Fokusgruppe, Beobachtung).',
+            'Leitfaden oder Erhebungsinstrument ist zugänglich oder inhaltlich beschrieben.',
+            'Aufzeichnung und Transkription sind beschrieben.']],
+        ['Reflexivity', 10, [
+            'Rolle, Hintergrund und Vorannahmen der Forschenden werden reflektiert.',
+            'Die Beziehung zwischen Forschenden und Teilnehmenden ist beschrieben.']],
+        ['Analytic rigor', 20, [
+            '! Die Analysemethode ist benannt und ihre Schritte sind beschrieben.',
+            'Die Kodierung ist nachvollziehbar (z.B. Kategoriensystem, Beispiele).',
+            'Mehrere Kodierende oder ein Konsensverfahren sind beschrieben.',
+            'Die Befunde sind mit Zitaten aus den Daten belegt.']],
+        ['Credibility / triangulation / saturation', 15, [
+            'Verfahren zur Absicherung sind beschrieben (z.B. Triangulation, Member Checking, Peer Debriefing).',
+            'Abweichende oder widersprechende Fälle werden berücksichtigt.',
+            'Sättigung bzw. Vollständigkeit der Analyse ist begründet.']],
+        ['Transferability', 5, [
+            'Der Kontext ist so beschrieben, dass sich die Übertragbarkeit beurteilen lässt.']],
+        ['Transparency', 5, [
+            'Ethikvotum und Einwilligung der Teilnehmenden sind berichtet.',
+            'Finanzierung und Interessenkonflikte sind offengelegt.']],
+        ['Limitations', 5, [
+            'Limitationen werden konkret benannt.']]
+    ]),
+    mixed: defineRubric('MM', 'Mixed Methods', [
+        ['Research question & design fit', 10, [
+            'Der Einsatz von Mixed Methods ist für die Fragestellung begründet.',
+            'Das Mixed-Methods-Design ist benannt (z.B. konvergent, explanativ-sequenziell).']],
+        ['Quantitative component', 25, [
+            'Die Stichprobe der quantitativen Komponente ist beschrieben.',
+            'Die Messinstrumente sind beschrieben und angemessen.',
+            'Die quantitative Analyse ist angemessen und nachvollziehbar.']],
+        ['Qualitative component', 25, [
+            'Auswahl und Datenerhebung der qualitativen Komponente sind beschrieben.',
+            'Die qualitative Analysemethode ist beschrieben.',
+            'Die qualitativen Befunde sind mit Daten belegt.']],
+        ['Integration quality', 25, [
+            '! Die Integration der Komponenten ist explizit beschrieben (wann und wie).',
+            'Die Ergebnisse beider Komponenten werden zusammengeführt (z.B. Joint Display).',
+            'Abweichungen zwischen den Komponenten werden adressiert.']],
+        ['Inference quality', 10, [
+            'Die Gesamtschlüsse stützen sich auf beide Komponenten.',
+            'Limitationen beider Komponenten werden benannt.']],
+        ['Transparency', 5, [
+            'Daten oder Materialien sind verfügbar oder beschrieben.',
+            'Finanzierung und Interessenkonflikte sind offengelegt.']]
+    ]),
+    review: defineRubric('RV', 'Systematisches Review', [
+        ['Question & protocol', 10, [
+            'Die Fragestellung ist strukturiert formuliert (z.B. PICO).',
+            'Ein vorab registriertes oder veröffentlichtes Protokoll ist belegt (z.B. PROSPERO).']],
+        ['Search strategy', 20, [
+            '! Mindestens zwei Literaturdatenbanken wurden durchsucht.',
+            'Die Suchstrings sind berichtet.',
+            'Suchzeitraum und Datum der Suche sind angegeben.',
+            'Weitere Quellen wurden berücksichtigt (z.B. Referenzlisten, graue Literatur, Register).']],
+        ['Screening & study selection', 15, [
+            'Ein- und Ausschlusskriterien sind explizit.',
+            'Die Auswahl erfolgte durch mindestens zwei Personen unabhängig.',
+            'Ein Flussdiagramm mit Zahlen liegt vor (z.B. PRISMA).']],
+        ['Critical appraisal', 15, [
+            '! Das Risk of Bias der eingeschlossenen Studien wurde mit einem benannten Instrument bewertet.',
+            'Die Ergebnisse dieser Bewertung sind je Studie berichtet.']],
+        ['Data extraction', 10, [
+            'Die Datenextraktion erfolgte standardisiert (z.B. Formular).',
+            'Die Extraktion wurde doppelt durchgeführt oder kontrolliert.']],
+        ['Synthesis method', 15, [
+            'Die Synthesemethode ist benannt und begründet.',
+            'Bei einer Meta-Analyse ist das statistische Modell angemessen beschrieben.',
+            'Die Merkmale der eingeschlossenen Studien sind tabellarisch berichtet.']],
+        ['Heterogeneity/publication bias', 10, [
+            'Heterogenität wurde untersucht (z.B. I², Subgruppen).',
+            'Publikationsbias wurde geprüft oder diskutiert.']],
+        ['Transparency', 5, [
+            'Finanzierung und Interessenkonflikte sind offengelegt.',
+            'Extraktionstabellen oder Daten sind verfügbar.']]
+    ]),
+    theoretical: defineRubric('TH', 'Theoretisch', [
+        ['Conceptual clarity', 15, [
+            'Die zentralen Begriffe sind definiert.',
+            'Die Abgrenzung zu verwandten Konzepten ist dargestellt.']],
+        ['Literature foundation', 20, [
+            'Die einschlägige Literatur ist aufgearbeitet.',
+            'Gegenpositionen werden berücksichtigt.',
+            'Zentrale Aussagen sind mit Quellen belegt.']],
+        ['Logical coherence', 20, [
+            '! Die Argumentation ist in nachvollziehbaren Schritten aufgebaut.',
+            'Die Schlussfolgerungen folgen aus den dargelegten Prämissen.',
+            'Die Argumentation ist frei von erkennbaren Widersprüchen.']],
+        ['Novelty', 10, [
+            'Der neue Beitrag gegenüber bestehender Theorie ist explizit benannt.']],
+        ['Boundary conditions', 10, [
+            'Geltungsbereich und Randbedingungen der Aussagen sind genannt.']],
+        ['Testability', 10, [
+            'Es werden überprüfbare Aussagen oder Propositionen abgeleitet.',
+            'Es gibt Hinweise, wie die Aussagen empirisch geprüft werden können.']],
+        ['Integration', 10, [
+            'Der Beitrag wird in bestehende Theorien eingeordnet.']],
+        ['Limitations & transparency', 5, [
+            'Grenzen des Ansatzes werden benannt.',
+            'Finanzierung und Interessenkonflikte sind offengelegt.']]
+    ]),
+    methodological: defineRubric('MT', 'Methodenbeitrag', [
+        ['Methodological objective & scope', 10, [
+            'Ziel und Anwendungsbereich der Methode bzw. des Instruments sind benannt.',
+            'Die Zielgruppe der Anwendung ist benannt.']],
+        ['Conceptual/methodological foundation', 15, [
+            'Die methodischen Grundlagen werden hergeleitet.',
+            'Der Bezug zu etablierten Methoden ist dargestellt.']],
+        ['Description of methods/instruments', 20, [
+            '! Das Vorgehen ist so beschrieben, dass andere es anwenden können.',
+            'Instrumente oder Materialien sind beschrieben oder zugänglich.',
+            'Entscheidungs- bzw. Auswertungsregeln sind beschrieben.']],
+        ['Empirical support/examples', 15, [
+            'Die Anwendung wird an Beispielen oder Daten gezeigt.',
+            'Empirische Belege sind mit Quellen versehen.']],
+        ['Validity & reliability discussion', 15, [
+            'Gütekriterien werden diskutiert.',
+            'Belege zu Reliabilität bzw. Validität werden berichtet.']],
+        ['Critical reflection of strengths/limitations', 10, [
+            'Grenzen und Fehlerquellen der Methode werden benannt.',
+            'Es wird gegenüber alternativen Methoden abgewogen.']],
+        ['Reproducibility/transferability', 5, [
+            'Voraussetzungen für die Übertragung auf andere Kontexte sind benannt.']],
+        ['Literature integration', 5, [
+            'Der Beitrag ist in die Methodenliteratur eingeordnet.']],
+        ['Transparency', 5, [
+            'Materialien oder Code sind verfügbar.',
+            'Finanzierung und Interessenkonflikte sind offengelegt.']]
+    ]),
+    multiple: defineRubric('MS', 'Multiple-study report', [
+        ['Overarching research logic', 10, [
+            'Ein gemeinsamer Rahmen und ein übergreifendes Ziel sind formuliert.',
+            'Die Abfolge der Teilstudien ist begründet.']],
+        ['Transparency of individual study methods', 15, [
+            '! Die Methoden jeder Teilstudie sind berichtet.',
+            'Die Stichprobe jeder Teilstudie ist beschrieben.']],
+        ['Adequacy of designs across studies', 15, [
+            'Die Designs passen zu den jeweiligen Teilfragen.',
+            'Die Designwahl erlaubt Replikation oder Konvergenz der Befunde.']],
+        ['Measurement quality across studies', 10, [
+            'Die Messinstrumente sind benannt.',
+            'Reliabilität bzw. Validität der Instrumente ist berichtet.']],
+        ['Statistical/analytic rigor across studies', 10, [
+            'Die Analysen sind nachvollziehbar beschrieben.',
+            'Effektgrößen bzw. Konfidenzintervalle sind berichtet.']],
+        ['Integration and progression across studies', 15, [
+            'Die Teilstudien bauen erkennbar aufeinander auf.',
+            'Die Ergebnisse werden über die Teilstudien hinweg zusammengeführt.']],
+        ['Cross-study interpretation', 10, [
+            'Es gibt eine Gesamtdiskussion über alle Teilstudien.',
+            'Die Gesamtschlüsse gehen nicht über die Daten hinaus.']],
+        ['Limitations/bias reflection', 10, [
+            'Limitationen sind je Teilstudie oder insgesamt benannt.',
+            'Mögliche Verzerrungen werden diskutiert.']],
+        ['Reproducibility/transparency', 5, [
+            'Daten, Materialien oder Präregistrierungen sind verfügbar.',
+            'Finanzierung und Interessenkonflikte sind offengelegt.']]
+    ]),
+    narrative: defineRubric('NR', 'Narrative Übersicht', [
+        ['Scope & purpose', 10, [
+            'Ziel und Fragestellung der Übersicht sind formuliert.',
+            'Rahmen bzw. Zielgruppe der Übersicht sind benannt.']],
+        ['Literature foundation', 20, [
+            'Ein breites Spektrum einschlägiger Quellen wird berücksichtigt.',
+            'Aktuelle Literatur wird berücksichtigt.',
+            '! Zentrale Aussagen sind mit Quellen belegt.']],
+        ['Selection transparency', 10, [
+            'Das Vorgehen bei der Literaturauswahl ist beschrieben.']],
+        ['Synthesis rigor', 20, [
+            'Die Befunde werden strukturiert zusammengeführt.',
+            'Unterschiede zwischen Studien werden herausgearbeitet.']],
+        ['Critical appraisal/reflection', 15, [
+            'Die Qualität der zitierten Studien wird berücksichtigt.',
+            'Die Stärke der Evidenz wird bei Aussagen unterschieden.']],
+        ['Balance of evidence', 10, [
+            'Widersprechende Befunde werden dargestellt.']],
+        ['Limitations', 10, [
+            'Die Grenzen der Übersicht werden benannt.']],
+        ['Transparency', 5, [
+            'Finanzierung und Interessenkonflikte sind offengelegt.']]
+    ])
 };
 
 const NAME_STOPWORDS = new Set(['and', 'of', 'the', 'across', 'und', 'der', 'die', 'das']);
@@ -463,7 +675,7 @@ function matchCASQRubric(dimensionNames, preferredKey) {
     let best = null;
     for (const [key, rubric] of Object.entries(CASQ_RUBRICS)) {
         const pairs = [];
-        names.forEach((n, i) => rubric.dimensions.forEach(([rName], j) => {
+        names.forEach((n, i) => rubric.dimensions.forEach(({ name: rName }, j) => {
             const sim = tokenSimilarity(n.tokens, dimensionTokens(rName));
             if (sim >= DIMENSION_MATCH_THRESHOLD) pairs.push({ i, j, sim });
         }));
@@ -472,7 +684,7 @@ function matchCASQRubric(dimensionNames, preferredKey) {
         for (const pr of pairs) {
             if (usedNames.has(pr.i) || usedDims.has(pr.j)) continue;
             usedNames.add(pr.i); usedDims.add(pr.j);
-            const [rName, weight] = rubric.dimensions[pr.j];
+            const { name: rName, weight } = rubric.dimensions[pr.j];
             mapping.set(pr.i, { rubricName: rName, weight });
         }
         const better = !best || mapping.size > best.mapping.size || (mapping.size === best.mapping.size && key === preferredKey);
@@ -547,6 +759,139 @@ function calculateValidatedCASQ(validation, appraisal, extraction) {
     };
 }
 
+// ==========================================
+// CASQ 2.0: Prüffragen statt freier Punkte
+// ==========================================
+const CASQ_RESPONSE_VALUE = { yes: 1, partial: 0.5, no: 0, not_reported: 0 };
+const CASQ_DOWNGRADE = { yes: 'partial', partial: 'no' };
+const CASQ_CAP_ONE_FLAW = 5;
+const CASQ_CAP_MORE_FLAWS = 3;
+
+function normalizeChecklistResponse(raw) {
+    const r = String(raw ?? '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+    if (['yes', 'ja', 'erfüllt', 'fulfilled'].includes(r)) return 'yes';
+    if (['partial', 'partially', 'partial_yes', 'teilweise'].includes(r)) return 'partial';
+    if (['no', 'nein', 'not_fulfilled'].includes(r)) return 'no';
+    if (['not_applicable', 'n/a', 'na', 'nicht_anwendbar'].includes(r)) return 'not_applicable';
+    return 'not_reported';  // auch cant_tell, unclear, insufficient_information oder fehlende Antwort
+}
+
+// Rubrik für eine Publikation: aus Dokumenttyp bzw. Studienfamilie der Extraktion.
+function selectCASQRubric(extraction) {
+    const key = preferredRubricKey(extraction, null);
+    if (key) return key;
+    const family = String(extraction?.study_family || '').toLowerCase();
+    if (family.includes('review')) return 'narrative';
+    if (family.includes('theor')) return 'theoretical';
+    if (family.includes('method')) return 'methodological';
+    return 'quantitative';
+}
+
+function casqChecklistText(rubricKey) {
+    const rubric = CASQ_RUBRICS[rubricKey];
+    return rubric.dimensions.flatMap(dim => dim.questions.map(q =>
+        `${q.id} [${dim.name}] ${q.text}${q.critical ? ' [KRITISCH]' : ''}`)).join('\n');
+}
+
+function checklistAnswers(list) {
+    const map = new Map();
+    (Array.isArray(list) ? list : []).forEach(a => { if (a && a.id) map.set(String(a.id).trim(), a); });
+    return map;
+}
+
+// Antworten von Agent 4 (validiert) haben Vorrang vor denen von Agent 3.
+function mergedChecklistAnswers(validation, appraisal) {
+    const merged = checklistAnswers(appraisal?.casq_checklist);
+    checklistAnswers(validation?.validated_casq_checklist).forEach((a, id) => merged.set(id, { ...a, validated: true }));
+    return merged;
+}
+
+function verifyChecklistEvidence(validation, appraisal, pages) {
+    [appraisal?.casq_checklist, validation?.validated_casq_checklist].forEach(list => {
+        (Array.isArray(list) ? list : []).forEach(item => {
+            const refs = Array.isArray(item?.evidence) ? item.evidence : [];
+            item.evidence = refs.map(ref => {
+                const quote = String(ref?.quote || '').trim();
+                const claimed = Number(ref?.page);
+                const found = findQuoteOnPages(quote, pages);
+                if (found) return { page: found.page, section: ref?.section || 'unknown', quote, verified: true };
+                const validClaimed = Number.isInteger(claimed) && claimed > 0 && claimed <= (pages?.length || 0);
+                return { page: validClaimed ? claimed : null, section: ref?.section || 'unknown', quote, verified: false };
+            }).filter(ref => ref.quote || ref.page);
+        });
+    });
+    return validation;
+}
+
+// Berechnet den CASQ aus den Prüffrage-Antworten:
+//   yes = 1, partial = 0,5, no = 0, not_reported = 0, not_applicable entfällt
+//   yes/partial ohne im PDF wiedergefundenes Zitat → eine Stufe herab
+//   Dimension = 10 × Mittelwert, CASQ = gewichtetes Mittel der Dimensionen
+//   kritische Frage mit no/not_reported → CASQ höchstens 5 (bei mehreren höchstens 3)
+//   Spanne: Obergrenze, wenn alles nicht Berichtete erfüllt wäre
+function calculateCASQ2(validation, appraisal, rubricKey) {
+    const rubric = CASQ_RUBRICS[rubricKey];
+    const answers = mergedChecklistAnswers(validation, appraisal);
+    if (!rubric || !answers.size) return null;
+
+    let weighted = 0, weightedMax = 0, weights = 0;
+    let total = 0, decided = 0, claimed = 0, verifiedClaims = 0, missing = 0;
+    const criticalFlaws = [], criticalNo = [];
+    const dimensions = rubric.dimensions.map(dim => {
+        const values = [], valuesMax = [];
+        const questions = dim.questions.map(q => {
+            const answer = answers.get(q.id);
+            if (!answer) missing++;
+            const response = normalizeChecklistResponse(answer?.response);
+            const verified = Array.isArray(answer?.evidence) && answer.evidence.some(r => r && r.verified);
+            const detail = { id: q.id, text: q.text, critical: q.critical, response, effective: response, verified,
+                downgraded: false, validated: !!answer?.validated, evidence: answer?.evidence || [],
+                note: answer?.validation_note || answer?.rationale || '' };
+            if (response === 'not_applicable') return detail;
+            if (CASQ_DOWNGRADE[response] && !verified) { detail.effective = CASQ_DOWNGRADE[response]; detail.downgraded = true; }
+            total++;
+            if (detail.effective !== 'not_reported') decided++;
+            if (response === 'yes' || response === 'partial') { claimed++; if (verified) verifiedClaims++; }
+            if (q.critical && (detail.effective === 'no' || detail.effective === 'not_reported')) criticalFlaws.push(q.id);
+            if (q.critical && detail.effective === 'no') criticalNo.push(q.id);
+            values.push(CASQ_RESPONSE_VALUE[detail.effective]);
+            valuesMax.push(detail.effective === 'not_reported' ? 1 : CASQ_RESPONSE_VALUE[detail.effective]);
+            return detail;
+        });
+        const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+        const score = values.length ? 10 * mean(values) : null;
+        if (score !== null) {
+            weighted += dim.weight * score;
+            weightedMax += dim.weight * 10 * mean(valuesMax);
+            weights += dim.weight;
+        }
+        return { name: dim.name, weight: dim.weight, score, questions };
+    });
+    if (!weights) return null;
+
+    const capFor = flaws => flaws.length >= 2 ? CASQ_CAP_MORE_FLAWS : flaws.length === 1 ? CASQ_CAP_ONE_FLAW : 10;
+    const raw = weighted / weights;
+    const cap = capFor(criticalFlaws);
+    const score = Math.min(raw, cap);
+    const scoreMax = Math.max(score, Math.min(weightedMax / weights, capFor(criticalNo)));
+    return {
+        version: 'casq2',
+        rubric: rubricKey,
+        rubric_label: rubric.label,
+        score,
+        score_uncapped: raw,
+        score_min: score,
+        score_max: scoreMax,
+        cap: cap < 10 ? cap : null,
+        critical_flaws: criticalFlaws,
+        information_grade: total ? decided / total : 0,
+        evidence_rate: claimed ? verifiedClaims / claimed : null,
+        unanswered: missing,
+        dimensions,
+        scoring_version: SCORING_VERSION
+    };
+}
+
 function isFiniteScore(value) {
     return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 }
@@ -585,6 +930,7 @@ if (typeof module !== 'undefined' && module.exports) {
         verifyExtractionEvidenceRefs, verifySourceRefs, verifyFrameworkEvidence, verifyEstablishedEvidence, verifyJARSEvidence,
         calculateJARSMetrics, calculateEstablishedResult, countFrameworkItems, calculateFrameworkMetrics,
         calculateValidatedCASQ, matchCASQRubric, CASQ_RUBRICS, SCORING_VERSION,
+        normalizeChecklistResponse, selectCASQRubric, casqChecklistText, verifyChecklistEvidence, calculateCASQ2,
         isFiniteScore, formatCASQ, formatCASQRange, qualityLabel, escapeHTML, fillTemplate
     };
 }

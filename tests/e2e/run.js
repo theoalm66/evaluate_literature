@@ -107,12 +107,16 @@ async function login(page, user, pass, action = 'login') {
         const study = await page.textContent('#res-studies');
         assert.ok(study.includes('4 / 10 (unvollständig)'), 'PEDro-Anzeige fehlt');
         assert.ok(study.includes('PEDro-Items fehlen'), 'Hinweis auf fehlende PEDro-Items fehlt');
-        assert.ok(study.includes('CASQ intern: 7.6 / 10 (Spanne 6.4–7.9)'), 'CASQ/Spanne falsch: ' + (study.match(/CASQ intern: [^|]*/) || [''])[0]);
-        assert.ok(study.includes('Evidenz (verifiziert): 68 %'), 'Evidenzabdeckung falsch');
-        assert.ok(study.includes('Gewichte fest aus der CASQ-Rubrik Quantitativ'), 'Rubrik-Hinweis fehlt');
-        assert.ok(study.includes('Selbstauskunft Agent 4: 95 %'), 'Agent-Abdeckung fehlt');
+        assert.ok(study.includes('CASQ intern: 8.7 / 10 (Spanne 8.7–9.2)'), 'CASQ/Spanne falsch: ' + (study.match(/CASQ intern: [^|]*/) || [''])[0]);
+        assert.ok(study.includes('Informationsgrad: 96 %'), 'Informationsgrad falsch');
+        assert.ok(study.includes('Belege verifiziert: 96 %'), 'Belegquote falsch');
+        assert.ok(study.includes('CASQ INTERN · Quantitativ'), 'Rubrik fehlt');
+        assert.ok(study.includes('kein Zitat im PDF gefunden'), 'Herabstufung ohne Beleg nicht angezeigt');
+        assert.ok(study.includes('Prüffragen (27)'), 'Prüffragen-Tabelle fehlt');
+        const analysisPrompt = llm.calls.find(c => c.includes('Du bist Agent 3'));
+        assert.ok(analysisPrompt.includes('QN-2.2 [Design appropriateness]') && !analysisPrompt.includes('{{CASQ_CHECKLIST}}'), 'Prüffragen nicht im Prompt');
         assert.ok(study.includes('Testvalidierung $& mit Sonderzeichen.'), 'Sonderzeichen verfälscht');
-        console.log('✓ Analyse-Lauf: PEDro 4/10 (unvollständig), CASQ 7.6 (Spanne 6.4–7.9), Evidenz 68 %');
+        console.log('✓ Analyse-Lauf: PEDro 4/10 (unvollständig), CASQ 2.0 = 8.7 (Spanne 8.7–9.2), Informationsgrad 96 %, Belege 96 %');
 
         // 4) Lauf + Agent-Protokoll in IndexedDB
         const stored = await page.evaluate(async () => {

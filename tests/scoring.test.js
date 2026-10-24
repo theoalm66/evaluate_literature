@@ -136,3 +136,77 @@ test('qualityLabel bleibt kompatibel', () => {
     assert.equal(s.qualityLabel(9, 40), 'UNSICHER / ZU WENIG EVIDENZ');
     assert.equal(s.qualityLabel(null, 90), 'UNSICHER / ZU WENIG EVIDENZ');
 });
+
+// ---------------- CASQ 2.0 ----------------
+const allQuestions = key => s.CASQ_RUBRICS[key].dimensions.flatMap(d => d.questions);
+const answer = (id, response, verified = true) => ({ id, response, evidence: verified ? [{ page: 1, quote: 'x', verified: true }] : [] });
+
+test('CASQ 2.0: alles erfüllt und belegt ergibt 10, Informationsgrad 100 %', () => {
+    const appraisal = { casq_checklist: allQuestions('quantitative').map(q => answer(q.id, 'yes')) };
+    const r = s.calculateCASQ2({}, appraisal, 'quantitative');
+    assert.equal(r.score, 10);
+    assert.equal(r.information_grade, 1);
+    assert.equal(r.evidence_rate, 1);
+    assert.equal(r.cap, null);
+});
+
+test('CASQ 2.0: ohne Zitat wird herabgestuft, Validierung hat Vorrang', () => {
+    const qs = allQuestions('narrative');
+    const appraisal = { casq_checklist: qs.map(q => answer(q.id, 'yes', false)) };
+    let r = s.calculateCASQ2({}, appraisal, 'narrative');
+    // alles "ja" ohne Beleg → "teilweise" → 5.0; die kritische Frage bleibt erfüllt (teilweise ist kein Mangel)
+    assert.equal(r.score, 5);
+    assert.equal(r.evidence_rate, 0);
+    assert.ok(r.dimensions.every(d => d.questions.every(q => q.downgraded && q.effective === 'partial')));
+    // Agent 4 bestätigt mit Beleg → wieder "ja"
+    r = s.calculateCASQ2({ validated_casq_checklist: qs.map(q => answer(q.id, 'yes')) }, appraisal, 'narrative');
+    assert.equal(r.score, 10);
+});
+
+test('CASQ 2.0: kritische Mängel deckeln, nicht Berichtetes erzeugt eine Spanne', () => {
+    const qs = allQuestions('quantitative');
+    const responses = Object.fromEntries(qs.map(q => [q.id, 'yes']));
+    responses['QN-5.2'] = 'no';            // kritisch: Verfahren passen nicht
+    const one = s.calculateCASQ2({}, { casq_checklist: qs.map(q => answer(q.id, responses[q.id])) }, 'quantitative');
+    assert.equal(one.cap, 5);
+    assert.equal(one.score, 5);
+    assert.deepEqual(one.critical_flaws, ['QN-5.2']);
+    assert.ok(one.score_uncapped > 9);
+
+    responses['QN-6.1'] = 'not_reported';  // zweiter kritischer Punkt, aber nur "nicht berichtet"
+    const two = s.calculateCASQ2({}, { casq_checklist: qs.map(q => answer(q.id, responses[q.id])) }, 'quantitative');
+    assert.equal(two.cap, 3);
+    assert.equal(two.score, 3);
+    // Obergrenze: wäre QN-6.1 erfüllt, bliebe nur ein kritischer Mangel → höchstens 5
+    assert.equal(two.score_max, 5);
+});
+
+test('CASQ 2.0: nicht anwendbar fällt heraus, fehlende Antworten zählen als nicht berichtet', () => {
+    const qs = allQuestions('theoretical');
+    const list = qs.slice(1).map(q => answer(q.id, q.id === 'TH-4.1' ? 'not_applicable' : 'yes'));
+    const r = s.calculateCASQ2({}, { casq_checklist: list }, 'theoretical');
+    assert.equal(r.unanswered, 1);                       // TH-1.1 fehlt
+    const novelty = r.dimensions.find(d => d.name === 'Novelty');
+    assert.equal(novelty.score, null);                  // einzige Frage nicht anwendbar
+    const clarity = r.dimensions.find(d => d.name === 'Conceptual clarity');
+    assert.equal(clarity.score, 5);                     // 1 von 2 erfüllt
+    assert.ok(r.score_max > r.score);
+    assert.equal(s.calculateCASQ2({}, {}, 'theoretical'), null, 'ohne Antworten: alter Rechenweg');
+});
+
+test('CASQ 2.0: Rubrikwahl, Antwort-Synonyme und Prüffragentext', () => {
+    assert.equal(s.selectCASQRubric({ document_type: 'systematic_review' }), 'review');
+    assert.equal(s.selectCASQRubric({ document_type: 'primary_empirical_study', study_family: 'Qualitative' }), 'qualitative');
+    assert.equal(s.selectCASQRubric({ document_type: 'other', study_family: 'Review' }), 'narrative');
+    assert.equal(s.selectCASQRubric({}), 'quantitative');
+    assert.equal(s.normalizeChecklistResponse('Partial_yes'), 'partial');
+    assert.equal(s.normalizeChecklistResponse('cant_tell'), 'not_reported');
+    assert.equal(s.normalizeChecklistResponse('N/A'), 'not_applicable');
+    const text = s.casqChecklistText('review');
+    assert.match(text, /^RV-1\.1 \[Question & protocol\]/);
+    assert.match(text, /RV-2\.1 .*\[KRITISCH\]/);
+    for (const rubric of Object.values(s.CASQ_RUBRICS)) {
+        assert.equal(rubric.dimensions.reduce((a, d) => a + d.weight, 0), 100);
+        assert.ok(rubric.dimensions.every(d => d.questions.length > 0));
+    }
+});
