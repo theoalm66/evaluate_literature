@@ -70,9 +70,11 @@ Ein Modell auf dem Spark (z.B. vLLM auf Port 8000) ist aus dem Browser nicht dir
 intern und unverschlüsselt (`http`), und aus einer `https`-Seite blockiert der Browser solche Aufrufe. Der Server
 leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm → Modell-Server`).
 
-1. In `.env` eintragen: `LIT_LLM_URL=http://10.189.26.81:8000/v1` (die Adresse, unter der das Modell im lokalen
-   Netz erreichbar ist; läuft es nur auf `127.0.0.1` des Spark, stattdessen `http://host.docker.internal:8000/v1`
-   und den Modell-Server auf `0.0.0.0` lauschen lassen).
+1. In `.env` die Adresse des Modells eintragen. Achtung: Im Container ist `127.0.0.1` der Container selbst.
+   Mit `sudo ss -ltnp | grep ':8000 '` prüfen, worauf der Modell-Server lauscht:
+   - `0.0.0.0:8000` oder `*:8000` → `LIT_LLM_URL=http://host.docker.internal:8000/v1`
+   - `127.0.0.1:8000` → Container ins Netz des Spark holen:
+     `LIT_LLM_URL=http://127.0.0.1:8000/v1` und `COMPOSE_FILE=compose.yaml:compose.hostnet.yaml`
 2. `docker compose up -d --build`
 3. In der App unter *Konfiguration* den Provider **„🚀 Spark-Modell“** wählen. Nur für verknüpfte Spark-Konten.
 

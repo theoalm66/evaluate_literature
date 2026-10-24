@@ -2,7 +2,8 @@
 # Einstellungen in der Datei .env neben dieser Datei, z.B.:
 #   LIT_INVITE_CODE=<selbst ausgedachter Code>
 #   LIT_HOST_PORT=8091        (falls 8080 auf dem Spark schon belegt ist)
-#   LIT_LLM_URL=http://10.189.26.81:8000/v1   (Modell-Server auf dem Spark, z.B. vLLM)
+#   LIT_LLM_URL=http://host.docker.internal:8000/v1   (Modell-Server auf dem Spark, z.B. vLLM;
+#                             lauscht er nur auf 127.0.0.1, siehe compose.hostnet.yaml)
 #   LIT_LLM_MODEL=...         (optional; sonst das erste Modell, das der Modell-Server meldet)
 #   LIT_LLM_KEY=...           (optional, falls der Modell-Server einen API-Key verlangt)
 # Konto anlegen:        docker compose exec lit node server/cli.js user:add <login>

@@ -1,0 +1,13 @@
+# Ergänzung zu compose.yaml: Der Container teilt sich das Netzwerk mit dem Spark.
+# Nötig, wenn der Modell-Server (vLLM) nur auf 127.0.0.1 lauscht – dann ist er aus einem normalen
+# Container nicht erreichbar, mit dieser Datei aber unter LIT_LLM_URL=http://127.0.0.1:8000/v1.
+# Dauerhaft aktivieren über die .env:  COMPOSE_FILE=compose.yaml:compose.hostnet.yaml
+services:
+  lit:
+    network_mode: host
+    # Der Server lauscht dann direkt auf dem Spark – weiterhin nur auf 127.0.0.1.
+    environment:
+      LIT_HOST: 127.0.0.1
+      LIT_PORT: ${LIT_HOST_PORT:-8080}
+    ports: !reset []
+    extra_hosts: !reset []
