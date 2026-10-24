@@ -16,22 +16,28 @@ MMAT/CASP, GRADE) sowie dem internen CASQ bewertet.
 ## Auf dem Spark betreiben
 
 Der Server (`server/`) liefert die App aus und speichert Konten, Einstellungen, Prompts und Historie in
-SQLite. Er hört nur auf `127.0.0.1:8080`; nach außen geht es über Tailscale:
+SQLite. Er hört nur lokal (Standard `127.0.0.1:8080`); nach außen geht es über Tailscale:
 
 ```bash
-tailscale funnel --bg --set-path /lit http://127.0.0.1:8080
+sudo tailscale funnel --bg --set-path /lit http://127.0.0.1:8080
 ```
+
+(`sudo` ist nötig, solange der eigene Benutzer nicht per `sudo tailscale set --operator=$USER` als
+Tailscale-Operator eingetragen ist.)
 
 Der Server versteht Pfade mit und ohne `/lit`-Präfix, es spielt also keine Rolle, ob Tailscale das Präfix
 weiterreicht. Aufruf wie bisher: `https://thinkstationpgx-afbe.taildf3925.ts.net/lit`.
 
 **Variante A – Docker** (empfohlen, auf dem Spark muss nichts außer Docker installiert sein).
-Ist Port 8080 auf dem Spark schon belegt („port is already allocated“), in der Datei `.env` neben
-`compose.yaml` einen anderen Port eintragen, z.B. `LIT_HOST_PORT=8091`, und beim `tailscale funnel`-Befehl
-denselben Port verwenden:
+Einstellungen stehen in der Datei `.env` neben `compose.yaml`. Der Einladungscode ist frei gewählt
+(z.B. zufällig erzeugt); ist Port 8080 auf dem Spark schon belegt („port is already allocated“), einen
+anderen Port eintragen und beim `tailscale funnel`-Befehl denselben Port verwenden:
 
 ```bash
-LIT_INVITE_CODE='<geheimer Code>' docker compose up -d --build
+echo "LIT_INVITE_CODE=$(openssl rand -base64 24)" >> .env   # weglassen = Registrierung über die Webseite aus
+echo "LIT_HOST_PORT=8091" >> .env                           # nur falls 8080 belegt ist
+docker compose up -d --build
+curl http://127.0.0.1:8091/lit/api/health                   # Prüfung: {"ok":true,...}
 docker compose exec lit node server/cli.js user:add theo          # Konto direkt anlegen (optional)
 docker compose exec lit node server/cli.js backup /data/backup.db  # Sicherung
 ```
