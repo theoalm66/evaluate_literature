@@ -317,6 +317,18 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(llm.calls.find(c => c.includes('Du bist Agent 3b')).includes('SM-2.1 [Sampling & response quality]'), 'SEM-Prüffragen fehlen');
         console.log('✓ Marketing-Studie: Rubrik „Befragung / SEM / PLS-SEM“ mit Grundlage, PEDro ausgeblendet');
 
+        // 10) Systematisches Review im Marketing: Business-Rubrik mit PRISMA-Berichtserfüllung
+        llm.state.domain = 'review';
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#results-view.active', { timeout: 60000 });
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Management / Marketing / Digital'), null, { timeout: 30000 });
+        const rStudy = await page.textContent('#res-studies');
+        assert.ok(rStudy.includes('PRISMA-2020-BERICHTSERFÜLLUNG') && rStudy.includes('kein offizieller Score'), 'PRISMA-Berichtserfüllung fehlt');
+        assert.ok(/\d+ % \(\d+ von \d+ Berichtspunkten erfüllt\)/.test(rStudy), 'Erfüllungsgrad fehlt');
+        console.log('✓ Marketing-Review: Business-Rubrik, PRISMA-Berichtserfüllung getrennt ausgewiesen');
+
         const relevantErrors = errors.filter(e => !e.includes('net::ERR_INTERNET_DISCONNECTED'));
         assert.deepEqual(relevantErrors, [], 'Fehler in der Browser-Konsole');
         ok = true;

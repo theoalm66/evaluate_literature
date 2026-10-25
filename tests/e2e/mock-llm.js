@@ -60,6 +60,12 @@ function checklist(prompt, validated, ctx) {
 function answerFor(prompt, ctx) {
     if (prompt.includes('Du bist Agent 3b')) return { casq_checklist: checklist(prompt, false, ctx) };
     if (prompt.includes('Du bist Agent 4b')) return { validated_casq_checklist: checklist(prompt, true) };
+    if (prompt.includes('Du bist Agent 2') && ctx.domain === 'review') return {
+        document_type: 'systematic_review', study_family: 'Review', study_design: 'Systematic literature review (SPAR-4-SLR)', method_class: 'not_applicable',
+        research_domain: 'Marketing / E-Commerce', clinical_context: { is_health_clinical: false },
+        evidence_locations: [{ claim: 'Fragestellung', section: 'Introduction', page: 9, quote: Q.rq }],
+        research_question: { value: 'Wie wirkt Social-Media-Werbung auf Kaufabsichten?' }, methods: ['SLR'], main_results: [{ result: 'Themenlandkarte' }]
+    };
     if (prompt.includes('Du bist Agent 2') && ctx.domain === 'business') return {
         document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Cross-sectional online survey', method_class: 'survey_sem',
         research_domain: 'Business / Marketing', clinical_context: { is_health_clinical: false, is_physiotherapy_rehabilitation: false, is_comparative: false, is_intervention_study: false },

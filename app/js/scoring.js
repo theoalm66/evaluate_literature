@@ -384,7 +384,7 @@ function calculateFrameworkMetrics(validation, appraisal) {
 // ==========================================
 // FESTE BEWERTUNGSREGELN (gehören zum Code, nicht zum Prompt)
 // ==========================================
-const SCORING_VERSION = '2026-10-casq2-2';
+const SCORING_VERSION = '2026-10-casq2-3';
 
 const PEDRO_SCORED_ITEMS = ['2','3','4','5','6','7','8','9','10','11'];
 const AMSTAR2_CRITICAL_ITEMS = new Set(['2','4','7','9','11','13','15']);
@@ -392,15 +392,18 @@ const AMSTAR2_CRITICAL_ITEMS = new Set(['2','4','7','9','11','13','15']);
 // CASQ-Rubriken: feste Gewichte je Dimension (wie bisher) und je Dimension konkrete, im Text prüfbare
 // Prüffragen (CASQ 2.0). Das Modell beantwortet nur die Fragen; Punkte, Gewichte und Deckelung rechnet
 // der Code. Mit "!" markierte Fragen sind kritisch: Ein "no" oder "not_reported" begrenzt den CASQ.
-function defineRubric(prefix, label, dims) {
+// Mit "#" markierte Fragen sind Berichtspunkte einer Reporting-Leitlinie (z.B. PRISMA 2020); daraus ergibt sich ein
+// getrennt ausgewiesener interner Erfüllungsgrad (kein offizieller Score).
+function defineRubric(prefix, label, dims, reportingLabel) {
     return {
-        label, prefix,
+        label, prefix, reportingLabel: reportingLabel || null,
         dimensions: dims.map(([name, weight, questions], i) => ({
             name, weight,
             questions: questions.map((q, j) => ({
                 id: `${prefix}-${i + 1}.${j + 1}`,
-                text: q.replace(/^!\s*/, ''),
-                critical: q.startsWith('!')
+                text: q.replace(/^[!#\s]+/, ''),
+                critical: /^[!#\s]*!/.test(q),
+                reporting: /^[!#\s]*#/.test(q)
             }))
         }))
     };
@@ -752,6 +755,135 @@ const CASQ_RUBRICS = {
             'Ethikvotum bzw. eine ethische Abwägung ist berichtet, soweit relevant.']],
         ['Limitations', 2, [
             'Limitationen werden konkret benannt.']]
+    ]),
+    review_business: defineRubric('RB', 'Systematisches Review (Management / Marketing / Digital)', [
+        ['Rationale, objectives & protocol', 10, [
+            '# Forschungslücke bzw. Begründung der Übersicht sind dargestellt.',
+            '# Ziel und Forschungsfragen sind explizit formuliert.',
+            '# Ein Protokoll bzw. das Vorgehen wurde vorab festgelegt oder registriert (z.B. OSF, PROSPERO) oder das Vorgehen folgt einem benannten Rahmen (z.B. SPAR-4-SLR, PRISMA).']],
+        ['Identification (SPAR-4-SLR: Assembling)', 18, [
+            '! # Mindestens zwei Literaturdatenbanken wurden durchsucht (z.B. Scopus, Web of Science, EBSCO).',
+            '# Die vollständigen Suchstrings sind berichtet.',
+            '# Suchzeitraum und Datum der Suche sind angegeben.',
+            '# Weitere Quellen wurden berücksichtigt (z.B. Vorwärts-/Rückwärtssuche, Konferenzbeiträge, graue Literatur).',
+            'Die Wahl der Datenbanken und Suchbegriffe ist begründet.']],
+        ['Selection & screening (SPAR-4-SLR: Arranging/Purification)', 16, [
+            '# Ein- und Ausschlusskriterien sind explizit.',
+            '# Die Auswahl erfolgte durch mindestens zwei Personen unabhängig oder mit Konsensverfahren.',
+            '# Ein Flussdiagramm mit Zahlen je Schritt liegt vor (z.B. PRISMA-Diagramm).',
+            '# Gründe für den Ausschluss nach der Volltextprüfung sind berichtet.']],
+        ['Data extraction & coding', 10, [
+            '# Ein Kodierschema bzw. Extraktionsformular ist beschrieben.',
+            '# Die Kodierung erfolgte doppelt oder wurde kontrolliert (z.B. Übereinstimmung der Kodierenden).']],
+        ['Quality appraisal (SPAR-4-SLR: Assessing)', 12, [
+            '! # Die Qualität bzw. Verzerrungsanfälligkeit der eingeschlossenen Studien wird mit einem benannten Verfahren bewertet (ein Journal-Ranking allein genügt nicht).',
+            '# Die Ergebnisse der Qualitätsbewertung sind berichtet und fließen in die Synthese ein.']],
+        ['Synthesis', 16, [
+            '# Die Synthesemethode ist benannt und begründet (z.B. thematisch, Framework-basiert, Meta-Analyse).',
+            '# Die Merkmale der eingeschlossenen Studien sind tabellarisch berichtet.',
+            '! Die Syntheseergebnisse (Themen, Framework) folgen nachvollziehbar aus den Daten.',
+            '# Widersprüchliche Befunde und Heterogenität werden herausgearbeitet.']],
+        ['Reporting bias & certainty', 6, [
+            '# Verzerrungen durch die Auswahl (z.B. Publikationsbias, nur englische Quellen) werden diskutiert.',
+            '# Die Belastbarkeit der Evidenz wird eingeschätzt.']],
+        ['Contribution & future research', 6, [
+            'Beitrag und Forschungsagenda ergeben sich aus den Befunden.',
+            'Implikationen für Theorie oder Praxis sind abgeleitet.']],
+        ['Transparency & limitations', 6, [
+            '# Limitationen der Übersicht werden konkret benannt.',
+            '# Finanzierung und Interessenkonflikte sind offengelegt.',
+            '# Extraktionstabelle bzw. Daten sind verfügbar.']]
+    ], 'PRISMA-2020-Berichtserfüllung'),
+    bibliometric: defineRubric('BB', 'Bibliometrische Analyse', [
+        ['Objective & scope', 10, [
+            'Ziel und Forschungsfragen sind formuliert.',
+            'Das untersuchte Feld bzw. Thema ist abgegrenzt.']],
+        ['Data source & search', 20, [
+            '! Die Datenbank ist benannt und ihre Wahl begründet (z.B. Scopus, Web of Science).',
+            '! Der vollständige Suchstring ist berichtet.',
+            'Zeitraum und Abfragedatum sind angegeben.',
+            'Filter nach Dokumenttyp, Sprache und Fachgebiet sind beschrieben.']],
+        ['Data cleaning', 14, [
+            'Die Zahl der Dokumente je Schritt (Treffer, Ausschlüsse, Endmenge) ist berichtet.',
+            'Deduplizierung und Bereinigung (z.B. Autorennamen, Schlagwort-Thesaurus) sind beschrieben.']],
+        ['Methods & software', 16, [
+            'Die Analyseverfahren (z.B. Co-Zitation, bibliografische Kopplung, Co-Word, Co-Autorschaft) sind benannt und begründet.',
+            'Software und Version sind genannt (z.B. VOSviewer, Bibliometrix).',
+            'Parameter sind berichtet (z.B. Schwellenwerte, Normalisierung, Cluster-Algorithmus).']],
+        ['Validity of mapping', 12, [
+            'Die Cluster bzw. Themen werden inhaltlich gedeutet und nicht nur algorithmisch übernommen.',
+            'Die Robustheit gegenüber Parametern oder Datenwahl wird geprüft.']],
+        ['Interpretation', 12, [
+            '! Die Schlüsse gehen nicht über die bibliometrische Evidenz hinaus (Zitationszahlen sind kein Qualitätsurteil).',
+            'Befunde werden eingeordnet und eine Forschungsagenda wird abgeleitet.']],
+        ['Database limitations', 8, [
+            'Verzerrungen der Datenbank (Abdeckung, Sprache, Disziplin) werden diskutiert.',
+            'Limitationen werden konkret benannt.']],
+        ['Reproducibility', 8, [
+            'Daten, Suchstring oder Analyseskripte sind verfügbar oder der Zugang ist beschrieben.']]
+    ]),
+    case_study: defineRubric('CS', 'Fallstudie', [
+        ['Research question & case logic', 12, [
+            'Die Forschungsfrage ist explizit formuliert.',
+            'Die Fallstudie als Methode ist für die Fragestellung begründet.',
+            'Ein theoretischer Rahmen oder Propositionen leiten die Untersuchung.']],
+        ['Case selection', 16, [
+            '! Die Fallauswahl ist begründet (z.B. theoretisches Sampling, typischer, kritischer oder extremer Fall).',
+            'Die Zahl der Fälle (Einzel- oder Mehrfallstudie) ist begründet.',
+            'Fall und Kontext sind ausreichend beschrieben.']],
+        ['Data sources & collection', 16, [
+            'Mehrere Datenquellen werden genutzt (z.B. Interviews, Dokumente, Beobachtung).',
+            'Umfang und Zeitraum der Erhebung sind berichtet (z.B. Zahl und Rollen der Befragten).',
+            'Interviewleitfaden oder Erhebungsprotokoll sind beschrieben bzw. zugänglich.']],
+        ['Triangulation & chain of evidence', 16, [
+            '! Die Befunde werden durch Triangulation mehrerer Quellen oder Perspektiven abgesichert.',
+            'Die Beweiskette ist nachvollziehbar (Aussagen sind mit Belegen aus den Daten verknüpft, z.B. Zitate, Dokumente).',
+            'Verzerrungen durch einzelne Informanten werden berücksichtigt.']],
+        ['Analysis (within-/cross-case)', 16, [
+            '! Die Analysemethode ist benannt und ihre Schritte sind beschrieben.',
+            'Eine Within-Case-Analyse der einzelnen Fälle liegt vor.',
+            'Bei mehreren Fällen: ein Cross-Case-Vergleich ist durchgeführt.',
+            'Die Kodierung ist nachvollziehbar und der Abgleich mit der Theorie erfolgt iterativ.']],
+        ['Construct & theory building', 8, [
+            'Konstrukte bzw. Schlussfolgerungen sind durch die Daten belegt.',
+            'Die Befunde werden mit der Literatur verglichen.']],
+        ['Credibility & reflexivity', 8, [
+            'Gütesicherung ist beschrieben (z.B. Validierung durch Befragte, mehrere Forschende).',
+            'Rolle und Vorannahmen der Forschenden werden reflektiert.']],
+        ['Generalizability & limitations', 8, [
+            'Die Verallgemeinerung wird als analytisch (theoriebezogen) und nicht statistisch eingeordnet.',
+            'Limitationen werden konkret benannt.']]
+    ]),
+    scale_development: defineRubric('SD', 'Skalenentwicklung / -validierung', [
+        ['Construct definition & content domain', 12, [
+            'Das Konstrukt ist definiert und gegen verwandte Konstrukte abgegrenzt.',
+            'Die erwartete Dimensionalität ist theoretisch begründet.']],
+        ['Item generation', 12, [
+            'Der Itempool stammt aus Literatur, qualitativen Vorstudien oder Expertenwissen.',
+            'Die inhaltliche Validität wurde geprüft (z.B. Expertenurteil, Q-Sort, Delphi).']],
+        ['Pretest & item purification', 10, [
+            'Ein Pretest bzw. eine Pilotstudie ist beschrieben.',
+            'Die Itemreduktion ist nachvollziehbar (Kriterien und Zahl der entfernten Items).']],
+        ['Sample & data', 12, [
+            '! Die Stichprobengröße ist für die Analysen angemessen und begründet.',
+            'Für Exploration und Bestätigung werden unabhängige Stichproben genutzt.',
+            'Die Stichproben sind beschrieben (Rekrutierung, Merkmale, Datenbereinigung).']],
+        ['Dimensionality (EFA/CFA)', 16, [
+            '! Die Faktorenstruktur ist geprüft (EFA und/oder CFA).',
+            'Kriterien für Faktorenzahl und Itemauswahl sind berichtet (z.B. Ladungen, Kreuzladungen).',
+            'Gütemaße des Modells sind berichtet (z.B. CFI, RMSEA, SRMR).']],
+        ['Reliability', 10, [
+            'Reliabilität je Dimension ist berichtet (z.B. Cronbachs Alpha, Composite Reliability).']],
+        ['Validity', 18, [
+            'Konvergenzvalidität ist berichtet (z.B. AVE).',
+            '! Diskriminanzvalidität ist geprüft (z.B. Fornell-Larcker, HTMT).',
+            'Nomologische bzw. Kriteriumsvalidität ist anhand verwandter Konstrukte oder Kriterien geprüft.',
+            'Die Skala wird gegen etablierte Messinstrumente verglichen.']],
+        ['Cross-validation & replication', 6, [
+            'Die Struktur wurde an einer unabhängigen Stichprobe bestätigt (oder in weiteren Studien des Artikels).',
+            'Messinvarianz, Test-Retest oder Stabilität der Skala wurden geprüft.']],
+        ['Common method bias & limitations', 4, [
+            'Common Method Bias wird adressiert und Limitationen werden benannt.']]
     ])
 };
 
@@ -760,6 +892,10 @@ const CASQ_RUBRICS = {
 const RUBRIC_REFERENCES = {
     survey_sem: 'Etablierte SEM-/PLS-SEM-Berichts- und Bewertungsempfehlungen (u. a. Hair, Risher, Sarstedt & Ringle 2019), Gütekriterien der Skalenmessung',
     experiment: 'Grundsätze experimenteller Forschung; Berichtsreferenz APA JARS (Reporting-Standard, kein Risk-of-Bias-Instrument)',
+    review_business: 'PRISMA 2020 (Reporting-Leitlinie) und SPAR-4-SLR (Prozessrahmen für Reviews in Management und Marketing); ausgewiesen als interner Erfüllungsgrad, nicht als offizieller Score',
+    bibliometric: 'Grundsätze bibliometrischer Analysen und ihrer Berichterstattung (aus der Methodenliteratur abgeleitet)',
+    case_study: 'Fallstudien-Methodik im Sinne von Eisenhardt und Yin (Fallauswahl, Datenquellen, Triangulation, Beweiskette, Within-/Cross-Case-Analyse)',
+    scale_development: 'Etablierte psychometrische Praxis der Skalenentwicklung in der Marketingforschung (Konstruktdefinition, Itemgenerierung, EFA/CFA, Reliabilität, Validität)',
     platform_data: 'Grundsätze der Computational- und Social-Media-Forschung (aus der Methodenliteratur abgeleitet)',
     quantitative: 'Allgemeine Methodenstandards der empirischen Forschung (intern abgeleitet)',
     qualitative: 'Allgemeine Gütekriterien qualitativer Forschung (intern abgeleitet)',
@@ -776,13 +912,17 @@ Object.entries(RUBRIC_REFERENCES).forEach(([key, text]) => { CASQ_RUBRICS[key].r
 // wird sie aus Studiendesign, Methoden und Analyseverfahren abgeleitet.
 const METHOD_CLASSES = ['survey_sem', 'experiment', 'platform_data', 'case_study', 'bibliometric', 'scale_development',
     'qualitative', 'other_quantitative', 'not_applicable'];
-const RUBRIC_BY_METHOD_CLASS = { survey_sem: 'survey_sem', experiment: 'experiment', platform_data: 'platform_data' };
+const RUBRIC_BY_METHOD_CLASS = { survey_sem: 'survey_sem', experiment: 'experiment', platform_data: 'platform_data',
+    case_study: 'case_study', bibliometric: 'bibliometric', scale_development: 'scale_development' };
 
 function methodClassOf(extraction) {
     const declared = String(extraction?.method_class || '').toLowerCase().trim();
     if (METHOD_CLASSES.includes(declared)) return declared;
     const list = v => Array.isArray(v) ? v.join(' ') : String(v ?? '');
     const text = [extraction?.study_design, list(extraction?.methods), list(extraction?.analysis_methods), list(extraction?.data_collection)].join(' ').toLowerCase();
+    if (/bibliometric|science mapping|co-?citation|bibliographic coupling|vosviewer|bibliometrix/.test(text)) return 'bibliometric';
+    if (/case stud|fallstudie/.test(text)) return 'case_study';
+    if (/scale development|scale validation|skalenentwicklung|skalenvalidierung|measurement development|psychometric|exploratory factor/.test(text)) return 'scale_development';
     if (/pls[- ]?sem|smartpls|cb[- ]?sem|structural equation|strukturgleichung|\bsem\b/.test(text)) return 'survey_sem';
     if (/experiment|a\/b[- ]?test|between[- ]subjects|within[- ]subjects|randomi[sz]ed/.test(text)) return 'experiment';
     if (/scrap|clickstream|web[- ]?tracking|scanner data|transaction data|big data|text mining|topic model|sentiment analysis|machine learning|social media data|api data/.test(text)) return 'platform_data';
@@ -795,6 +935,12 @@ function isHealthContext(extraction) {
     const cc = extraction?.clinical_context || {};
     if (cc.is_health_clinical || cc.is_physiotherapy_rehabilitation || cc.is_surgical || cc.is_measurement_property_study || cc.is_PROM_study) return true;
     return /health|clinical|medic|patient|nurs|gesundheit|klinisch|pflege|physio|rehab/i.test(String(extraction?.research_domain || ''));
+}
+
+// Management-/Marketing-/Digitalbezug: dann gilt für systematische Reviews die Business-Rubrik (PRISMA/SPAR-4-SLR).
+function isBusinessContext(extraction) {
+    if (isHealthContext(extraction)) return false;
+    return /business|marketing|manag|media|digital|commerce|retail|consumer|information system|social media|advertis|brand|wirtschaft|betriebs|handel|medien/i.test(String(extraction?.research_domain || ''));
 }
 
 const MEDICAL_INSTRUMENTS_HIDDEN_REASON = 'Fachgebiet ohne Gesundheitsbezug: die medizinischen Instrumente (PEDro, MINORS, AMSTAR 2, COSMIN) werden nicht angewendet. Die Bewertung erfolgt über die fachspezifischen Prüffragen (CASQ-Rubrik).';
@@ -829,16 +975,20 @@ function tokenSimilarity(a, b) {
 function preferredRubricKey(extraction, appraisal) {
     const docType = String(appraisal?.document_type_confirmed || extraction?.document_type || '').toLowerCase();
     const family = String(extraction?.study_family || '').toLowerCase();
-    if (docType === 'systematic_review') return 'review';
+    const empirical = ['', 'primary_empirical_study', 'systematic_review', 'narrative_review', 'other', 'unclear'].includes(docType);
+    const methodClass = methodClassOf(extraction);
+    if (methodClass === 'bibliometric' && empirical) return 'bibliometric';
+    if (docType === 'systematic_review') return isBusinessContext(extraction) ? 'review_business' : 'review';
     if (docType === 'narrative_review') return 'narrative';
     if (docType === 'methodological_paper') return 'methodological';
     if (docType === 'theoretical_conceptual_paper') return 'theoretical';
     if (docType === 'multiple_study_report') return 'multiple';
+    if (methodClass === 'case_study' && !family.includes('review')) return 'case_study';
     if (family.includes('mixed')) return 'mixed';
     if (family.includes('qualitative')) return 'qualitative';
-    // Fachspezifische Rubrik nach Methodenklasse (Befragung/SEM, Experiment, Plattform-/Big-Data)
+    // Fachspezifische Rubrik nach Methodenklasse (Befragung/SEM, Experiment, Plattform-/Big-Data, Skalenentwicklung)
     if (family.includes('quantitative') || !family) {
-        const byMethod = RUBRIC_BY_METHOD_CLASS[methodClassOf(extraction)];
+        const byMethod = RUBRIC_BY_METHOD_CLASS[methodClass];
         // Klinische Studien (z.B. RCT) behalten die allgemeine quantitative Rubrik mit Verblindung und Zuteilung;
         // die Experiment-Rubrik ist auf Marketing-/Verhaltensexperimente zugeschnitten.
         if (byMethod && !(byMethod === 'experiment' && isHealthContext(extraction))) return byMethod;
@@ -1050,6 +1200,18 @@ function calculateCASQ2(validation, appraisal, rubricKey) {
     });
     if (!weights) return null;
 
+    // Berichtserfüllung (z.B. PRISMA 2020): Anteil erfüllter Berichtspunkte, getrennt vom CASQ ausgewiesen
+    let reporting = null;
+    if (rubric.reportingLabel) {
+        const items = dimensions.flatMap((d, i) => d.questions.filter((_, j) => rubric.dimensions[i].questions[j].reporting));
+        const considered = items.filter(q => q.response !== 'not_applicable');
+        if (considered.length) {
+            const points = considered.reduce((a, q) => a + CASQ_RESPONSE_VALUE[q.effective], 0);
+            reporting = { label: rubric.reportingLabel, compliance: points / considered.length, considered: considered.length,
+                fulfilled: considered.filter(q => q.effective === 'yes').length };
+        }
+    }
+
     const capFor = flaws => flaws.length >= 2 ? CASQ_CAP_MORE_FLAWS : flaws.length === 1 ? CASQ_CAP_ONE_FLAW : 10;
     const raw = weighted / weights;
     const cap = capFor(criticalFlaws);
@@ -1060,6 +1222,7 @@ function calculateCASQ2(validation, appraisal, rubricKey) {
         rubric: rubricKey,
         rubric_label: rubric.label,
         rubric_reference: rubric.reference || null,
+        reporting,
         score,
         score_uncapped: raw,
         score_min: score,
@@ -1111,7 +1274,7 @@ if (typeof module !== 'undefined' && module.exports) {
         parseJSONRobust, buildEvidenceContext, normalizeForMatch, findQuoteOnPages,
         verifyExtractionEvidenceRefs, verifySourceRefs, verifyFrameworkEvidence, verifyEstablishedEvidence, verifyJARSEvidence,
         calculateJARSMetrics, calculateEstablishedResult, countFrameworkItems, calculateFrameworkMetrics,
-        calculateValidatedCASQ, matchCASQRubric, CASQ_RUBRICS, RUBRIC_REFERENCES, METHOD_CLASSES, methodClassOf, isHealthContext, restrictMedicalInstruments, SCORING_VERSION,
+        calculateValidatedCASQ, matchCASQRubric, CASQ_RUBRICS, RUBRIC_REFERENCES, METHOD_CLASSES, methodClassOf, isHealthContext, isBusinessContext, restrictMedicalInstruments, SCORING_VERSION,
         normalizeChecklistResponse, selectCASQRubric, casqChecklistText, verifyChecklistEvidence, calculateCASQ2,
         isFiniteScore, formatCASQ, formatCASQRange, qualityLabel, escapeHTML, fillTemplate
     };

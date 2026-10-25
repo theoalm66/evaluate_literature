@@ -127,10 +127,15 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   Stichprobe, Common Method Bias, Robustheit), **Experiment / A/B-Test** (Zuteilung, Manipulationscheck, Power, Effektgrößen, Störgrößen)
   und **Plattform-/Social-Media-/Big-Data-Studie** (Datenherkunft, Selektion, Bots, Plattformeffekte, Leakage, kausale Aussagen,
   Reproduzierbarkeit, Datenschutz). Klinische Studien behalten die allgemeine quantitative Rubrik.
+- Weitere Rubriken: **Fallstudie** (Fallauswahl, Datenquellen, Triangulation, Beweiskette, Within-/Cross-Case-Analyse),
+  **bibliometrische Analyse** (Datenbank, Suchstring, Bereinigung, Software und Parameter, Clusterdeutung),
+  **Skalenentwicklung** (Konstrukt, Items, EFA/CFA, Reliabilität, Validität, Kreuzvalidierung) und
+  **systematisches Review in Management/Marketing/Digital** (PRISMA 2020 und SPAR-4-SLR). Dort wird die
+  **PRISMA-Berichtserfüllung** getrennt vom CASQ als interner Erfüllungsgrad ausgewiesen, nicht als „PRISMA-Score“.
 - PEDro, MINORS, AMSTAR 2 und COSMIN werden nur bei Gesundheitsbezug angewendet (der Code entscheidet anhand der Extraktion; im
   Dashboard unter „Fachgebiet“ lässt sich das aufheben). Der Quellcode der Instrumente bleibt erhalten.
 - Die Kriterien sind aus etablierten Methodenempfehlungen abgeleitet, aber keine offiziellen Instrumente; sie sollten fachlich
-  durchgesehen werden. Geplant: Fallstudie, Review/Bibliometrie (PRISMA-Erfüllungsgrad), Skalenentwicklung, Zeitschriftenkontext.
+  durchgesehen werden. Geplant: Zeitschriftenkontext.
 - Die Prompts von Agent 3 und 4 wurden dafür angepasst (Platzhalter `{{CASQ_RUBRIC}}`, `{{CASQ_CHECKLIST}}`) und
   beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
   Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.
