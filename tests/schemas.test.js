@@ -75,3 +75,17 @@ test('Typische Antworten passen zu den Schemata', () => {
         items: [{ item_id: '2', criterion: 'Random allocation', response: 'yes', points: 1, max_points: 1, critical: false, evidence: [{ page: null, section: '', quote: '' }], rationale: '' }], summary: '' };
     assert.deepEqual(validate(agentSchema('analysis').schema.properties.established_appraisal, ea), []);
 });
+
+test('Extraktion in Teilschritten: die Teile ergeben zusammen genau das vollständige Schema', () => {
+    const { agentSchema, EXTRACTION_PARTS } = require('../app/js/schemas.js');
+    const full = Object.keys(agentSchema('extraction').schema.properties).sort();
+    const parts = Object.values(EXTRACTION_PARTS).flat();
+    assert.equal(new Set(parts).size, parts.length, 'ein Schlüssel kommt in mehreren Teilen vor');
+    assert.deepEqual([...parts].sort(), full);
+    for (const part of Object.keys(EXTRACTION_PARTS)) {
+        const schema = agentSchema('extraction', { part }).schema;
+        assert.deepEqual(Object.keys(schema.properties), EXTRACTION_PARTS[part]);
+        assert.deepEqual(schema.required, EXTRACTION_PARTS[part], 'strikter Modus verlangt alle Felder');
+        assert.equal(schema.additionalProperties, false);
+    }
+});

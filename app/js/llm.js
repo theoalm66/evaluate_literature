@@ -472,7 +472,7 @@ async function callLLM(prompt, meta = {}) {
 
     const stepBase = {
         agent: meta.agent || null, doc: meta.doc || null, prompt_version_id: meta.promptVersionId || null,
-        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt, run: meta.run,
+        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt, run: meta.run, part: meta.part,
         images: meta.images?.length ? meta.imagePages || meta.images.length : undefined
     };
     let response, attempt = 0, schemaFallbackUsed = false, attemptStart = performance.now();

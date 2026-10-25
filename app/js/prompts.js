@@ -44,7 +44,7 @@ TIE-BREAKER methodological_paper vs. multiple_study_report:
 4. Extrahiere kurze Evidenzbelege. SOURCE_TEXT enthält Marker wie --- PAGE 12 ---. Für jeden wichtigen Beleg gib die PDF-Seite als ganze Zahl und ein kurzes möglichst wörtliches Zitat an. Wenn die Seite nicht sicher bestimmbar ist, verwende "unknown".
 5. Effektgrößen, p-Werte und Kennzahlen nur übernehmen, wenn sie explizit berichtet werden.
 6. Antworte NUR mit validem JSON, ohne Markdown-Codeblock.
-
+{{PART_INSTRUCTION}}
 Titel: {{TITLE}}
 SOURCE_TEXT:
 {{SOURCE_TEXT}}

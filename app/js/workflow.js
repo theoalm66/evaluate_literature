@@ -26,6 +26,37 @@ async function callWithVisuals(prompt, meta, doc) {
     }
 }
 
+// Extraktion in Teilschritten: Teil 1 klassifiziert (ohne Bilder), Teil 2 holt Methoden und Messung, Teil 3 Ergebnisse und Belege
+// (beide mit Seitenbildern). So bleibt jeder Aufruf kurz genug für Server mit Zeitlimit.
+const EXTRACTION_PART_TITLES = { classification: 'Dokumenttyp und Design', methods: 'Stichprobe, Methoden und Messung', results: 'Ergebnisse, Limitationen und Belege' };
+
+function extractionPartInstruction(part, partIndex, partCount, known) {
+    const lines = [`TEILAUFGABE (Teil ${partIndex} von ${partCount}: ${EXTRACTION_PART_TITLES[part]}): Liefere AUSSCHLIESSLICH diese Schlüssel des JSON-SCHEMA: ${EXTRACTION_PARTS[part].join(', ')}. Lass alle anderen Schlüssel weg.`];
+    if (known.document_type) lines.push(`Bereits bestimmt (Teil 1): Dokumenttyp ${known.document_type}, Studienfamilie ${known.study_family || 'unklar'}, Design ${known.study_design || 'unklar'}.`);
+    return lines.join('\n') + '\n';
+}
+
+async function runExtraction(doc, promptBase, promptVersionId, split) {
+    if (!split) {
+        const prompt = fillTemplate(promptBase, { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text, PART_INSTRUCTION: '' });
+        return parseJSONRobust(await callWithVisuals(prompt, { agent: 'extraction', doc: doc.title, promptVersionId, schema: agentSchema('extraction') }, doc));
+    }
+    const parts = Object.keys(EXTRACTION_PARTS);
+    const merged = {};
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        log(`Evidence Extraction – Teil ${i + 1}/${parts.length} (${EXTRACTION_PART_TITLES[part]}): ${doc.title}`, 'info');
+        const instruction = extractionPartInstruction(part, i + 1, parts.length, merged);
+        // Eigene Prompts ohne Platzhalter bekommen die Teilaufgabe vorangestellt.
+        const template = promptBase.includes('{{PART_INSTRUCTION}}') ? promptBase : `{{PART_INSTRUCTION}}\n${promptBase}`;
+        const prompt = fillTemplate(template, { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text, PART_INSTRUCTION: instruction });
+        const meta = { agent: 'extraction', part, doc: doc.title, promptVersionId, schema: agentSchema('extraction', { part }) };
+        const answer = parseJSONRobust(await (part === 'classification' ? callLLM(prompt, meta) : callWithVisuals(prompt, meta, doc)));
+        Object.assign(merged, answer);
+    }
+    return merged;
+}
+
 function sourceInfoFor(doc) {
     return {
         quality: doc.quality,
@@ -81,6 +112,7 @@ async function startWorkflow() {
 
     PROMPT_TYPES.forEach(type => savePrompt(type));
     // Mehrfachbewertung: Anzahl Durchläufe von Agent 3 und 3b und deren Temperatur (bei 0 wären alle Läufe gleich)
+    const splitExtraction = !!document.getElementById('opt-split-extraction')?.checked;
     const allowMedical = !!document.getElementById('opt-medical-instruments')?.checked;
     const repeatRuns = Math.max(1, Math.min(7, parseInt(document.getElementById('opt-repeat-runs').value, 10) || 1));
     const repeatTempInput = parseFloat(document.getElementById('opt-repeat-temperature').value);
@@ -154,7 +186,7 @@ async function startWorkflow() {
             try {
                 const parsed = await extractPdf(file, { renderVisuals: visionActive });
                 const q = parsed.quality;
-                if (q.textless) throw new Error('Keine Textschicht gefunden – vermutlich ein gescanntes PDF. Bitte eine durchsuchbare Fassung (OCR) verwenden.');
+                if (q.textless) throw new Error('Gescanntes PDF erkannt: Die Datei enthält keinen auslesbaren Text. OCR wird nicht unterstützt – bitte eine durchsuchbare Fassung verwenden (z.B. die PDF der Zeitschrift oder eine vorher mit OCR-Software wie OCRmyPDF aufbereitete Datei).');
                 const evidenceText = buildEvidenceContext(parsed.pages, maxEvChars);
                 const visionStatus = !visionWanted ? 'off' : !visionActive ? 'unsupported' : parsed.visuals.length ? 'used' : 'none';
                 docs.push({ title: file.name, full_text: parsed.fullText, evidence_text: evidenceText, pages: parsed.pages, num_pages: parsed.numPages,
@@ -162,7 +194,7 @@ async function startWorkflow() {
                 log(`${file.name}: ${parsed.numPages} Seiten, ${parsed.fullText.length.toLocaleString()} Zeichen gelesen, ${evidenceText.length.toLocaleString()} Zeichen Evidenzkontext`
                     + `${q.table_pages.length ? `, Tabellen S. ${q.table_pages.join(', ')}` : ''}${q.figure_pages.length ? `, Abbildungen S. ${q.figure_pages.join(', ')}` : ''}`
                     + `${parsed.visuals.length ? `, ${parsed.visuals.length} Seitenbild(er) für das Modell` : ''}.`, 'success');
-                if (q.scanned_pages.length) log(`${file.name}: ${q.scanned_pages.length} Seite(n) ohne Textschicht (gescannt?): S. ${q.scanned_pages.join(', ')} – deren Inhalt fehlt im Text.`, 'warning');
+                if (q.scanned_pages.length) log(`${file.name}: ${q.scanned_pages.length} Seite(n) ohne Textschicht, vermutlich gescannt: S. ${q.scanned_pages.join(', ')}. Ihr Inhalt fehlt im Text (OCR wird nicht unterstützt) – Ergebnisse können unvollständig sein.`, 'warning');
             } catch (err) {
                 registerFailure(file.name, 'Ingestion', err);
             }
@@ -176,8 +208,7 @@ async function startWorkflow() {
         for (const doc of docs) {
             try {
                 log(`Evidence Extraction: ${doc.title}`, 'info');
-                const prompt = fillTemplate(extPromptBase, { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text });
-                let ext = parseJSONRobust(await callWithVisuals(prompt, { agent: 'extraction', doc: doc.title, promptVersionId: promptVersionIds.extraction, schema: agentSchema('extraction') }, doc));
+                let ext = await runExtraction(doc, extPromptBase, promptVersionIds.extraction, splitExtraction);
                 ext.title = doc.title;
                 ext = verifyExtractionEvidenceRefs(ext, doc.pages);
                 extractedDocs.push({ doc, ext });

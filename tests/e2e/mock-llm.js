@@ -171,7 +171,14 @@ function startMockLLM(port) {
             const agentTag = (prompt.match(/Du bist Agent (\d+b?)/) || [])[1] || '?';
             const index = (state.agentCalls[agentTag] = (state.agentCalls[agentTag] ?? -1) + 1);
             if (!isProbe) temps.push({ agent: agentTag, temperature: payload.temperature });
-            const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt, { temperature: payload.temperature, index, domain: state.domain }));
+            let answer = isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt, { temperature: payload.temperature, index, domain: state.domain });
+            // Extraktion in Teilschritten: nur die in der Teilaufgabe genannten Schlüssel liefern
+            const partMatch = prompt.match(/TEILAUFGABE \(Teil \d von \d[^)]*\): Liefere AUSSCHLIESSLICH diese Schlüssel des JSON-SCHEMA: ([^.]+)\./);
+            if (partMatch && prompt.includes('Du bist Agent 2')) {
+                const keys = partMatch[1].split(',').map(k => k.trim());
+                answer = Object.fromEntries(Object.entries(answer).filter(([k]) => keys.includes(k)));
+            }
+            const content = JSON.stringify(answer);
             if (payload.stream && state.streamAsOneJson) {   // Server ignoriert Streaming und antwortet normal
                 res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));

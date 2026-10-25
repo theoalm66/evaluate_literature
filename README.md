@@ -78,6 +78,15 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
 2. `docker compose up -d --build`
 3. In der App unter *Konfiguration* den Provider **„🚀 Spark-Modell“** wählen. Nur für verknüpfte Spark-Konten.
 
+### Server mit Zeitlimit (z.B. Hochschul-API)
+
+Trennt ein Dienst die Verbindung nach etwa 5 Minuten, muss jede Antwort in dieser Zeit fertig sein. Im Dashboard unter
+„Langsame Modelle / Zeitlimit des Servers“ gibt es dafür: **Extraktion in drei Teilschritten** (Dokumenttyp und Design / Stichprobe,
+Methoden und Messung / Ergebnisse und Belege; nur Teil 2 und 3 bekommen Seitenbilder), **kurze Antworten** und **Reasoning abschalten**
+(nur für Spark, Hochschul-API und eigene Endpunkte). Zusätzlich holt die App Antworten dieser Anbieter als Datenstrom, wiederholt bei
+Serverfehlern und fällt bei Ablehnung automatisch auf einfachere Anfragen zurück. Gescannte PDFs ohne Textschicht werden erkannt und
+gemeldet; OCR gibt es bewusst nicht (eine durchsuchbare Fassung verwenden).
+
 ### Konten und Synchronisation
 
 - **Neues Konto:** beim Registrieren den Einladungscode eingeben. Ohne Code entsteht wie bisher ein rein lokales Profil.

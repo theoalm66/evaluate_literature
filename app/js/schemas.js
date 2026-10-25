@@ -33,8 +33,22 @@ const OFFICIAL_RATINGS = ['High', 'Moderate', 'Low', 'Critically low', 'Very goo
 const evidenceRef = () => S.obj({ page: S.nullable(S.int()), section: S.str(), quote: S.str() });
 const valueWithEvidence = () => S.obj({ value: S.str(), evidence: S.str() });
 
-function extractionSchema() {
-    return S.obj({
+// Die Extraktion lässt sich in drei kleinere Aufrufe teilen (für Server mit Zeitlimit). Jeder Teil liefert nur seine Schlüssel.
+const EXTRACTION_PARTS = {
+    classification: ['document_type', 'document_type_rationale', 'study_family', 'study_design', 'method_class', 'embedded_studies',
+        'multi_study_reporting', 'research_domain', 'clinical_context', 'publication_year', 'research_question', 'hypotheses', 'theoretical_framework'],
+    methods: ['sample', 'methods', 'data_collection', 'measures', 'analysis_methods', 'datasets', 'transparency'],
+    results: ['evidence_locations', 'main_results', 'limitations_reported', 'key_arguments', 'summary', 'extraction_uncertainties']
+};
+
+function extractionSchema(part) {
+    const props = extractionProperties();
+    if (!part) return S.obj(props);
+    return S.obj(Object.fromEntries(EXTRACTION_PARTS[part].map(key => [key, props[key]])));
+}
+
+function extractionProperties() {
+    return ({
         evidence_locations: S.arr(S.obj({ claim: S.str(), section: S.str(), page: S.nullable(S.int()), quote: S.str() })),
         document_type: S.enum(DOCUMENT_TYPES),
         document_type_rationale: S.str(),
@@ -212,7 +226,7 @@ function integritySchema() {
 // Schema je Agent; ctx.rubric wird für die CASQ-Agenten gebraucht.
 function agentSchema(agent, ctx = {}) {
     const build = {
-        extraction: extractionSchema,
+        extraction: () => extractionSchema(ctx.part),
         analysis: analysisSchema,
         casq: () => casqSchema(ctx.rubric, false),
         validation: validationSchema,
@@ -224,5 +238,5 @@ function agentSchema(agent, ctx = {}) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { agentSchema, S };
+    module.exports = { agentSchema, S, EXTRACTION_PARTS };
 }

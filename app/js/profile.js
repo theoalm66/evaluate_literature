@@ -67,7 +67,8 @@ function ensureProfileStructure(db, user) {
     // aktuelle PEDro/MINORS/AMSTAR2/COSMIN/GRADE-Logik erhalten.
     const frameworkDate = new Date().toLocaleString();
     if (!String(db[user].prompts.extraction?.[0]?.text || '').includes('TIE-BREAKER methodological_paper vs. multiple_study_report')
-        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('method_class')) {
+        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('method_class')
+        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('{{PART_INSTRUCTION}}')) {
         db[user].prompts.extraction.unshift(promptVersion(DEFAULT_PROMPTS.extraction, frameworkDate));
         db[user].sync.promptHeads.extraction = new Date().toISOString();
         db[user].prompts.extraction = db[user].prompts.extraction.slice(0, PROMPT_HISTORY_LIMIT);
@@ -284,6 +285,7 @@ async function applyProfileSettingsToUI(profile) {
     el('opt-integrity-llm').checked = keys.integrityLLM !== false;
     el('opt-vision').checked = keys.visionEnabled !== false;
     el('opt-compact').checked = keys.compactAnswers === true;
+    el('opt-split-extraction').checked = keys.splitExtraction === true;
     el('opt-no-reasoning').checked = keys.disableReasoning === true;
     el('opt-medical-instruments').checked = keys.allowMedicalInstruments === true;
     el('opt-repeat-runs').value = String(keys.repeatRuns || 1);
@@ -429,6 +431,7 @@ async function persistUserKeys() {
     keys.integrityLLM = el('opt-integrity-llm').checked;
     keys.visionEnabled = el('opt-vision').checked;
     keys.compactAnswers = el('opt-compact').checked;
+    keys.splitExtraction = el('opt-split-extraction').checked;
     keys.disableReasoning = el('opt-no-reasoning').checked;
     keys.allowMedicalInstruments = el('opt-medical-instruments').checked;
     keys.repeatRuns = parseInt(el('opt-repeat-runs').value, 10) || 1;

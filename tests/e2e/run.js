@@ -381,6 +381,25 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(/\d+ % \(\d+ von \d+ Berichtspunkten erfüllt\)/.test(rStudy), 'Erfüllungsgrad fehlt');
         console.log('✓ Marketing-Review: Business-Rubrik, PRISMA-Berichtserfüllung getrennt ausgewiesen');
 
+        // 11) Extraktion in drei Teilschritten
+        llm.state.domain = 'business';
+        await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = true; });
+        llm.calls.length = 0; llm.state.payloads.length = 0;
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#results-view.active', { timeout: 60000 });
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Befragung / SEM / PLS-SEM'), null, { timeout: 30000 });
+        const extractionCalls = llm.calls.filter(c => c.includes('Du bist Agent 2'));
+        assert.equal(extractionCalls.length, 3, 'Extraktion muss in 3 Aufrufen laufen');
+        assert.ok(extractionCalls[0].includes('Teil 1 von 3') && extractionCalls[1].includes('Teil 2 von 3') && extractionCalls[2].includes('Teil 3 von 3'));
+        assert.ok(extractionCalls[1].includes('Bereits bestimmt (Teil 1): Dokumenttyp primary_empirical_study'), 'Ergebnis aus Teil 1 fehlt in Teil 2');
+        const extractionPayloads = llm.state.payloads.filter(pl => pl.messages[1].content && JSON.stringify(pl.messages[1].content).includes('Du bist Agent 2'));
+        const schemaKeys = extractionPayloads.map(pl => Object.keys(pl.response_format.json_schema.schema.properties).length);
+        assert.deepEqual(schemaKeys, [13, 7, 6], 'Schema je Teil: ' + schemaKeys);
+        await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = false; });
+        console.log('✓ Extraktion in 3 Teilschritten: je Teil eigenes Schema, Ergebnis wird zusammengesetzt (Marketing-Studie korrekt erkannt)');
+
         const relevantErrors = errors.filter(e => !e.includes('net::ERR_INTERNET_DISCONNECTED'));
         assert.deepEqual(relevantErrors, [], 'Fehler in der Browser-Konsole');
         ok = true;
