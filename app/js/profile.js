@@ -66,14 +66,16 @@ function ensureProfileStructure(db, user) {
     // ESTABLISHED-SCORES-MIGRATION: stellt sicher, dass bestehende Profile die
     // aktuelle PEDro/MINORS/AMSTAR2/COSMIN/GRADE-Logik erhalten.
     const frameworkDate = new Date().toLocaleString();
-    if (!String(db[user].prompts.extraction?.[0]?.text || '').includes('TIE-BREAKER methodological_paper vs. multiple_study_report')) {
+    if (!String(db[user].prompts.extraction?.[0]?.text || '').includes('TIE-BREAKER methodological_paper vs. multiple_study_report')
+        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('method_class')) {
         db[user].prompts.extraction.unshift(promptVersion(DEFAULT_PROMPTS.extraction, frameworkDate));
         db[user].sync.promptHeads.extraction = new Date().toISOString();
         db[user].prompts.extraction = db[user].prompts.extraction.slice(0, PROMPT_HISTORY_LIMIT);
     }
     // CASQ-Prüffragen laufen in eigenen Aufrufen (Agent 3b/4b) – ältere Agent-3/4-Prompts enthalten sie noch.
     if (!String(db[user].prompts.analysis?.[0]?.text || '').includes('Bestätige ausdrücklich den Tie-Breaker')
-        || !String(db[user].prompts.analysis?.[0]?.text || '').includes('eigenen Aufruf (Agent 3b)')) {
+        || !String(db[user].prompts.analysis?.[0]?.text || '').includes('eigenen Aufruf (Agent 3b)')
+        || !String(db[user].prompts.analysis?.[0]?.text || '').includes('Gesundheitsbezug laut Extraktion')) {
         db[user].prompts.analysis.unshift(promptVersion(DEFAULT_PROMPTS.analysis, frameworkDate));
         db[user].sync.promptHeads.analysis = new Date().toISOString();
         db[user].prompts.analysis = db[user].prompts.analysis.slice(0, PROMPT_HISTORY_LIMIT);
@@ -281,6 +283,7 @@ async function applyProfileSettingsToUI(profile) {
     el('opt-integrity-online').checked = keys.integrityOnline !== false;
     el('opt-integrity-llm').checked = keys.integrityLLM !== false;
     el('opt-vision').checked = keys.visionEnabled !== false;
+    el('opt-medical-instruments').checked = keys.allowMedicalInstruments === true;
     el('opt-repeat-runs').value = String(keys.repeatRuns || 1);
     el('opt-repeat-temperature').value = keys.repeatTemperature ?? 0.4;
     updateVisionHint();
@@ -423,6 +426,7 @@ async function persistUserKeys() {
     keys.integrityOnline = el('opt-integrity-online').checked;
     keys.integrityLLM = el('opt-integrity-llm').checked;
     keys.visionEnabled = el('opt-vision').checked;
+    keys.allowMedicalInstruments = el('opt-medical-instruments').checked;
     keys.repeatRuns = parseInt(el('opt-repeat-runs').value, 10) || 1;
     keys.repeatTemperature = Number.isFinite(parseFloat(el('opt-repeat-temperature').value)) ? parseFloat(el('opt-repeat-temperature').value) : 0.4;
 

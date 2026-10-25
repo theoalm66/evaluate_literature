@@ -119,6 +119,18 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   den CASQ bei einem Mangel auf 5, bei mehreren auf 3.
 - Angezeigt werden zusätzlich Informationsgrad, Belegquote, kritische Mängel, Spanne und die komplette
   Prüffragen-Tabelle mit Antworten und Belegen.
+
+**Fachspezifische Rubriken statt medizinischer Instrumente (Marketing, Medien, Digitalisierung, E-Commerce, Handel)**
+- Leitprinzip: Das Gewicht liegt auf den methodenspezifischen Prüfkriterien (Einzelfragen mit Beleg). Der CASQ fasst sie nur zu einem
+  **intern berechneten Vergleichsindex** zusammen, er ist kein offizieller Score. Bei jedem Ergebnis steht, worauf die Rubrik beruht.
+- Agent 2 bestimmt eine Methodenklasse (`method_class`). Neue Rubriken: **Befragung / SEM / PLS-SEM** (Messmodell, Strukturmodell,
+  Stichprobe, Common Method Bias, Robustheit), **Experiment / A/B-Test** (Zuteilung, Manipulationscheck, Power, Effektgrößen, Störgrößen)
+  und **Plattform-/Social-Media-/Big-Data-Studie** (Datenherkunft, Selektion, Bots, Plattformeffekte, Leakage, kausale Aussagen,
+  Reproduzierbarkeit, Datenschutz). Klinische Studien behalten die allgemeine quantitative Rubrik.
+- PEDro, MINORS, AMSTAR 2 und COSMIN werden nur bei Gesundheitsbezug angewendet (der Code entscheidet anhand der Extraktion; im
+  Dashboard unter „Fachgebiet“ lässt sich das aufheben). Der Quellcode der Instrumente bleibt erhalten.
+- Die Kriterien sind aus etablierten Methodenempfehlungen abgeleitet, aber keine offiziellen Instrumente; sie sollten fachlich
+  durchgesehen werden. Geplant: Fallstudie, Review/Bibliometrie (PRISMA-Erfüllungsgrad), Skalenentwicklung, Zeitschriftenkontext.
 - Die Prompts von Agent 3 und 4 wurden dafür angepasst (Platzhalter `{{CASQ_RUBRIC}}`, `{{CASQ_CHECKLIST}}`) und
   beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
   Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.

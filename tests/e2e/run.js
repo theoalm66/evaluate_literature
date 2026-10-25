@@ -161,7 +161,8 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(study.includes('CASQ intern: 8.7 / 10 (Spanne 8.7–9.2)'), 'CASQ/Spanne falsch: ' + (study.match(/CASQ intern: [^|]*/) || [''])[0]);
         assert.ok(study.includes('Informationsgrad: 96 %'), 'Informationsgrad falsch');
         assert.ok(study.includes('Belege verifiziert: 96 %'), 'Belegquote falsch');
-        assert.ok(study.includes('CASQ INTERN · Quantitativ'), 'Rubrik fehlt');
+        assert.ok(study.includes('CASQ (INTERNER INDEX) · Quantitativ'), 'Rubrik fehlt');
+        assert.ok(study.includes('Methodische Grundlage der Prüffragen') && study.includes('kein offizieller Score'), 'Grundlage/Kennzeichnung als interner Index fehlt');
         assert.ok(study.includes('kein Zitat im PDF gefunden'), 'Herabstufung ohne Beleg nicht angezeigt');
         assert.ok(study.includes('Prüffragen (27)'), 'Prüffragen-Tabelle fehlt');
         const analysisPrompt = llm.calls.find(c => c.includes('Du bist Agent 3b'));
@@ -297,6 +298,24 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(await page.inputValue('#hochschule-key'), 'sk-hs-123', 'AES-Key nach erneutem Login nicht lesbar');
         assert.equal(await page.inputValue('#custom1-key'), 'alt-geheim');
         console.log('✓ Offline-Start: App, pdf.js und Historie verfügbar');
+
+        // 9) Marketing-Studie (Befragung/PLS-SEM): fachspezifische Rubrik, medizinische Instrumente werden nicht angewendet
+        await context.setOffline(false);
+        llm.state.domain = 'business';
+        llm.calls.length = 0;
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#results-view.active', { timeout: 60000 });
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Befragung / SEM / PLS-SEM'), null, { timeout: 30000 });
+        const bStudy = await page.textContent('#res-studies');
+        assert.ok(bStudy.includes('CASQ (INTERNER INDEX) · Befragung / SEM / PLS-SEM'), 'fachspezifische Rubrik fehlt');
+        assert.ok(bStudy.includes('Hair, Risher, Sarstedt'), 'Methodische Grundlage der Rubrik fehlt');
+        assert.ok(!bStudy.includes('/ 10 (unvollständig)') && !bStudy.includes('PEDro Scale'), 'PEDro darf ohne Gesundheitsbezug nicht erscheinen');
+        const bAnalysis = llm.calls.find(c => c.includes('Du bist Agent 3,'));
+        assert.ok(bAnalysis.includes('Gesundheitsbezug laut Extraktion: nein'), 'Gesundheitsbezug nicht im Prompt');
+        assert.ok(llm.calls.find(c => c.includes('Du bist Agent 3b')).includes('SM-2.1 [Sampling & response quality]'), 'SEM-Prüffragen fehlen');
+        console.log('✓ Marketing-Studie: Rubrik „Befragung / SEM / PLS-SEM“ mit Grundlage, PEDro ausgeblendet');
 
         const relevantErrors = errors.filter(e => !e.includes('net::ERR_INTERNET_DISCONNECTED'));
         assert.deepEqual(relevantErrors, [], 'Fehler in der Browser-Konsole');

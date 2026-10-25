@@ -384,7 +384,7 @@ function calculateFrameworkMetrics(validation, appraisal) {
 // ==========================================
 // FESTE BEWERTUNGSREGELN (gehören zum Code, nicht zum Prompt)
 // ==========================================
-const SCORING_VERSION = '2026-10-casq2-1';
+const SCORING_VERSION = '2026-10-casq2-2';
 
 const PEDRO_SCORED_ITEMS = ['2','3','4','5','6','7','8','9','10','11'];
 const AMSTAR2_CRITICAL_ITEMS = new Set(['2','4','7','9','11','13','15']);
@@ -635,8 +635,182 @@ const CASQ_RUBRICS = {
             'Die Grenzen der Übersicht werden benannt.']],
         ['Transparency', 5, [
             'Finanzierung und Interessenkonflikte sind offengelegt.']]
+    ]),
+    // Fachspezifische Rubriken für Marketing, Medien, Digitalisierung, E-Commerce und Handel.
+    // Kriterien sind aus etablierten Methodenempfehlungen abgeleitet (siehe RUBRIC_REFERENCES); es sind keine offiziellen Scores.
+    survey_sem: defineRubric('SM', 'Befragung / SEM / PLS-SEM', [
+        ['Research question & model justification', 8, [
+            'Forschungsfrage und Hypothesen sind explizit formuliert und theoretisch begründet.',
+            'Das Strukturmodell (Konstrukte und Pfade) ist nachvollziehbar dargestellt.',
+            'Die Wahl des Verfahrens (PLS-SEM bzw. kovarianzbasierte SEM) ist begründet.']],
+        ['Sampling & response quality', 12, [
+            'Grundgesamtheit und Stichprobenziehung bzw. Rekrutierung sind beschrieben.',
+            'Rücklauf, Ausschlüsse und Datenbereinigung (z.B. Aufmerksamkeitsprüfungen) sind berichtet.',
+            'Non-Response-Bias oder die Repräsentativität der Stichprobe werden geprüft oder diskutiert.',
+            'Merkmale der Stichprobe sind berichtet.']],
+        ['Statistical power & sample adequacy', 8, [
+            '! Der Stichprobenumfang ist begründet (Power-Analyse, Mindestumfang-Regel oder Verhältnis zum Modell).',
+            'Der Umgang mit fehlenden Daten ist beschrieben.']],
+        ['Construct operationalization', 10, [
+            'Alle Konstrukte sind mit Items operationalisiert und die Messmodelle (reflektiv bzw. formativ) sind begründet.',
+            'Die Skalen stammen aus etablierten Quellen oder ihre Entwicklung ist beschrieben.',
+            'Itemformulierungen, Antwortformat und Erhebungssprache bzw. Übersetzung sind dokumentiert.']],
+        ['Indicator reliability', 6, [
+            'Indikatorladungen sind berichtet und anhand üblicher Schwellenwerte bewertet.']],
+        ['Internal consistency', 6, [
+            'Interne Konsistenz bzw. Konstruktreliabilität (z.B. Cronbachs Alpha, rho_A, Composite Reliability) ist berichtet.']],
+        ['Convergent validity', 6, [
+            'Konvergenzvalidität ist berichtet (z.B. durchschnittlich extrahierte Varianz, AVE).']],
+        ['Discriminant validity', 8, [
+            '! Diskriminanzvalidität ist geprüft (z.B. HTMT oder Fornell-Larcker) und die Ergebnisse sind berichtet.']],
+        ['Structural model evaluation', 12, [
+            'Kollinearität im Strukturmodell wird geprüft (z.B. VIF).',
+            'Pfadkoeffizienten sind mit Signifikanz bzw. Konfidenzintervallen (z.B. Bootstrapping mit Angabe der Resamples) berichtet.',
+            'Erklärte Varianz (R²) und Effektstärken (f²) sind berichtet.',
+            '! Die Interpretation der Pfade bleibt im Rahmen des Designs (keine unbegründeten Kausalaussagen aus Querschnittsdaten).']],
+        ['Predictive assessment', 6, [
+            'Die Vorhersagekraft wird über die Erklärkraft hinaus geprüft (z.B. PLSpredict, Out-of-Sample) oder ihr Fehlen wird begründet.']],
+        ['Common method bias', 8, [
+            'Common Method Bias ist durch Verfahren (Design) oder Statistik (z.B. Marker-Variable, Full-Collinearity-VIF) adressiert.']],
+        ['Robustness', 6, [
+            'Robustheits- oder Alternativanalysen sind berichtet (z.B. alternative Modelle, Mediation/Moderation geprüft, Endogenität).']],
+        ['Transparency & limitations', 4, [
+            'Limitationen werden konkret benannt.',
+            'Fragebogen, Daten oder Analysecode sind verfügbar oder der Zugang ist beschrieben.']]
+    ]),
+    experiment: defineRubric('EX', 'Experiment / A/B-Test', [
+        ['Research question & hypotheses', 8, [
+            'Forschungsfrage und Hypothesen sind vorab formuliert und theoretisch begründet.',
+            'Unabhängige und abhängige Variablen sind klar benannt.']],
+        ['Design & random assignment', 14, [
+            'Das Experimentaldesign ist benannt (z.B. between-/within-subjects, Feld-, Labor-, Online-Experiment).',
+            '! Teilnehmende bzw. Einheiten sind zufällig den Bedingungen zugeordnet (oder die fehlende Zufallszuteilung ist begründet und kontrolliert).',
+            'Das Zuteilungsverfahren (Randomisierung, Blockbildung, Auslieferung beim A/B-Test) ist beschrieben.']],
+        ['Experimental control & manipulation', 12, [
+            'Die Manipulation ist konkret beschrieben (Stimuli, Dauer, Ablauf).',
+            '! Ein Manipulationscheck zeigt, dass die Manipulation wirkt.',
+            'Eine geeignete Kontroll- bzw. Vergleichsbedingung ist vorhanden.']],
+        ['Stimulus realism & construct validity', 8, [
+            'Die Stimuli sind realistisch bzw. ihre Auswahl ist begründet (z.B. Pretest, reale Marken oder fiktive Marken mit Begründung).',
+            'Die Operationalisierung der Konstrukte entspricht dem theoretischen Konstrukt.']],
+        ['Sample, power & exclusions', 14, [
+            'Stichprobe und Rekrutierung (z.B. Panel, Studierende, Kundenstamm) sind beschrieben.',
+            '! Der Stichprobenumfang ist begründet (Power-Analyse bzw. a-priori-Berechnung).',
+            'Aufmerksamkeitskontrollen und Ausschlusskriterien sind vorab festgelegt und berichtet.',
+            'Ausfälle je Bedingung (Attrition) sind berichtet.']],
+        ['Measurement', 8, [
+            'Abhängige Variablen und Messinstrumente sind benannt.',
+            'Reliabilität bzw. Validität der Messung ist berichtet oder mit Quelle belegt.']],
+        ['Statistical analysis', 14, [
+            'Die Analyseverfahren sind nachvollziehbar beschrieben.',
+            '! Die Verfahren passen zu Design und Daten (z.B. Berücksichtigung von Messwiederholung, Voraussetzungen geprüft).',
+            'Effektgrößen mit Konfidenzintervallen (nicht nur p-Werte) sind berichtet.',
+            'Mehrfachtests werden berücksichtigt bzw. die Zahl der Tests ist transparent.']],
+        ['Confounds & internal validity', 10, [
+            '! Mögliche Störvariablen und Alternativerklärungen werden kontrolliert oder diskutiert (z.B. Demand-Effekte, Reihenfolge, Selbstselektion).',
+            'Bei Feld- und A/B-Tests: Laufzeit, Traffic-Zuweisung und Störeinflüsse (z.B. Saison, parallele Aktionen) sind beschrieben.']],
+        ['Robustness & transparency', 6, [
+            'Robustheitsanalysen oder eine Replikation (auch in Folgestudien desselben Artikels) sind berichtet.',
+            'Präregistrierung, Materialien oder Daten sind verfügbar, soweit relevant.']],
+        ['Interpretation & limitations', 6, [
+            'Die Schlussfolgerungen gehen nicht über die Daten hinaus (Generalisierbarkeit, Praxisrelevanz).',
+            'Limitationen werden konkret benannt.']]
+    ]),
+    platform_data: defineRubric('PD', 'Plattform- / Social-Media- / Big-Data-Studie', [
+        ['Research question & claims', 6, [
+            'Forschungsfrage und Ziel sind explizit formuliert.',
+            'Der Geltungsbereich der Aussagen (Plattform, Zeitraum, Population) ist benannt.']],
+        ['Data provenance', 14, [
+            '! Die Herkunft der Daten ist benannt (API, Scraping, kommerzieller Datensatz, interne Systeme, Panel).',
+            'Zugang, Erhebungszeitraum und Erhebungsweise (Suchbegriffe, Abfragen, Filter) sind beschrieben.',
+            'Datenschutz- bzw. Nutzungsbedingungen der Quelle sind erwähnt.']],
+        ['Sampling & selection', 14, [
+            'Einschluss- und Ausschlusskriterien für Konten, Beiträge oder Transaktionen sind beschrieben.',
+            '! Mögliche Selektionsverzerrung wird benannt und diskutiert (z.B. nur öffentliche Beiträge, nur aktive Nutzer, nur ein Händler).',
+            'Umfang der Daten (Anzahl Konten, Beiträge, Transaktionen) und Zeitraum sind berichtet.']],
+        ['Platform effects', 8, [
+            'Einflüsse der Plattform werden berücksichtigt (z.B. Empfehlungsalgorithmus, API-Beschränkungen, Änderungen der Plattform im Zeitraum).']],
+        ['Data integrity', 10, [
+            'Bots, Fake-Konten, Spam oder Duplikate werden behandelt (Erkennung und Bereinigung).',
+            'Der Umgang mit gelöschten, fehlenden oder unvollständigen Daten ist beschrieben.']],
+        ['Measurement', 10, [
+            'Zentrale Maße (z.B. Engagement, Sentiment, Conversion, Reichweite) sind eindeutig operationalisiert.',
+            'Automatische Verfahren (z.B. Sentiment-, Themen- oder Klassifikationsmodell) sind validiert (z.B. manuell kodierte Stichprobe, Gütemaße).']],
+        ['Analytics', 14, [
+            'Die Analyse- bzw. Modellierungsverfahren sind nachvollziehbar beschrieben.',
+            '! Bei Vorhersagemodellen: Trainings- und Testdaten sind getrennt und Datenlecks (Leakage) sind ausgeschlossen.',
+            'Mehrfachtests bzw. die Zahl der geprüften Modelle und Hypothesen werden berücksichtigt.',
+            'Robustheits- oder Sensitivitätsanalysen sind berichtet.']],
+        ['Causal claims', 10, [
+            '! Kausale Aussagen sind nur dann gemacht, wenn ein tragfähiges Identifikationsdesign vorliegt (z.B. Experiment, Instrument, Differenz-von-Differenzen); sonst werden nur Zusammenhänge formuliert.',
+            'Alternative Erklärungen und Störgrößen werden diskutiert.']],
+        ['Reproducibility', 6, [
+            'Code, Daten oder Zugang zu den Daten sind verfügbar, oder Einschränkungen sind begründet.',
+            'Modellparameter, Software und Versionen sind dokumentiert.']],
+        ['Ethics & privacy', 6, [
+            'Umgang mit personenbezogenen Daten (Anonymisierung, Rechtsgrundlage) ist beschrieben.',
+            'Ethikvotum bzw. eine ethische Abwägung ist berichtet, soweit relevant.']],
+        ['Limitations', 2, [
+            'Limitationen werden konkret benannt.']]
     ])
 };
+
+// Methodische Grundlage je Rubrik – wird bei jedem Ergebnis neben dem CASQ angezeigt. Die Rubriken sind keine
+// offiziellen Instrumente; der CASQ ist ein intern berechneter Vergleichsindex.
+const RUBRIC_REFERENCES = {
+    survey_sem: 'Etablierte SEM-/PLS-SEM-Berichts- und Bewertungsempfehlungen (u. a. Hair, Risher, Sarstedt & Ringle 2019), Gütekriterien der Skalenmessung',
+    experiment: 'Grundsätze experimenteller Forschung; Berichtsreferenz APA JARS (Reporting-Standard, kein Risk-of-Bias-Instrument)',
+    platform_data: 'Grundsätze der Computational- und Social-Media-Forschung (aus der Methodenliteratur abgeleitet)',
+    quantitative: 'Allgemeine Methodenstandards der empirischen Forschung (intern abgeleitet)',
+    qualitative: 'Allgemeine Gütekriterien qualitativer Forschung (intern abgeleitet)',
+    mixed: 'Grundsätze der Mixed-Methods-Forschung (intern abgeleitet)',
+    review: 'Grundsätze systematischer Reviews, u. a. PRISMA 2020 (Reporting-Leitlinie; hier nur als interner Erfüllungsgrad, kein offizieller PRISMA-Score)',
+    theoretical: 'Allgemeine Kriterien theoretischer Beiträge (intern abgeleitet)',
+    methodological: 'Allgemeine Kriterien von Methodenbeiträgen (intern abgeleitet)',
+    multiple: 'Berichtskriterien für Artikel mit mehreren Studien (intern abgeleitet, angelehnt an APA JARS)',
+    narrative: 'Allgemeine Kriterien narrativer Übersichten (intern abgeleitet)'
+};
+Object.entries(RUBRIC_REFERENCES).forEach(([key, text]) => { CASQ_RUBRICS[key].reference = text; });
+
+// Methodenklasse einer Studie: Das Modell liefert method_class in der Extraktion; fehlt sie (ältere Läufe),
+// wird sie aus Studiendesign, Methoden und Analyseverfahren abgeleitet.
+const METHOD_CLASSES = ['survey_sem', 'experiment', 'platform_data', 'case_study', 'bibliometric', 'scale_development',
+    'qualitative', 'other_quantitative', 'not_applicable'];
+const RUBRIC_BY_METHOD_CLASS = { survey_sem: 'survey_sem', experiment: 'experiment', platform_data: 'platform_data' };
+
+function methodClassOf(extraction) {
+    const declared = String(extraction?.method_class || '').toLowerCase().trim();
+    if (METHOD_CLASSES.includes(declared)) return declared;
+    const list = v => Array.isArray(v) ? v.join(' ') : String(v ?? '');
+    const text = [extraction?.study_design, list(extraction?.methods), list(extraction?.analysis_methods), list(extraction?.data_collection)].join(' ').toLowerCase();
+    if (/pls[- ]?sem|smartpls|cb[- ]?sem|structural equation|strukturgleichung|\bsem\b/.test(text)) return 'survey_sem';
+    if (/experiment|a\/b[- ]?test|between[- ]subjects|within[- ]subjects|randomi[sz]ed/.test(text)) return 'experiment';
+    if (/scrap|clickstream|web[- ]?tracking|scanner data|transaction data|big data|text mining|topic model|sentiment analysis|machine learning|social media data|api data/.test(text)) return 'platform_data';
+    if (/survey|questionnaire|befragung|fragebogen/.test(text)) return 'survey_sem';
+    return 'other_quantitative';
+}
+
+// Gesundheits-/klinischer Kontext: nur dann gelten PEDro, MINORS, AMSTAR 2 und COSMIN als Kandidaten.
+function isHealthContext(extraction) {
+    const cc = extraction?.clinical_context || {};
+    if (cc.is_health_clinical || cc.is_physiotherapy_rehabilitation || cc.is_surgical || cc.is_measurement_property_study || cc.is_PROM_study) return true;
+    return /health|clinical|medic|patient|nurs|gesundheit|klinisch|pflege|physio|rehab/i.test(String(extraction?.research_domain || ''));
+}
+
+const MEDICAL_INSTRUMENTS_HIDDEN_REASON = 'Fachgebiet ohne Gesundheitsbezug: die medizinischen Instrumente (PEDro, MINORS, AMSTAR 2, COSMIN) werden nicht angewendet. Die Bewertung erfolgt über die fachspezifischen Prüffragen (CASQ-Rubrik).';
+
+// Ersetzt eine etablierte Bewertung durch "nicht anwendbar", wenn kein Gesundheitsbezug vorliegt und die
+// medizinischen Instrumente nicht ausdrücklich zugelassen sind. Gibt true zurück, wenn etwas ersetzt wurde.
+function restrictMedicalInstruments(holder, extraction, allowMedical) {
+    if (!holder || allowMedical || isHealthContext(extraction)) return false;
+    const stub = { instrument: 'none', applicable: false, applicability_reason: MEDICAL_INSTRUMENTS_HIDDEN_REASON, scope_note: '',
+        scoring_type: 'none', official_score: null, official_max: null, official_rating: null, items: [], summary: '' };
+    let changed = false;
+    ['established_appraisal', 'validated_established_appraisal'].forEach(k => {
+        if (holder[k] !== undefined && holder[k]?.applicable) { holder[k] = { ...stub }; changed = true; }
+    });
+    return changed;
+}
 
 const NAME_STOPWORDS = new Set(['and', 'of', 'the', 'across', 'und', 'der', 'die', 'das']);
 
@@ -662,6 +836,13 @@ function preferredRubricKey(extraction, appraisal) {
     if (docType === 'multiple_study_report') return 'multiple';
     if (family.includes('mixed')) return 'mixed';
     if (family.includes('qualitative')) return 'qualitative';
+    // Fachspezifische Rubrik nach Methodenklasse (Befragung/SEM, Experiment, Plattform-/Big-Data)
+    if (family.includes('quantitative') || !family) {
+        const byMethod = RUBRIC_BY_METHOD_CLASS[methodClassOf(extraction)];
+        // Klinische Studien (z.B. RCT) behalten die allgemeine quantitative Rubrik mit Verblindung und Zuteilung;
+        // die Experiment-Rubrik ist auf Marketing-/Verhaltensexperimente zugeschnitten.
+        if (byMethod && !(byMethod === 'experiment' && isHealthContext(extraction))) return byMethod;
+    }
     if (family.includes('quantitative')) return 'quantitative';
     return null;
 }
@@ -878,6 +1059,7 @@ function calculateCASQ2(validation, appraisal, rubricKey) {
         version: 'casq2',
         rubric: rubricKey,
         rubric_label: rubric.label,
+        rubric_reference: rubric.reference || null,
         score,
         score_uncapped: raw,
         score_min: score,
@@ -929,7 +1111,7 @@ if (typeof module !== 'undefined' && module.exports) {
         parseJSONRobust, buildEvidenceContext, normalizeForMatch, findQuoteOnPages,
         verifyExtractionEvidenceRefs, verifySourceRefs, verifyFrameworkEvidence, verifyEstablishedEvidence, verifyJARSEvidence,
         calculateJARSMetrics, calculateEstablishedResult, countFrameworkItems, calculateFrameworkMetrics,
-        calculateValidatedCASQ, matchCASQRubric, CASQ_RUBRICS, SCORING_VERSION,
+        calculateValidatedCASQ, matchCASQRubric, CASQ_RUBRICS, RUBRIC_REFERENCES, METHOD_CLASSES, methodClassOf, isHealthContext, restrictMedicalInstruments, SCORING_VERSION,
         normalizeChecklistResponse, selectCASQRubric, casqChecklistText, verifyChecklistEvidence, calculateCASQ2,
         isFiniteScore, formatCASQ, formatCASQRange, qualityLabel, escapeHTML, fillTemplate
     };

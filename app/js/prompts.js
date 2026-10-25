@@ -28,6 +28,16 @@ TIE-BREAKER methodological_paper vs. multiple_study_report:
 - Titel, Abstract, Zielsetzung und Gliederungslogik des Gesamtbeitrags haben Vorrang vor der bloßen Anzahl erwähnter Studien.
 - Ein Methodenbeitrag mit mehreren empirischen Beispielen darf NICHT allein wegen dieser Beispiele als multiple_study_report klassifiziert werden.
 3a. Unterscheide DANACH study_family und konkretes study_design. Wichtig: Ein methodischer Überblick, der mehrere fremde oder eigene Studien nur exemplarisch darstellt, ist NICHT automatisch selbst eine einzelne "Quantitative descriptive study".
+3a2. Bestimme method_class (Methodenklasse; für die fachspezifische Bewertung):
+   - survey_sem = Befragung/Fragebogen mit Skalen, Strukturgleichungsmodell (PLS-SEM, CB-SEM), Regression oder Pfadanalyse auf Befragungsdaten
+   - experiment = Experiment, Feldexperiment, Online-Experiment, A/B-Test, Szenario-Experiment mit Zufallszuteilung oder Bedingungsvergleich
+   - platform_data = Analyse von Plattform-, Social-Media-, Web-, Tracking-, Text- oder Transaktionsdaten (z.B. API, Scraping, Shop-/Kassendaten, Machine Learning)
+   - case_study = Fallstudie(n)
+   - bibliometric = bibliometrische Analyse oder Science Mapping
+   - scale_development = Entwicklung oder Validierung eines Messinstruments/einer Skala
+   - qualitative = qualitative Studie (Interviews, Fokusgruppen, Inhaltsanalyse)
+   - other_quantitative = quantitative Studie, die in keine der Klassen passt
+   - not_applicable = Review, theoretischer oder methodischer Beitrag
 3b. Bei multiple_study_report: benenne die enthaltenen Teilstudien in embedded_studies. Extrahiere pro Teilstudie – soweit im Text vorhanden – Design, Stichprobe, Methoden, Hauptergebnisse und Evidenz. Erzwinge KEIN einheitliches Einzelstudien-Framework für das Gesamtdokument, wenn die Teilstudien unterschiedliche Designs haben.
 3c. Prüfe bei multiple_study_report zusätzlich die Berichtsstruktur auf Dokumentebene: gemeinsamer theoretischer Rahmen, Logik der Studienfolge, Method/Results/Discussion je Teilstudie, übergreifende Diskussion und Gesamtlimitationen. Diese Angaben dienen später der APA-JARS-Quant-Bewertung.
 3d. Klassifiziere zusätzlich den fachlichen Kontext, weil etablierte Appraisal-Instrumente domänenspezifische Anwendungsbereiche haben. Markiere insbesondere Gesundheits-/klinischen Kontext, Physiotherapie/Rehabilitation, chirurgischen Kontext, Interventionsstudie und Studien zu Messinstrumenten/PROMs.
@@ -46,6 +56,7 @@ JSON-SCHEMA:
   "document_type_rationale": "Begründe anhand von Titel/Abstract/Zielsetzung und Struktur, warum dies der primäre Dokumenttyp ist; bei methodological_paper vs. multiple_study_report ausdrücklich Tie-Breaker anwenden.",
   "study_family": "Quantitative|Qualitative|Mixed Methods|Review|Theoretical|Methodological|Other|Unclear",
   "study_design": "konkretes Design oder Unclear",
+  "method_class": "survey_sem|experiment|platform_data|case_study|bibliometric|scale_development|qualitative|other_quantitative|not_applicable",
   "embedded_studies": [{"label":"...","study_family":"...","study_design":"...","sample_n":"... oder not_reported","methods":["..."],"main_results":["..."],"role_in_document":"primary|illustrative|validation|secondary","evidence":"..."}],
   "multi_study_reporting": {
     "shared_introduction":"reported|partial|not_reported|not_applicable",
@@ -107,6 +118,11 @@ APA JARS-QUANT BEI MULTIPLE-STUDY-ARTIKELN:
 - Status je Kriterium: reported|partial|not_reported|not_applicable.
 - Erzeuge KEINEN "offiziellen JARS-Score". Ein Prozentwert darf nur als interner Reporting-Erfüllungsgrad gekennzeichnet werden.
 - JARS bewertet Reporting Quality, nicht Risk of Bias.
+
+FACHGEBIET UND GESUNDHEITSBEZUG:
+Gesundheitsbezug laut Extraktion: {{HEALTH_CONTEXT}}
+- Die Instrumente A) bis D) (PEDro, MINORS, AMSTAR 2, COSMIN) stammen aus der Gesundheitsforschung. Ist der Gesundheitsbezug "nein" (z.B. Marketing, Medien, Digitalisierung, E-Commerce, Handel, Social Media), wende sie NICHT an: established_appraisal.applicable=false, instrument="none".
+- Für diese Fachgebiete erfolgt die Bewertung über die fachspezifischen CASQ-Prüffragen (eigener Aufruf Agent 3b). Wende dort MMAT oder CASP nur an, wenn ein passender Bereich vorliegt; erzwinge nichts.
 
 ROUTING ETABLIERTER INSTRUMENTE:
 A) PEDro Scale: nur anwenden, wenn es sich um eine randomisierte klinische Studie handelt UND der fachliche Anwendungsbereich zur PEDro-Skala passt, insbesondere Physiotherapie/Rehabilitation. 11 Kriterien dokumentieren; Kriterium 1 (Eligibility) wird NICHT zum PEDro-Score gezählt. Kriterien 2-11 je 0/1; PEDro Score 0-10. Wenn ein Kriterium nicht berichtet ist, gilt es für PEDro als nicht erfüllt.

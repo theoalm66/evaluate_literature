@@ -60,6 +60,13 @@ function checklist(prompt, validated, ctx) {
 function answerFor(prompt, ctx) {
     if (prompt.includes('Du bist Agent 3b')) return { casq_checklist: checklist(prompt, false, ctx) };
     if (prompt.includes('Du bist Agent 4b')) return { validated_casq_checklist: checklist(prompt, true) };
+    if (prompt.includes('Du bist Agent 2') && ctx.domain === 'business') return {
+        document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Cross-sectional online survey', method_class: 'survey_sem',
+        research_domain: 'Business / Marketing', clinical_context: { is_health_clinical: false, is_physiotherapy_rehabilitation: false, is_comparative: false, is_intervention_study: false },
+        evidence_locations: [{ claim: 'Fragestellung', section: 'Introduction', page: 9, quote: Q.rq }],
+        research_question: { value: 'Beeinflusst Social-Media-Werbung die Kaufabsicht?' },
+        sample: { n: '412', population: 'Online-Käufer' }, methods: ['PLS-SEM'], main_results: [{ result: 'Pfad signifikant' }]
+    };
     if (prompt.includes('Du bist Agent 2')) return {
         document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Randomised controlled trial',
         clinical_context: { is_health_clinical: true, is_physiotherapy_rehabilitation: true, is_comparative: true, is_intervention_study: true },
@@ -106,7 +113,7 @@ function answerFor(prompt, ctx) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const state = { domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
     const temps = [];            // Agent und Temperatur je Aufruf
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
@@ -142,7 +149,7 @@ function startMockLLM(port) {
             const agentTag = (prompt.match(/Du bist Agent (\d+b?)/) || [])[1] || '?';
             const index = (state.agentCalls[agentTag] = (state.agentCalls[agentTag] ?? -1) + 1);
             if (!isProbe) temps.push({ agent: agentTag, temperature: payload.temperature });
-            const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt, { temperature: payload.temperature, index }));
+            const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt, { temperature: payload.temperature, index, domain: state.domain }));
             res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } }));
         });

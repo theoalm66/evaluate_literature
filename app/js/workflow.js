@@ -81,6 +81,7 @@ async function startWorkflow() {
 
     PROMPT_TYPES.forEach(type => savePrompt(type));
     // Mehrfachbewertung: Anzahl Durchläufe von Agent 3 und 3b und deren Temperatur (bei 0 wären alle Läufe gleich)
+    const allowMedical = !!document.getElementById('opt-medical-instruments')?.checked;
     const repeatRuns = Math.max(1, Math.min(7, parseInt(document.getElementById('opt-repeat-runs').value, 10) || 1));
     const repeatTempInput = parseFloat(document.getElementById('opt-repeat-temperature').value);
     const runTemperature = Number.isFinite(repeatTempInput) ? Math.max(0, Math.min(1.5, repeatTempInput)) : 0.4;
@@ -197,7 +198,8 @@ async function startWorkflow() {
                 // CASQ-Prüffragen passend zum Dokumenttyp (vom Code gewählt, nicht vom Modell)
                 const rubricKey = selectCASQRubric(ext);
                 const casqFields = { CASQ_RUBRIC: `${CASQ_RUBRICS[rubricKey].label} (${rubricKey})`, CASQ_CHECKLIST: casqChecklistText(rubricKey) };
-                const prompt = fillTemplate(analysisPromptBase, { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
+                const healthContext = isHealthContext(ext) ? 'ja' : (allowMedical ? 'nein (medizinische Instrumente vom Nutzer zugelassen)' : 'nein');
+                const prompt = fillTemplate(analysisPromptBase, { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, HEALTH_CONTEXT: healthContext, ...casqFields });
                 const casqPrompt = fillTemplate(getCurrentPrompt('casq'), { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
 
                 // Mehrfachbewertung: Agent 3 und 3b laufen repeatRuns-mal (mit der eingestellten Wiederholungs-Temperatur);
@@ -223,6 +225,9 @@ async function startWorkflow() {
                     }
                 }
                 if (!analysisRuns.length) throw analysisError || new Error('Agent 3 hat keine auswertbare Antwort geliefert.');
+                // Medizinische Instrumente nur bei Gesundheitsbezug (oder ausdrücklicher Freigabe) – der Code entscheidet, nicht das Modell.
+                const hiddenMedical = analysisRuns.map(r => restrictMedicalInstruments(r, ext, allowMedical)).some(Boolean);
+                if (hiddenMedical) log(`${doc.title}: kein Gesundheitsbezug – PEDro/MINORS/AMSTAR 2/COSMIN werden nicht angewendet.`, 'info');
 
                 const appraisal = analysisRuns[0];
                 appraisal.title = doc.title;
@@ -291,6 +296,8 @@ async function startWorkflow() {
                 validation = verifyFrameworkEvidence(validation, appraisal, doc.pages);
                 validation = verifyEstablishedEvidence(validation, appraisal, doc.pages);
                 validation = verifyJARSEvidence(validation, appraisal, doc.pages);
+                restrictMedicalInstruments(validation, ext, allowMedical);
+                restrictMedicalInstruments(appraisal, ext, allowMedical);
                 validation = verifyChecklistEvidence(validation, appraisal, doc.pages);
                 const round1 = v => v === null || v === undefined ? null : Number(v.toFixed(1));
                 const casq2 = calculateCASQ2(validation, appraisal, rubricKey);

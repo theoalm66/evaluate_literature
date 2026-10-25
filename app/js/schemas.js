@@ -24,6 +24,8 @@ const FRAMEWORK_RESPONSE = ['yes', 'no', 'cant_tell', 'not_applicable'];
 const CHECKLIST_RESPONSE = ['yes', 'partial', 'no', 'not_reported', 'not_applicable'];
 const DOCUMENT_TYPES = ['primary_empirical_study', 'multiple_study_report', 'systematic_review', 'narrative_review',
     'methodological_paper', 'theoretical_conceptual_paper', 'other', 'unclear'];
+const METHOD_CLASS_VALUES = ['survey_sem', 'experiment', 'platform_data', 'case_study', 'bibliometric', 'scale_development',
+    'qualitative', 'other_quantitative', 'not_applicable'];
 const ESTABLISHED_INSTRUMENTS = ['PEDro Scale', 'MINORS', 'AMSTAR 2', 'COSMIN Risk of Bias', 'none'];
 const ESTABLISHED_RESPONSE = ['yes', 'no', 'partial_yes', 'very_good', 'adequate', 'doubtful', 'inadequate', 'not_applicable'];
 const OFFICIAL_RATINGS = ['High', 'Moderate', 'Low', 'Critically low', 'Very good', 'Adequate', 'Doubtful', 'Inadequate', 'not_applicable'];
@@ -38,6 +40,7 @@ function extractionSchema() {
         document_type_rationale: S.str(),
         study_family: S.enum(['Quantitative', 'Qualitative', 'Mixed Methods', 'Review', 'Theoretical', 'Methodological', 'Other', 'Unclear']),
         study_design: S.str(),
+        method_class: S.enum(METHOD_CLASS_VALUES),
         embedded_studies: S.arr(S.obj({
             label: S.str(), study_family: S.str(), study_design: S.str(), sample_n: S.str(),
             methods: S.arr(S.str()), main_results: S.arr(S.str()),
