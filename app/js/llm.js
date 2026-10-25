@@ -536,7 +536,12 @@ async function callLLM(prompt, meta = {}) {
         let message = err;
         try { message = JSON.parse(err).error?.message || JSON.parse(err).error || err; } catch (e) { /* kein JSON */ }
         const authHint = (response.status === 401 || response.status === 403) && provider !== 'spark' ? ' – API-Key ungültig, abgelaufen oder für dieses Modell nicht berechtigt.' : '';
-        const errorText = `API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}${authHint}`;
+        // Manche Gateways melden ein zu kleines Kontextfenster nur als allgemeinen 500er – die Größe der Anfrage dazusetzen.
+        const promptTokens = Math.round(JSON.stringify(payload.messages).length / 3.5);
+        const sizeHint = response.status >= 500 || response.status === 413
+            ? ` – Anfrage: ca. ${promptTokens.toLocaleString('de-DE')} Token Prompt + bis zu ${maxTokens.toLocaleString('de-DE')} Token Antwort. Hat das Modell ein kleineres Kontextfenster (z.B. 32.000), hilft es, „Max. Zeichen Evidenz“ oder „Max. Output Tokens“ zu senken.`
+            : '';
+        const errorText = `API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}${authHint}${sizeHint}`;
         markLlmCall(false, provider, errorText);
         throw new Error(errorText);
     }
