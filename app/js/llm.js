@@ -484,7 +484,7 @@ async function callLLM(prompt, meta = {}) {
     const rec = step => { if (!meta.quiet) recordStep(step); };
     let schemaTimeoutRetried = false;
     // Eigenes Zeitlimit je Versuch (Dashboard): Hängt ein Aufruf, wird früh abgebrochen und neu gestartet, statt 5 Minuten zu warten.
-    const clientTimeoutMs = Math.max(0, parseInt(document.getElementById('opt-call-timeout')?.value, 10) || 0) * 1000;
+    const clientTimeoutMs = Math.max(0, callTimeoutByProvider[provider] || 0) * 1000;
     // Ob der Abbruch von diesem Zeitlimit stammt, wird über ein eigenes Kennzeichen erkannt (nicht über den Fehlernamen,
     // der je nach Browser TimeoutError oder AbortError lautet). Das Limit gilt bis zum Eintreffen der Antwort.
     let ownTimeoutFired = false;

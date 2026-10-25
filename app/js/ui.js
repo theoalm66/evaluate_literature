@@ -25,6 +25,7 @@ function toggleProviderSettings() {
     document.getElementById('settings-spark').style.display = provider === 'spark' ? 'block' : 'none';
     document.getElementById('settings-hochschule').style.display = provider === 'hochschule' ? 'block' : 'none';
     document.getElementById('settings-endpoint').style.display = provider === 'endpoint' ? 'block' : 'none';
+    if (typeof syncCallTimeoutField === 'function') syncCallTimeoutField();
 }
 
 function isPdfFile(f) {

@@ -485,7 +485,7 @@ async function login(page, user, pass, action = 'login') {
         assert.notEqual(llm.state.payloads[0].response_format?.type, 'json_schema', 'Schema trotz Option gesendet');
         await page.evaluate(() => { document.querySelector('#opt-no-schema').checked = false; });
         // Eigenes Zeitlimit: hängender Aufruf wird nach 1 s abgebrochen und neu gestartet
-        await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '1'; });
+        await page.evaluate(() => { callTimeoutByProvider[document.getElementById('llm-provider').value] = 1; });
         llm.state.hangFirst = 1;
         const hung = await page.evaluate(async () => parseJSONRobust(await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') })).narrative_summary);
         assert.equal(hung, 'Testsynthese.');
@@ -496,7 +496,27 @@ async function login(page, user, pass, action = 'login') {
         assert.match(timeoutError || '', /Keine Antwort innerhalb von 1 s.*eigenes.*Zeitlimit/s, 'Meldung beim eigenen Zeitlimit: ' + timeoutError);
         assert.ok(!/CORS/.test(timeoutError), 'darf nicht als CORS-Problem gemeldet werden');
         llm.state.hangFirst = 0;
-        await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '0'; });
+        // Zeitlimit wird je Anbieter gespeichert: Feld folgt dem gewählten Anbieter, Wert überlebt Wechsel und Neuladen
+        await page.evaluate(() => { callTimeoutByProvider = {}; });
+        await page.click('nav button[data-tab="config"]');
+        await page.selectOption('#llm-provider', 'hochschule');
+        await page.dispatchEvent('#llm-provider', 'change');
+        await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '150'; document.querySelector('#opt-call-timeout').dispatchEvent(new Event('change')); });
+        await page.selectOption('#llm-provider', 'custom1');
+        await page.dispatchEvent('#llm-provider', 'change');
+        assert.equal(await page.inputValue('#opt-call-timeout'), '0', 'anderer Anbieter muss sein eigenes Zeitlimit zeigen');
+        assert.match(await page.textContent('#call-timeout-provider'), /Lokales Profil 1/);
+        await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '45'; document.querySelector('#opt-call-timeout').dispatchEvent(new Event('change')); });
+        await page.selectOption('#llm-provider', 'hochschule');
+        await page.dispatchEvent('#llm-provider', 'change');
+        assert.equal(await page.inputValue('#opt-call-timeout'), '150', 'Hochschul-API behält ihr Zeitlimit');
+        await page.waitForTimeout(600);
+        const savedTimeouts = await page.evaluate(async () => { const db = await getUserDB(); return db[currentUser].keys.callTimeouts; });
+        assert.deepEqual(savedTimeouts, { hochschule: 150, custom1: 45 }, 'Zeitlimits je Anbieter gespeichert');
+        await page.evaluate(() => { callTimeoutByProvider['hochschule'] = 0; callTimeoutByProvider['custom1'] = 0; syncCallTimeoutField(); });
+        await page.selectOption('#llm-provider', 'custom1');
+        await page.dispatchEvent('#llm-provider', 'change');
+        await page.click('nav button[data-tab="dashboard"]');
         console.log('✓ Eigenes Zeitlimit je Aufruf: hängender Aufruf wird abgebrochen und erfolgreich wiederholt');
         console.log('✓ Geschwindigkeitstest (4 Messungen) und Option „JSON-Schema nicht verwenden“');
 

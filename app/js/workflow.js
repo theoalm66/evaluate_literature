@@ -166,7 +166,7 @@ async function startWorkflow() {
         log(`Hinweis: „Max. Output Tokens“ steht auf ${maxOutTokens.toLocaleString('de-DE')}. Läuft das Modell in eine Wiederholungsschleife, schreibt es bis zu dieser Grenze weiter und überschreitet das Zeitlimit des Servers (oft 5 Minuten). Empfohlen: 8.000.`, 'warning');
     }
 
-    const ownTimeout = parseInt(document.getElementById('opt-call-timeout')?.value, 10) || 0;
+    const ownTimeout = callTimeoutByProvider[currentProvider] || 0;
     if (ownTimeout > 0 && ownTimeout < 30) {
         log(`Hinweis: „Zeitlimit je Aufruf“ steht auf ${ownTimeout} s. Das ist für Modellantworten fast immer zu kurz (üblich sind 20 bis 180 s); die Aufrufe werden abgebrochen, bevor das Modell antworten kann. Empfohlen: 120 bis 180 oder 0.`, 'warning');
     }

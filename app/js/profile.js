@@ -287,7 +287,10 @@ async function applyProfileSettingsToUI(profile) {
     el('opt-vision').checked = keys.visionEnabled !== false;
     el('opt-compact').checked = keys.compactAnswers === true;
     el('opt-no-schema').checked = keys.noSchema === true;
-    el('opt-call-timeout').value = String(keys.callTimeout || 0);
+    // Zeitlimit je Aufruf wird pro Anbieter gespeichert (ältere Profile: der eine Wert gilt für den aktiven Anbieter)
+    callTimeoutByProvider = { ...(keys.callTimeouts || {}) };
+    if (!keys.callTimeouts && keys.callTimeout > 0) callTimeoutByProvider[keys.activeProvider || 'custom1'] = keys.callTimeout;
+    syncCallTimeoutField();
     el('opt-split-extraction').checked = keys.splitExtraction === true;
     el('opt-no-reasoning').checked = keys.disableReasoning === true;
     el('opt-medical-instruments').checked = keys.allowMedicalInstruments === true;
@@ -383,6 +386,24 @@ function queueKeyPersist(task) {
     return saveKeysChain;
 }
 
+// Zeitlimit je Aufruf in Sekunden, je Anbieter (0 = aus)
+let callTimeoutByProvider = {};
+
+function syncCallTimeoutField() {
+    const input = document.getElementById('opt-call-timeout');
+    if (!input) return;
+    const provider = document.getElementById('llm-provider').value;
+    input.value = String(callTimeoutByProvider[provider] || 0);
+    const name = document.getElementById('call-timeout-provider');
+    if (name) name.textContent = typeof PROVIDER_LABELS !== 'undefined' ? (PROVIDER_LABELS[provider] || provider) : provider;
+}
+
+function onCallTimeoutChanged() {
+    const provider = document.getElementById('llm-provider').value;
+    callTimeoutByProvider[provider] = Math.max(0, parseInt(document.getElementById('opt-call-timeout').value, 10) || 0);
+    return saveUserKeys();
+}
+
 function saveUserKeys() {
     return queueKeyPersist(persistUserKeys);
 }
@@ -435,7 +456,8 @@ async function persistUserKeys() {
     keys.visionEnabled = el('opt-vision').checked;
     keys.compactAnswers = el('opt-compact').checked;
     keys.noSchema = el('opt-no-schema').checked;
-    keys.callTimeout = Math.max(0, parseInt(el('opt-call-timeout').value, 10) || 0);
+    keys.callTimeouts = { ...callTimeoutByProvider };
+    delete keys.callTimeout;
     keys.splitExtraction = el('opt-split-extraction').checked;
     keys.disableReasoning = el('opt-no-reasoning').checked;
     keys.allowMedicalInstruments = el('opt-medical-instruments').checked;

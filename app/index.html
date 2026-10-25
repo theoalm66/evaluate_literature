@@ -95,7 +95,7 @@
                         <div class="run-options-title">Langsame Modelle / Zeitlimit des Servers</div>
                         <label><input type="checkbox" id="opt-split-extraction" onchange="saveUserKeys()"> <span>Extraktion (Agent 2) in drei kleineren Teilschritten (jeder Aufruf bleibt unter dem Zeitlimit)</span></label>
                         <label><input type="checkbox" id="opt-no-schema" onchange="saveUserKeys()"> <span>JSON-Schema nicht verwenden (einfacher JSON-Modus; manche Server hängen an strengen Schemata)</span></label>
-                        <label>Zeitlimit je Aufruf in Sekunden, danach neu versuchen (0 = aus) <input type="number" id="opt-call-timeout" min="0" max="600" step="10" value="0" style="width:5rem;" onchange="saveUserKeys()"></label>
+                        <label><span>Zeitlimit je Aufruf in Sekunden, danach neu versuchen (0 = aus) – gilt nur für <strong id="call-timeout-provider">den gewählten Anbieter</strong></span> <input type="number" id="opt-call-timeout" min="0" max="600" step="10" value="0" style="width:5rem;" onchange="onCallTimeoutChanged()"></label>
                         <button type="button" id="speed-test-btn" class="btn btn-secondary btn-small" onclick="runSpeedTest()" style="margin-top:.35rem;">Geschwindigkeit des Modells testen</button>
                         <div id="speed-test-result" class="vision-hint"></div>
                         <label><input type="checkbox" id="opt-compact" onchange="saveUserKeys()"> <span>Kurze Antworten (Belege und Begründungen knapp halten)</span></label>
