@@ -222,6 +222,30 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(hsStored.model, 'zweites-modell');
         console.log('✓ Hochschul-API: Modelle gesucht (Embedding ausgeblendet), Modell aktiviert, Aufruf mit Key, Key verschlüsselt');
 
+        // Hochschul-API: Antwort als Datenstrom, bei 500 mit Schema Rückfall ohne Schema, Streaming-Ablehnung wird umgangen
+        await page.selectOption('#llm-provider', 'hochschule');
+        await page.dispatchEvent('#llm-provider', 'change');
+        const hsChat = () => page.evaluate(async () => {
+            const answer = parseJSONRobust(await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }));
+            return answer.narrative_summary;
+        });
+        const beforeStream = llm.state.streamed.length;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.equal(llm.state.streamed.length, beforeStream + 1, 'Antwort kam nicht als Datenstrom');
+        console.log('✓ Hochschul-API: Antwort als Datenstrom gelesen (reasoning-Teile ignoriert)');
+        llm.state.failSchema500 = 1;
+        const formatsBefore = llm.formats.length;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.deepEqual(llm.formats.slice(formatsBefore), ['none'], 'Wiederholung ohne Schema fehlt');
+        console.log('✓ Serverfehler 500 mit JSON-Schema: automatischer neuer Versuch ohne Schema');
+        llm.state.rejectStream = true;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        llm.state.rejectStream = false;
+        assert.equal(await page.evaluate(() => Object.values(streamingSupport)[0]), 'no', 'Streaming-Ablehnung nicht vermerkt');
+        console.log('✓ Server lehnt Streaming ab: Rückfall auf normale Antwort');
+        await page.evaluate(() => { for (const k of Object.keys(streamingSupport)) delete streamingSupport[k]; });
+        llm.state.requireKey = null;
+
         // Eigener Endpunkt ohne Key
         llm.state.requireKey = null;
         await page.selectOption('#llm-provider', 'endpoint');

@@ -119,7 +119,7 @@ function answerFor(prompt, ctx) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const state = { streamed: [], failSchema500: 0, rejectStream: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
     const temps = [];            // Agent und Temperatur je Aufruf
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
@@ -148,6 +148,17 @@ function startMockLLM(port) {
                 res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: { message: 'response_format json_schema is not supported by this server' } }));
             }
+            // Datenstrom abgelehnt (manche Server kennen stream_options nicht)
+            if (payload.stream && state.rejectStream) {
+                res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'stream_options is not supported' } }));
+            }
+            // Serverfehler 500 bei JSON-Schema (wie bei manchen Gateways), solange state.failSchema500 > 0
+            if (format === 'json_schema' && state.failSchema500 > 0) {
+                state.failSchema500--;
+                res.writeHead(500, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ statusCode: 500, message: 'Internal Server Error' }));
+            }
             const isProbe = prompt.includes('Welche Farbe');
             if (!isProbe) formats.push(format);
             if (!isProbe) calls.push(prompt);
@@ -156,6 +167,19 @@ function startMockLLM(port) {
             const index = (state.agentCalls[agentTag] = (state.agentCalls[agentTag] ?? -1) + 1);
             if (!isProbe) temps.push({ agent: agentTag, temperature: payload.temperature });
             const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt, { temperature: payload.temperature, index, domain: state.domain }));
+            if (payload.stream) {
+                state.streamed.push(!!payload.stream_options);
+                res.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream' });
+                const half = Math.floor(content.length / 2);
+                const send = obj => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+                send({ model: 'mock-model', choices: [{ delta: { role: 'assistant' } }] });
+                send({ model: 'mock-model', choices: [{ delta: { reasoning_content: 'ignoriert' } }] });
+                send({ model: 'mock-model', choices: [{ delta: { content: content.slice(0, half) } }] });
+                send({ model: 'mock-model', choices: [{ delta: { content: content.slice(half) }, finish_reason: 'stop' }] });
+                send({ model: 'mock-model', choices: [], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } });
+                res.write('data: [DONE]\n\n');
+                return res.end();
+            }
             res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } }));
         });

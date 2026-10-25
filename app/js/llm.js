@@ -291,7 +291,7 @@ function updateVisionHint(phase) {
 
 // Der Browser verrät bei abgelehnten Verbindungen keinen Grund ("NetworkError" / "Failed to fetch").
 // Aus Seiten- und Ziel-Adresse lässt sich die wahrscheinliche Ursache aber eingrenzen.
-function explainNetworkError(url) {
+function explainNetworkError(url, elapsedMs = 0) {
     let target;
     try { target = new URL(url, location.href); } catch (e) { return 'Die Base-URL ist ungültig.'; }
     if (target.origin === location.origin) return 'Der Spark-Server ist nicht erreichbar (offline?).';
@@ -305,7 +305,55 @@ function explainNetworkError(url) {
             + 'LM Studio: Server starten und unter Developer → Settings „Enable CORS“ einschalten. „localhost“ meint immer das Gerät, auf dem der Browser läuft.';
     }
     if (!navigator.onLine) return 'Das Gerät ist offline.';
+    // Nach langer Wartezeit ist es fast immer ein Zeitlimit (Gateway/Proxy, z.B. 5 Minuten), kein CORS-Problem.
+    if (elapsedMs > 60000) {
+        return `Die Verbindung zu ${target.host} wurde nach ${(elapsedMs / 60000).toFixed(1).replace('.', ',')} Minuten getrennt. Das ist meist ein Zeitlimit des Servers oder Gateways (z.B. 5 Minuten für eine Antwort), kein CORS-Problem. `
+            + 'Abhilfe: kürzere Antworten (Max. Output Tokens senken), Reasoning/Thinking des Modells abschalten oder ein schnelleres Modell wählen.';
+    }
     return `Der Server ${target.host} ist nicht erreichbar, oder er erlaubt keine Aufrufe aus dem Browser (CORS: Der Anbieter muss „Access-Control-Allow-Origin“ senden). Bitte URL, Netzwerk und – bei Hochschul-Netzen – VPN prüfen.`;
+}
+
+const sleepMs = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// Anbieter, bei denen die Antwort als Datenstrom (SSE) geholt wird: Ein einzelner langer Aufruf läuft sonst in
+// Zeitlimits von Gateways (z.B. 5 Minuten ohne Antwort) und endet als scheinbarer Netzwerkfehler.
+const STREAM_PROVIDERS = ['hochschule', 'endpoint'];
+const streamingSupport = {};            // Provider|Modell: 'no', wenn der Server Streaming ablehnt
+const schemaServerErrors = {};          // Provider|Modell: Anzahl 5xx-Fehler, nach denen ohne Schema gelang
+const RETRYABLE_STATUS = [429, 500, 502, 503, 504];
+const MAX_SEND_ATTEMPTS = 3;
+
+// Liest eine Chat-Antwort im SSE-Format und baut daraus das gleiche Objekt wie eine normale Antwort.
+async function readChatStream(response) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', content = '', model = null, usage = null, finish = null;
+    const handleLine = raw => {
+        const line = raw.trim();
+        if (!line.startsWith('data:')) return;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') return;
+        let chunk;
+        try { chunk = JSON.parse(payload); } catch (e) { return; }
+        if (chunk.error) throw new Error(`API Fehler (Datenstrom): ${typeof chunk.error === 'string' ? chunk.error : chunk.error.message || JSON.stringify(chunk.error)}`);
+        if (chunk.model) model = chunk.model;
+        if (chunk.usage) usage = chunk.usage;
+        const choice = chunk.choices?.[0];
+        if (choice?.delta?.content) content += choice.delta.content;
+        if (choice?.finish_reason) finish = choice.finish_reason;
+    };
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newline;
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+            handleLine(buffer.slice(0, newline));
+            buffer = buffer.slice(newline + 1);
+        }
+    }
+    handleLine(buffer);
+    return { model, usage, choices: [{ message: { content }, finish_reason: finish }] };
 }
 
 async function callLLM(prompt, meta = {}) {
@@ -387,6 +435,12 @@ async function callLLM(prompt, meta = {}) {
         applyJsonObjectMode();
     }
 
+    const streamKey = `${provider}|${model || ''}`;
+    if (STREAM_PROVIDERS.includes(provider) && streamingSupport[streamKey] !== 'no') {
+        payload.stream = true;
+        payload.stream_options = { include_usage: true };
+    }
+
     const fetchHeaders = { 'Content-Type': 'application/json' };
     if (key && key !== 'lm-studio') fetchHeaders['Authorization'] = `Bearer ${key}`;
     if (provider === 'spark') fetchHeaders['X-Lit-Request'] = '1';
@@ -398,34 +452,83 @@ async function callLLM(prompt, meta = {}) {
         provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt, run: meta.run,
         images: meta.images?.length ? meta.imagePages || meta.images.length : undefined
     };
-    let response;
+    let response, attempt = 0, schemaFallbackUsed = false, attemptStart = performance.now();
     const send = () => fetch(url, { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) });
-    try {
-        response = await send();
-        // Abgelaufene Spark-Sitzung: einmal still neu anmelden und wiederholen.
-        if (provider === 'spark' && response.status === 401 && await serverLogin(currentUser, currentPassKey)) {
+    for (;;) {
+        attempt++;
+        attemptStart = performance.now();
+        try {
             response = await send();
+            // Abgelaufene Spark-Sitzung: einmal still neu anmelden und wiederholen.
+            if (provider === 'spark' && response.status === 401 && await serverLogin(currentUser, currentPassKey)) {
+                response = await send();
+            }
+        } catch (err) {
+            const elapsed = performance.now() - attemptStart;
+            // Verbindungsaufbau gescheitert (schnell): wiederholen. Nach langer Wartezeit ist es ein Zeitlimit – dann nicht erneut warten.
+            if (attempt < MAX_SEND_ATTEMPTS && elapsed < 30000 && navigator.onLine !== false) {
+                log(`Keine Verbindung zu ${new URL(url, location.href).host} – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}...`, 'warning');
+                await sleepMs(2000 * attempt);
+                continue;
+            }
+            const hint = explainNetworkError(url, elapsed);
+            recordStep({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
+            markLlmCall(false, provider, hint);
+            throw new Error(`Keine Verbindung zu ${url}. ${hint}`);
+        }
+        if (response.ok) break;
+
+        const rejected = response.status === 400 || response.status === 422;
+        // Server kennt kein Streaming: merken und ohne Datenstrom wiederholen.
+        if (rejected && payload.stream) {
+            const errText = await response.clone().text();
+            if (/stream/i.test(errText)) {
+                streamingSupport[streamKey] = 'no';
+                delete payload.stream; delete payload.stream_options;
+                log('Der Modell-Server lehnt Streaming ab – weiter ohne Datenstrom.', 'warning');
+                continue;
+            }
         }
         // Server kennt kein json_schema: merken und mit dem bisherigen JSON-Modus wiederholen.
-        if (useSchema && (response.status === 400 || response.status === 422)) {
+        if (rejected && payload.response_format?.type === 'json_schema') {
             const errText = await response.clone().text();
             if (/schema|response_format|structured|guided|json/i.test(errText)) {
                 structuredOutputSupport[schemaKey] = 'no';
                 log(`Strukturierte JSON-Ausgabe wird vom Modell-Server nicht unterstützt – weiter mit einfachem JSON-Modus.`, 'warning');
                 applyJsonObjectMode();
                 stepBase.structured_output = 'abgelehnt';
-                response = await send();
+                continue;
             }
         }
-    } catch (err) {
-        const hint = explainNetworkError(url);
-        recordStep({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
-        markLlmCall(false, provider, hint);
-        throw new Error(`Keine Verbindung zu ${url}. ${hint}`);
+        // Serverfehler (500/502/503/504) oder Überlastung (429): erst ohne Schema, dann mit Wartezeit erneut versuchen.
+        if (RETRYABLE_STATUS.includes(response.status) && attempt < MAX_SEND_ATTEMPTS) {
+            const errText = (await response.clone().text()).slice(0, 200);
+            if (payload.response_format?.type === 'json_schema' && !schemaFallbackUsed) {
+                schemaFallbackUsed = true;
+                applyJsonObjectMode();
+                stepBase.structured_output = 'Serverfehler-Rückfall';
+                log(`Modell-Server meldet ${response.status} (${errText || 'ohne Text'}) – neuer Versuch ohne JSON-Schema (${attempt + 1}/${MAX_SEND_ATTEMPTS}).`, 'warning');
+                continue;
+            }
+            const retryAfter = Number(response.headers.get('retry-after'));
+            const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 60) * 1000 : 3000 * attempt * attempt;
+            log(`Modell-Server meldet ${response.status} (${errText || 'ohne Text'}) – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS} in ${Math.round(wait / 1000)} s...`, 'warning');
+            await sleepMs(wait);
+            continue;
+        }
+        break;
+    }
+    // Ohne Schema gelang, was mit Schema am Serverfehler scheiterte: nach wiederholtem Auftreten das Schema für dieses Modell abschalten.
+    if (response.ok && schemaFallbackUsed) {
+        schemaServerErrors[schemaKey] = (schemaServerErrors[schemaKey] || 0) + 1;
+        if (schemaServerErrors[schemaKey] >= 2 && structuredOutputSupport[schemaKey] !== 'no') {
+            structuredOutputSupport[schemaKey] = 'no';
+            log('Der Modell-Server scheitert wiederholt an strukturierter JSON-Ausgabe – ab jetzt einfacher JSON-Modus.', 'warning');
+        }
     }
 
-    const endTime = performance.now(); // Endzeit messen
-    const durationSec = (endTime - startTime) / 1000;
+    let endTime = performance.now(); // Endzeit messen
+    let durationSec = (endTime - startTime) / 1000;
 
     if (!response.ok) {
         const err = await response.text();
@@ -437,8 +540,20 @@ async function callLLM(prompt, meta = {}) {
         markLlmCall(false, provider, errorText);
         throw new Error(errorText);
     }
-    const data = await response.json();
-    
+    let data;
+    try {
+        data = (response.headers.get('content-type') || '').includes('text/event-stream') ? await readChatStream(response) : await response.json();
+    } catch (err) {
+        const elapsed = performance.now() - startTime;
+        const hint = explainNetworkError(url, elapsed);
+        recordStep({ ...stepBase, duration_ms: Math.round(elapsed), error: `Antwort abgebrochen: ${err?.message || err} – ${hint}` });
+        markLlmCall(false, provider, hint);
+        throw new Error(`Antwort von ${url} wurde unterbrochen: ${err?.message || err}. ${hint}`);
+    }
+
+    endTime = performance.now();   // bei Datenströmen erst nach dem letzten Teil
+    durationSec = (endTime - startTime) / 1000;
+
     // Token/s Metrik aus den OpenAI-Usage-Daten extrahieren (falls vorhanden) oder schätzen
     const completionTokens = data.usage?.completion_tokens || Math.round(data.choices[0].message.content.length / 4);
     const tokensPerSec = durationSec > 0 ? Math.round(completionTokens / durationSec) : 0;
