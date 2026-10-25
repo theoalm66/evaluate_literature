@@ -164,6 +164,7 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(study.includes('CASQ (INTERNER INDEX) · Quantitativ'), 'Rubrik fehlt');
         assert.ok(study.includes('Methodische Grundlage der Prüffragen') && study.includes('kein offizieller Score'), 'Grundlage/Kennzeichnung als interner Index fehlt');
         assert.ok(study.includes('kein Zitat im PDF gefunden'), 'Herabstufung ohne Beleg nicht angezeigt');
+        assert.ok(!study.includes('sah nur'), 'Abdeckungswarnung darf bei vollständigem Text nicht erscheinen');
         assert.ok(study.includes('Warum dieser Wert?') && study.includes('Schwächste Dimensionen'), 'Erklärung zum CASQ-Wert fehlt');
         assert.ok(study.includes('Prüffragen (27)'), 'Prüffragen-Tabelle fehlt');
         const analysisPrompt = llm.calls.find(c => c.includes('Du bist Agent 3b'));
@@ -429,6 +430,13 @@ async function login(page, user, pass, action = 'login') {
         assert.deepEqual(extractionPayloads.map(pl => pl.max_tokens), [6000, 8000, 8192], 'Ausgabegrenze je Teil (begrenzt durch die Einstellung)');
         await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = false; });
         console.log('✓ Extraktion in 3 Teilschritten: je Teil eigenes Schema, Ergebnis wird zusammengesetzt (Marketing-Studie korrekt erkannt)');
+
+        // Abdeckungswarnung: sieht das Modell nur einen Teil des Textes, steht das im Ergebnis
+        const coverageHtml = await page.evaluate(() => renderSourceInfo({ quality: { pages: 13, table_pages: [], figure_pages: [], scanned_pages: [] }, text_chars: 68671, evidence_chars: 15703, visual_pages: [], vision_status: 'off' }));
+        assert.ok(coverageHtml.includes('nur 23 % des PDF-Textes') && coverageHtml.includes('68.671'), 'Abdeckungswarnung fehlt: ' + coverageHtml);
+        const fullHtml = await page.evaluate(() => renderSourceInfo({ quality: { pages: 2, table_pages: [], figure_pages: [], scanned_pages: [] }, text_chars: 1000, evidence_chars: 1000, visual_pages: [], vision_status: 'off' }));
+        assert.ok(!fullHtml.includes('sah nur'));
+        console.log('✓ Warnung, wenn das Modell nur einen Teil des PDF-Textes sieht');
 
         // 12) Geschwindigkeitstest und Option „JSON-Schema nicht verwenden“
         await page.click('nav button[data-tab="dashboard"]');

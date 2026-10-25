@@ -66,6 +66,8 @@ async function runExtraction(doc, promptBase, promptVersionId, split) {
 function sourceInfoFor(doc) {
     return {
         quality: doc.quality,
+        text_chars: doc.full_text?.length ?? null,
+        evidence_chars: doc.evidence_text?.length ?? null,
         visual_pages: (doc.visuals || []).map(v => ({ page: v.page, reason: v.reason })),
         vision_status: doc.vision_status
     };

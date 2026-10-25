@@ -384,7 +384,7 @@ function calculateFrameworkMetrics(validation, appraisal) {
 // ==========================================
 // FESTE BEWERTUNGSREGELN (gehören zum Code, nicht zum Prompt)
 // ==========================================
-const SCORING_VERSION = '2026-10-casq2-3';
+const SCORING_VERSION = '2026-10-casq2-4';
 
 const PEDRO_SCORED_ITEMS = ['2','3','4','5','6','7','8','9','10','11'];
 const AMSTAR2_CRITICAL_ITEMS = new Set(['2','4','7','9','11','13','15']);
@@ -687,7 +687,7 @@ const CASQ_RUBRICS = {
             'Unabhängige und abhängige Variablen sind klar benannt.']],
         ['Design & random assignment', 14, [
             'Das Experimentaldesign ist benannt (z.B. between-/within-subjects, Feld-, Labor-, Online-Experiment).',
-            '! Teilnehmende bzw. Einheiten sind zufällig den Bedingungen zugeordnet (oder die fehlende Zufallszuteilung ist begründet und kontrolliert).',
+            '! Die Zuordnung zu den Bedingungen ist zufällig (Between-Subjects) bzw. die Reihenfolge der Bedingungen ist randomisiert oder ausbalanciert (Within-Subjects); eine fehlende Zufallszuteilung ist begründet und kontrolliert.',
             'Das Zuteilungsverfahren (Randomisierung, Blockbildung, Auslieferung beim A/B-Test) ist beschrieben.']],
         ['Experimental control & manipulation', 12, [
             'Die Manipulation ist konkret beschrieben (Stimuli, Dauer, Ablauf).',
@@ -698,7 +698,7 @@ const CASQ_RUBRICS = {
             'Die Operationalisierung der Konstrukte entspricht dem theoretischen Konstrukt.']],
         ['Sample, power & exclusions', 14, [
             'Stichprobe und Rekrutierung (z.B. Panel, Studierende, Kundenstamm) sind beschrieben.',
-            '! Der Stichprobenumfang ist begründet (Power-Analyse bzw. a-priori-Berechnung).',
+            'Der Stichprobenumfang ist begründet (Power-Analyse, Simulation oder Orientierung an vergleichbaren Studien).',
             'Aufmerksamkeitskontrollen und Ausschlusskriterien sind vorab festgelegt und berichtet.',
             'Ausfälle je Bedingung (Attrition) sind berichtet.']],
         ['Measurement', 8, [

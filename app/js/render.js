@@ -288,7 +288,12 @@ function renderSourceInfo(info) {
         off: '🖼️ Bildauswertung ausgeschaltet – Tabellen/Abbildungen nur als Text'
     }[info.vision_status] || '';
     const scanned = q.scanned_pages.length ? ` · <span class="warn">⚠ ohne Textschicht (gescannt?): S. ${q.scanned_pages.join(', ')}</span>` : '';
-    return `<div class="source-info">📄 ${q.pages} Seiten gelesen · Tabellen: ${pagesText(q.table_pages)} · Abbildungen: ${pagesText(q.figure_pages)}${scanned}${visionText ? ` · ${visionText}` : ''}</div>`;
+    // Sieht das Modell nur einen Teil des Textes, wird alles andere als „nicht berichtet“ gewertet – das ist ein Artefakt, kein Mangel des Papers.
+    const share = info.text_chars && info.evidence_chars ? info.evidence_chars / info.text_chars : null;
+    const coverage = share !== null && share < 0.7
+        ? `<div class="warn" style="margin-top:.25rem;">⚠ Das Modell sah nur ${Math.round(share * 100)} % des PDF-Textes (${info.evidence_chars.toLocaleString('de-DE')} von ${info.text_chars.toLocaleString('de-DE')} Zeichen). Angaben außerhalb davon erscheinen als „nicht berichtet“ und senken den CASQ. Für belastbare Werte „Max. Zeichen Evidenz“ erhöhen.</div>`
+        : '';
+    return `<div class="source-info">📄 ${q.pages} Seiten gelesen · Tabellen: ${pagesText(q.table_pages)} · Abbildungen: ${pagesText(q.figure_pages)}${scanned}${visionText ? ` · ${visionText}` : ''}${coverage}</div>`;
 }
 
 // ---------- Integritätsprüfung: rechnerisch und per LLM nebeneinander ----------
