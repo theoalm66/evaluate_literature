@@ -49,6 +49,8 @@ function checklist(prompt, validated) {
 }
 
 function answerFor(prompt) {
+    if (prompt.includes('Du bist Agent 3b')) return { casq_checklist: checklist(prompt, false) };
+    if (prompt.includes('Du bist Agent 4b')) return { validated_casq_checklist: checklist(prompt, true) };
     if (prompt.includes('Du bist Agent 2')) return {
         document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Randomised controlled trial',
         clinical_context: { is_health_clinical: true, is_physiotherapy_rehabilitation: true, is_comparative: true, is_intervention_study: true },
@@ -95,7 +97,8 @@ function answerFor(prompt) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { vision: true };
+    const state = { vision: true, jsonSchema: true };
+    const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
         const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' };
         if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
@@ -112,7 +115,13 @@ function startMockLLM(port) {
                 res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: { message: 'This model does not support image input.' } }));
             }
+            const format = payload.response_format?.type || 'none';
+            if (format === 'json_schema' && !state.jsonSchema) {
+                res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'response_format json_schema is not supported by this server' } }));
+            }
             const isProbe = prompt.includes('Welche Farbe');
+            if (!isProbe) formats.push(format);
             if (!isProbe) calls.push(prompt);
             if (images && !isProbe) imageCalls.push({ agent: (prompt.match(/Du bist Agent (\d)/) || [])[1], images });
             const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt));
@@ -120,7 +129,7 @@ function startMockLLM(port) {
             res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } }));
         });
     });
-    return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls, imageCalls, state })));
+    return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls, imageCalls, state, formats })));
 }
 
 module.exports = { startMockLLM, QUOTES: Q };

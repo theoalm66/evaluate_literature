@@ -119,7 +119,11 @@ async function login(page, user, pass, action = 'login') {
         console.log('✓ Drag & Drop: PDF angenommen, andere Datei ignoriert');
         await page.click('#btn-start');
         await page.waitForSelector('#results-view.active', { timeout: 60000 });
-        assert.equal(llm.calls.length, 5, 'erwartet 5 LLM-Aufrufe (inkl. Agent 6)');
+        assert.equal(llm.calls.length, 7, 'erwartet 7 LLM-Aufrufe (Agenten 2, 3, 3b, 4, 4b, 6, 5)');
+        assert.ok(llm.formats.every(f => f === 'json_schema'), 'nicht alle Aufrufe mit JSON-Schema: ' + llm.formats.join(','));
+        assert.ok(!llm.calls.find(c => c.includes('Du bist Agent 3,')).includes('QN-1.1'), 'Agent 3 darf keine CASQ-Prüffragen mehr bekommen');
+        assert.ok(llm.calls.find(c => c.includes('Du bist Agent 3b')).includes('QN-2.2 [Design appropriateness]'), 'Agent 3b ohne Prüffragen');
+        console.log('✓ Ein Instrument je Aufruf (Agent 3/3b, 4/4b), alle 7 Aufrufe mit JSON-Schema');
         // Layout-Extraktion: Tabellenzeile kommt mit getrennten Zellen beim Modell an
         assert.match(llm.calls[0], /Age\t54\.2\t55\.1/, 'Tabellenzeile nicht in Zellen getrennt');
         // Seite mit Tabelle ging als Bild an Agent 2 und Agent 6
@@ -148,7 +152,7 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(study.includes('CASQ INTERN · Quantitativ'), 'Rubrik fehlt');
         assert.ok(study.includes('kein Zitat im PDF gefunden'), 'Herabstufung ohne Beleg nicht angezeigt');
         assert.ok(study.includes('Prüffragen (27)'), 'Prüffragen-Tabelle fehlt');
-        const analysisPrompt = llm.calls.find(c => c.includes('Du bist Agent 3'));
+        const analysisPrompt = llm.calls.find(c => c.includes('Du bist Agent 3b'));
         assert.ok(analysisPrompt.includes('QN-2.2 [Design appropriateness]') && !analysisPrompt.includes('{{CASQ_CHECKLIST}}'), 'Prüffragen nicht im Prompt');
         assert.ok(study.includes('Testvalidierung $& mit Sonderzeichen.'), 'Sonderzeichen verfälscht');
         console.log('✓ Analyse-Lauf: PEDro 4/10 (unvollständig), CASQ 2.0 = 8.7 (Spanne 8.7–9.2), Informationsgrad 96 %, Belege 96 %');
@@ -162,24 +166,35 @@ async function login(page, user, pass, action = 'login') {
         llm.state.vision = true;
         console.log('✓ Modell ohne Bildverarbeitung erkannt:', await page.textContent('#vision-hint'));
 
+        // Server ohne JSON-Schema: Rückfall auf einfachen JSON-Modus, Ergebnis kommt trotzdem
+        llm.state.jsonSchema = false;
+        const fallback = await page.evaluate(async () => {
+            const answer = parseJSONRobust(await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }));
+            return { support: Object.values(structuredOutputSupport), summary: answer.narrative_summary };
+        });
+        llm.state.jsonSchema = true;
+        assert.ok(fallback.support.includes('no'), 'Ablehnung des Schemas nicht vermerkt');
+        assert.equal(fallback.summary, 'Testsynthese.');
+        console.log('✓ Server ohne JSON-Schema: automatischer Rückfall auf einfachen JSON-Modus');
+
         // 4) Lauf + Agent-Protokoll in IndexedDB
         const stored = await page.evaluate(async () => {
             const runs = await listRuns('alt');
             const steps = await getRunSteps(runs[0].id);
             return { runs: runs.length, legacy: runs.filter(r => r.legacy).length, steps: steps.map(s => s.agent), hasPrompt: steps.every(s => s.prompt && s.response && s.prompt_version_id) };
         });
-        assert.deepEqual(stored.steps, ['extraction', 'analysis', 'validation', 'integrity', 'synthesis']);
+        assert.deepEqual(stored.steps, ['extraction', 'analysis', 'casq', 'validation', 'casq_validation', 'integrity', 'synthesis']);
         assert.equal(stored.runs, 2);
         assert.equal(stored.legacy, 1);
         assert.ok(stored.hasPrompt, 'Protokoll unvollständig');
-        console.log('✓ IndexedDB: 2 Läufe (1 übernommen), Protokoll mit 5 Schritten inkl. Prompt-Version');
+        console.log('✓ IndexedDB: 2 Läufe (1 übernommen), Protokoll mit 7 Schritten inkl. Prompt-Version');
 
         // 5) Historie, Export, Agent-Protokoll-Download
         await page.click('nav button[data-tab="history"]');
         await page.waitForSelector('.history-item >> nth=1');
         let download = await Promise.all([page.waitForEvent('download'), page.click('text=Agent-Protokoll (JSON)')]).then(([d]) => d);
         const protocol = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
-        assert.equal(protocol.steps.length, 5);
+        assert.equal(protocol.steps.length, 7);
         download = await Promise.all([page.waitForEvent('download'), page.click('text=Export (JSON)')]).then(([d]) => d);
         const exported = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
         assert.equal(exported.format, 'lit-agent-export');

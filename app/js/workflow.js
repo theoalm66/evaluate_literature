@@ -54,7 +54,7 @@ async function runIntegrityChecks(doc, ext, options, promptVersionId) {
         try {
             log(`Integrität (LLM, Agent 6): ${doc.title}`, 'info');
             const prompt = fillTemplate(getCurrentPrompt('integrity'), { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text });
-            result.llm = parseJSONRobust(await callWithVisuals(prompt, { agent: 'integrity', doc: doc.title, promptVersionId }, doc));
+            result.llm = parseJSONRobust(await callWithVisuals(prompt, { agent: 'integrity', doc: doc.title, promptVersionId, schema: agentSchema('integrity') }, doc));
         } catch (err) {
             result.llm_error = err?.message || String(err);
             log(`Integrität (LLM) für ${doc.title} fehlgeschlagen: ${result.llm_error}`, 'warning');
@@ -172,7 +172,7 @@ async function startWorkflow() {
             try {
                 log(`Evidence Extraction: ${doc.title}`, 'info');
                 const prompt = fillTemplate(extPromptBase, { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text });
-                let ext = parseJSONRobust(await callWithVisuals(prompt, { agent: 'extraction', doc: doc.title, promptVersionId: promptVersionIds.extraction }, doc));
+                let ext = parseJSONRobust(await callWithVisuals(prompt, { agent: 'extraction', doc: doc.title, promptVersionId: promptVersionIds.extraction, schema: agentSchema('extraction') }, doc));
                 ext.title = doc.title;
                 ext = verifyExtractionEvidenceRefs(ext, doc.pages);
                 extractedDocs.push({ doc, ext });
@@ -194,9 +194,18 @@ async function startWorkflow() {
                 const rubricKey = selectCASQRubric(ext);
                 const casqFields = { CASQ_RUBRIC: `${CASQ_RUBRICS[rubricKey].label} (${rubricKey})`, CASQ_CHECKLIST: casqChecklistText(rubricKey) };
                 const prompt = fillTemplate(analysisPromptBase, { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
-                const appraisal = parseJSONRobust(await callLLM(prompt, { agent: 'analysis', doc: doc.title, promptVersionId: promptVersionIds.analysis }));
+                const appraisal = parseJSONRobust(await callLLM(prompt, { agent: 'analysis', doc: doc.title, promptVersionId: promptVersionIds.analysis, schema: agentSchema('analysis') }));
                 appraisal.title = doc.title;
                 appraisal.casq_rubric = rubricKey;
+                // Agent 3b: CASQ-Prüffragen in einem eigenen, kürzeren Aufruf. Ein Fehler hier kostet nur den CASQ.
+                try {
+                    log(`CASQ-Prüffragen (Agent 3b): ${doc.title} – Rubrik ${CASQ_RUBRICS[rubricKey].label}`, 'info');
+                    const casqPrompt = fillTemplate(getCurrentPrompt('casq'), { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
+                    const casq = parseJSONRobust(await callLLM(casqPrompt, { agent: 'casq', doc: doc.title, promptVersionId: promptVersionIds.casq, schema: agentSchema('casq', { rubric: rubricKey }) }));
+                    if (Array.isArray(casq.casq_checklist)) appraisal.casq_checklist = casq.casq_checklist;
+                } catch (err) {
+                    log(`CASQ-Prüffragen für ${doc.title} fehlgeschlagen: ${err?.message || err}`, 'warning');
+                }
                 appraisedDocs.push({ doc, ext, appraisal, rubricKey, casqFields });
             } catch (err) {
                 registerFailure(doc.title, 'Critical Appraisal', err);
@@ -212,9 +221,22 @@ async function startWorkflow() {
             const { doc, ext, appraisal, rubricKey, casqFields } = item;
             try {
                 log(`Validiere Evidenz: ${doc.title}`, 'info');
-                const validationInput = { extraction: ext, appraisal };
+                // Die CASQ-Antworten validiert Agent 4b separat; Agent 4 bekommt sie nicht mit.
+                const { casq_checklist: casqAnswers, ...appraisalForValidation } = appraisal;
+                const validationInput = { extraction: ext, appraisal: appraisalForValidation };
                 const prompt = fillTemplate(validationPromptBase, { VALIDATION_DATA: JSON.stringify(validationInput, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
-                let validation = parseJSONRobust(await callLLM(prompt, { agent: 'validation', doc: doc.title, promptVersionId: promptVersionIds.validation }));
+                let validation = parseJSONRobust(await callLLM(prompt, { agent: 'validation', doc: doc.title, promptVersionId: promptVersionIds.validation, schema: agentSchema('validation') }));
+                // Agent 4b: CASQ-Antworten gegen den Text prüfen
+                if (Array.isArray(casqAnswers) && casqAnswers.length) {
+                    try {
+                        log(`Validiere CASQ-Prüffragen (Agent 4b): ${doc.title}`, 'info');
+                        const cvPrompt = fillTemplate(getCurrentPrompt('casq_validation'), { CASQ_ANSWERS: JSON.stringify(casqAnswers, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
+                        const cv = parseJSONRobust(await callLLM(cvPrompt, { agent: 'casq_validation', doc: doc.title, promptVersionId: promptVersionIds.casq_validation, schema: agentSchema('casq_validation', { rubric: rubricKey }) }));
+                        if (Array.isArray(cv.validated_casq_checklist)) validation.validated_casq_checklist = cv.validated_casq_checklist;
+                    } catch (err) {
+                        log(`CASQ-Validierung für ${doc.title} fehlgeschlagen – es zählen die Antworten von Agent 3b: ${err?.message || err}`, 'warning');
+                    }
+                }
                 validation.title = doc.title;
                 validation = verifySourceRefs(validation, doc.pages);
                 validation = verifyFrameworkEvidence(validation, appraisal, doc.pages);
@@ -285,7 +307,7 @@ async function startWorkflow() {
                     integrity_flags: integritySummaryForSynthesis(r.integrity)
                 }));
                 const synPrompt = fillTemplate(getCurrentPrompt('synthesis'), { APPRAISALS_DATA: JSON.stringify(synthInput, null, 2) });
-                synthesis = parseJSONRobust(await callLLM(synPrompt, { agent: 'synthesis', doc: null, promptVersionId: promptVersionIds.synthesis }));
+                synthesis = parseJSONRobust(await callLLM(synPrompt, { agent: 'synthesis', doc: null, promptVersionId: promptVersionIds.synthesis, schema: agentSchema('synthesis') }));
                 synthesis.num_studies_included = studyResults.length;
                 synthesis.meta_analysis_performed = false;
             } catch (err) {

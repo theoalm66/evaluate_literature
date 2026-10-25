@@ -123,6 +123,17 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
   Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.
 
+**Strukturierte JSON-Ausgabe, ein Instrument je Aufruf** (`app/js/schemas.js`)
+- Jeder Agent schickt ein JSON-Schema als `response_format: json_schema` mit (strikter Modus: alle Felder Pflicht,
+  feste Werte für Entscheidungsfelder, bei den CASQ-Prüffragen nur die IDs der gewählten Rubrik). vLLM, OpenAI und
+  LM Studio erzwingen damit Aufbau und erlaubte Werte – keine abgeschnittenen oder kaputten Antworten mehr durch
+  Formatfehler. Lehnt ein Server Schemata ab, nutzt die App automatisch den bisherigen JSON-Modus und merkt sich das
+  (Tooltip der Status-Lampe). Im Thinking-Modus wird kein Schema erzwungen.
+- Agent 3 bewertet nur noch Instrumente (JARS, PEDro/MINORS/AMSTAR 2/COSMIN, MMAT/CASP, Bias); die CASQ-Prüffragen
+  beantwortet **Agent 3b** in einem eigenen Aufruf, validiert von **Agent 4b**. Kürzere Antworten je Aufruf, dafür
+  zwei Aufrufe mehr pro PDF. Beide haben eigene, versionierte Prompts; die Prompts von Agent 3 und 4 werden beim
+  nächsten Login automatisch auf die verkleinerte Fassung umgestellt (alte Versionen bleiben auswählbar).
+
 **PDF-Einlesen: Layout, Tabellen, Abbildungen** (`app/js/pdf-extract.js`)
 - Der Text wird aus den Positionen der Textstücke zeilenweise rekonstruiert; Tabellenspalten werden durch
   Tabulatoren getrennt, Wortteile ohne Abstand nicht mehr zerrissen. Tabellen kommen so zeilenweise mit

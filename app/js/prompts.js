@@ -4,7 +4,7 @@
 const DEFAULT_SYSTEM_PROMPT = "Du bist ein KI-Agent für wissenschaftliche Analysen. EXTREM WICHTIG: Antworte AUSSCHLIESSLICH mit validem JSON. Schreibe KEINE Gedankengänge (kein 'Here is a thinking process' oder '<think>'), keine Erklärungen und keinen Fließtext. Beginne deine Antwort DIREKT und AUSNAHMSLOS mit dem Zeichen '{'.";
 
 // Alle Agenten mit eigenem, versioniertem Prompt (Reihenfolge = Anzeige im Tab "Prompts & Info")
-const PROMPT_TYPES = ['extraction', 'analysis', 'validation', 'synthesis', 'integrity'];
+const PROMPT_TYPES = ['extraction', 'analysis', 'casq', 'validation', 'casq_validation', 'synthesis', 'integrity'];
 
 const DEFAULT_PROMPTS = {
     extraction: `Du bist Agent 2 eines wissenschaftlichen Critical-Appraisal-Systems. Deine Aufgabe ist ausschließlich die strukturierte Evidenzextraktion aus dem bereitgestellten Publikationstext.
@@ -124,13 +124,7 @@ ETABLIERTE SCORE-ITEMS:
 - COSMIN: Gib relevante Boxen/Messeigenschaften mit response very_good|adequate|doubtful|inadequate|not_applicable zurück; overall/box rating nach worst-score-counts.
 - MMAT/CASP: Nutze framework_appraisal für transparente kriteriumsbasierte Zusatzbewertung ohne numerischen offiziellen Score.
 
-CASQ (NUR ERGÄNZEND, interner Vergleichsindex):
-- Beantworte JEDE der folgenden Prüffragen. Vergib KEINE Punkte und KEINE Gewichte – der CASQ wird anschließend deterministisch aus deinen Antworten berechnet.
-- Antwortwerte: yes = erfüllt; partial = teilweise erfüllt; no = berichtet, aber nicht erfüllt bzw. unzureichend; not_reported = im Text keine Information; not_applicable = trifft auf diese Publikation nicht zu (sparsam verwenden und begründen).
-- Für yes und partial ist ein kurzes, möglichst wörtliches Zitat mit PDF-Seite Pflicht. Antworten, deren Zitat im Text nicht auffindbar ist, werden automatisch herabgestuft.
-- "Nicht berichtet" ist not_reported, nicht yes. Mit [KRITISCH] markierte Fragen begrenzen den CASQ, wenn sie mit no oder not_reported beantwortet werden.
-- Prüffragen (Rubrik: {{CASQ_RUBRIC}}):
-{{CASQ_CHECKLIST}}
+CASQ: Der interne CASQ wird in einem eigenen Aufruf (Agent 3b) anhand von Prüffragen bewertet – hier NICHT bewerten.
 
 STUDY_DATA:
 {{STUDY_DATA}}
@@ -181,7 +175,6 @@ JSON-SCHEMA:
     "criteria": [{"criterion":"...","framework_response":"yes|no|cant_tell|not_applicable","evidence":[{"page":12,"section":"...","quote":"..."}],"rationale":"..."}],
     "framework_summary":"..."
   },
-  "casq_checklist": [{"id":"QN-1.1","response":"yes|partial|no|not_reported|not_applicable","evidence":[{"page":12,"section":"Methods","quote":"..."}],"rationale":"..."}],
   "bias_domains": [{"domain":"...","evidence":"...","rating":"low|some_concerns|high|unclear|not_applicable","rationale":"..."}],
   "critical_strengths": ["..."],
   "critical_limitations": ["..."],
@@ -236,9 +229,7 @@ REGELN:
 - AMSTAR 2: kein numerischer Summenscore; validiere das Gesamtvertrauen anhand kritischer Domänen und Fehler.
 - COSMIN: validiere Ratings pro relevanter Mess-Eigenschaft; worst-score-counts darf nicht durch Mittelwert ersetzt werden.
 - MMAT: trenne die 2 Screening-Fragen strikt von den designspezifischen Kriterien. Zwei erfolgreiche Screening-Fragen sind KEINE vollständige MMAT-Qualitätsbewertung. CASP/MMAT: validiere Einzelurteile; kein offizieller numerischer Summenscore.
-- Prüfe jede Antwort in appraisal.casq_checklist gegen den SOURCE_TEXT und gib für JEDE Prüffrage die validierte Antwort zurück. Korrigiere Antworten, die der Text nicht trägt (z.B. yes → partial, no oder not_reported). Für yes und partial liefere ein wörtliches Zitat mit PDF-Seite. Vergib keine Punkte; CASQ bleibt intern.
-- Prüffragen (Rubrik: {{CASQ_RUBRIC}}):
-{{CASQ_CHECKLIST}}
+- Die CASQ-Prüffragen werden in einem eigenen Aufruf (Agent 4b) validiert – hier NICHT.
 - Erfinde keine Quellenstellen. Für entscheidbare Items liefere kurze Evidenz mit PDF-Seite und Zitat.
 - Antworte NUR mit validem JSON.
 
@@ -279,7 +270,6 @@ JSON-SCHEMA:
     "criteria":[{"criterion":"...","framework_response":"yes|no|cant_tell|not_applicable","evidence":[{"page":12,"section":"...","quote":"..."}],"validation_note":"..."}],
     "framework_summary":"..."
   },
-  "validated_casq_checklist": [{"id":"QN-1.1","original_response":"yes","response":"yes|partial|no|not_reported|not_applicable","evidence":[{"page":12,"section":"Methods","quote":"..."}],"validation_note":"..."}],
   "unsupported_claims": ["..."],
   "validation_summary": "..."
 }`,
@@ -311,5 +301,51 @@ JSON-SCHEMA:
   "retraction_note": "...",
   "issues": ["..."],
   "summary": "Kurze Gesamteinschätzung in maximal 3 Sätzen"
-}`
+}`,
+    casq: `Du bist Agent 3b und bewertest den internen CASQ-Index GENAU EINER Publikation. Beantworte ausschließlich die folgenden Prüffragen anhand des SOURCE_TEXT. Vergib KEINE Punkte und KEINE Gewichte – der CASQ wird anschließend deterministisch aus deinen Antworten berechnet.
+
+REGELN:
+- Antwortwerte: yes = erfüllt; partial = teilweise erfüllt; no = berichtet, aber nicht erfüllt bzw. unzureichend; not_reported = im Text keine Information; not_applicable = trifft auf diese Publikation nicht zu (sparsam verwenden und begründen).
+- Für yes und partial ist ein kurzes, möglichst wörtliches Zitat mit PDF-Seite Pflicht. SOURCE_TEXT enthält --- PAGE N --- Marker. Antworten, deren Zitat im Text nicht auffindbar ist, werden automatisch herabgestuft.
+- "Nicht berichtet" ist not_reported, nicht yes. Mit [KRITISCH] markierte Fragen begrenzen den CASQ, wenn sie mit no oder not_reported beantwortet werden.
+- Beantworte JEDE Prüffrage genau einmal und verwende ihre ID.
+- Antworte NUR mit validem JSON.
+
+Rubrik: {{CASQ_RUBRIC}}
+PRÜFFRAGEN:
+{{CASQ_CHECKLIST}}
+
+STUDY_DATA:
+{{STUDY_DATA}}
+
+SOURCE_TEXT:
+{{SOURCE_TEXT}}
+
+JSON-SCHEMA:
+{
+  "casq_checklist": [{"id":"QN-1.1","response":"yes|partial|no|not_reported|not_applicable","evidence":[{"page":12,"section":"Methods","quote":"..."}],"rationale":"..."}]
+}`,
+    casq_validation: `Du bist Agent 4b und validierst die CASQ-Prüffragen GENAU EINER Publikation. Prüfe jede Antwort aus CASQ_ANSWERS gegen den SOURCE_TEXT.
+
+REGELN:
+- Gib für JEDE Prüffrage die validierte Antwort zurück (original_response = Antwort aus CASQ_ANSWERS).
+- Korrigiere Antworten, die der Text nicht trägt (z.B. yes → partial, no oder not_reported). Ergänze Antworten, die zu streng waren, nur mit Beleg.
+- Für yes und partial liefere ein kurzes, wörtliches Zitat mit PDF-Seite. Erfinde keine Quellenstellen.
+- Vergib keine Punkte; der CASQ wird deterministisch berechnet und bleibt ein interner Index.
+- Antworte NUR mit validem JSON.
+
+Rubrik: {{CASQ_RUBRIC}}
+PRÜFFRAGEN:
+{{CASQ_CHECKLIST}}
+
+CASQ_ANSWERS:
+{{CASQ_ANSWERS}}
+
+SOURCE_TEXT:
+{{SOURCE_TEXT}}
+
+JSON-SCHEMA:
+{
+  "validated_casq_checklist": [{"id":"QN-1.1","original_response":"yes","response":"yes|partial|no|not_reported|not_applicable","evidence":[{"page":12,"section":"Methods","quote":"..."}],"validation_note":"..."}]
+}`,
 };

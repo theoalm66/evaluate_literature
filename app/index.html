@@ -335,13 +335,13 @@
                 <ul>
                     <li><strong>1. Ingestion:</strong> PDF.js liest den Text lokal und <strong>seitenweise</strong> aus den PDFs. Jede Seite erhält eine interne Seitenmarke. Aus langen Dokumenten werden gezielt Abschnitte zu Forschungsfrage, Theorie, Methodik, Stichprobe, Messung, Analyse, Ergebnissen, Limitationen und Transparenz zusammengestellt.</li>
                     <li><strong>2. Evidence Extraction:</strong> Agent 2 klassifiziert zuerst den <strong>Dokumenttyp</strong>, danach Studienfamilie und Studiendesign und extrahiert strukturierte Evidenz mit Textbelegen. Bei Multi-Study-Reports können enthaltene Teilstudien separat beschrieben werden.</li>
-                    <li><strong>3. Design-spezifisches Appraisal:</strong> Agent 3 bewertet <em>jede Publikation einzeln</em>. Für den CASQ beantwortet Agent 3 die zum Dokumenttyp passenden Prüffragen (ja / teilweise / nein / nicht berichtet / nicht anwendbar) mit Belegstelle; Punkte vergibt er nicht.</li>
-                    <li><strong>4. Evidence Validation:</strong> Agent 4 prüft die Bewertungsbegründungen nochmals gegen den bereitgestellten Evidenzkontext und korrigiert Antworten auf die Prüffragen, die der Text nicht trägt, und liefert Originalbelege mit PDF-Seite. Der Browser prüft jedes Zitat gegen den tatsächlich extrahierten Seitentext. Erst aus den validierten Antworten wird der CASQ deterministisch berechnet.</li>
+                    <li><strong>3. Design-spezifisches Appraisal:</strong> Agent 3 bewertet <em>jede Publikation einzeln</em>. Für den CASQ beantwortet Agent 3b in einem eigenen Aufruf die zum Dokumenttyp passenden Prüffragen (ja / teilweise / nein / nicht berichtet / nicht anwendbar) mit Belegstelle; Punkte vergibt er nicht.</li>
+                    <li><strong>4. Evidence Validation:</strong> Agent 4 prüft die Bewertungsbegründungen nochmals gegen den bereitgestellten Evidenzkontext und liefert Originalbelege mit PDF-Seite; Agent 4b korrigiert Antworten auf die CASQ-Prüffragen, die der Text nicht trägt. Der Browser prüft jedes Zitat gegen den tatsächlich extrahierten Seitentext. Erst aus den validierten Antworten wird der CASQ deterministisch berechnet.</li>
                     <li><strong>5. Evidenzgewichtete Synthese:</strong> Agent 5 führt Ergebnisse über Studien hinweg zusammen und berücksichtigt dabei Studiendesign, validierten CASQ, Bias-Risiken und Limitationen.</li>
                 </ul>
 
                 <h2>Workflow-Prompts anpassen</h2>
-                <p>Die Prompts können versioniert angepasst werden. Die JSON-Struktur am Ende eines Prompts sollte nicht verändert werden, weil die Oberfläche diese Felder verarbeitet. Platzhalter wie <code>{{SOURCE_TEXT}}</code> werden automatisch befüllt. Für verlässliche Ergebnisse sollten die Regeln zur Evidenzpflicht und zu fehlenden Angaben erhalten bleiben.</p>
+                <p>Die Prompts können versioniert angepasst werden. Die JSON-Struktur am Ende eines Prompts sollte nicht verändert werden, weil die Oberfläche diese Felder verarbeitet. Platzhalter wie <code>{{SOURCE_TEXT}}</code> werden automatisch befüllt. Für verlässliche Ergebnisse sollten die Regeln zur Evidenzpflicht und zu fehlenden Angaben erhalten bleiben. Wo der Modell-Server es unterstützt (z.B. vLLM, OpenAI, LM Studio), wird diese Struktur zusätzlich per JSON-Schema erzwungen; Agent 3 und 4 sind dafür auf ein Instrument je Aufruf verkleinert, die CASQ-Prüffragen laufen über Agent 3b und 4b.</p>
 
                 <div class="prompt-editor">
                     <div class="prompt-header"><h3>Agent 2: Evidence Extraction</h3><div class="prompt-controls"><select id="history-extraction" onchange="restorePrompt('extraction')"></select><button class="btn btn-small" onclick="savePrompt('extraction')">Speichern</button></div></div>
@@ -352,16 +352,30 @@
 
                 <div class="prompt-editor">
                     <div class="prompt-header"><h3>Agent 3: Etablierte Instrumente + ergänzender CASQ</h3><div class="prompt-controls"><select id="history-analysis" onchange="restorePrompt('analysis')"></select><button class="btn btn-small" onclick="savePrompt('analysis')">Speichern</button></div></div>
-                    <p class="warning-text">Platzhalter: {{STUDY_DATA}}, {{SOURCE_TEXT}}, {{CASQ_RUBRIC}}, {{CASQ_CHECKLIST}} (Prüffragen werden vom Programm passend zum Dokumenttyp eingesetzt)</p>
+                    <p class="warning-text">Platzhalter: {{STUDY_DATA}}, {{SOURCE_TEXT}} · CASQ-Prüffragen beantwortet Agent 3b in einem eigenen Aufruf</p>
                     <textarea id="prompt-analysis" rows="18"></textarea>
                     <div id="save-note-analysis" class="save-note">✓ Als neue Version gespeichert</div>
                 </div>
 
                 <div class="prompt-editor">
                     <div class="prompt-header"><h3>Agent 4: Evidence- & Score-Validation</h3><div class="prompt-controls"><select id="history-validation" onchange="restorePrompt('validation')"></select><button class="btn btn-small" onclick="savePrompt('validation')">Speichern</button></div></div>
-                    <p class="warning-text">Platzhalter: {{VALIDATION_DATA}}, {{SOURCE_TEXT}}, {{CASQ_RUBRIC}}, {{CASQ_CHECKLIST}}</p>
+                    <p class="warning-text">Platzhalter: {{VALIDATION_DATA}}, {{SOURCE_TEXT}} · CASQ-Prüffragen validiert Agent 4b</p>
                     <textarea id="prompt-validation" rows="16"></textarea>
                     <div id="save-note-validation" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 3b: CASQ-Prüffragen</h3><div class="prompt-controls"><select id="history-casq" onchange="restorePrompt('casq')"></select><button class="btn btn-small" onclick="savePrompt('casq')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{CASQ_RUBRIC}}, {{CASQ_CHECKLIST}} (vom Programm passend zum Dokumenttyp eingesetzt), {{STUDY_DATA}}, {{SOURCE_TEXT}}</p>
+                    <textarea id="prompt-casq" rows="14"></textarea>
+                    <div id="save-note-casq" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 4b: Validierung der CASQ-Prüffragen</h3><div class="prompt-controls"><select id="history-casq_validation" onchange="restorePrompt('casq_validation')"></select><button class="btn btn-small" onclick="savePrompt('casq_validation')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{CASQ_RUBRIC}}, {{CASQ_CHECKLIST}}, {{CASQ_ANSWERS}}, {{SOURCE_TEXT}}</p>
+                    <textarea id="prompt-casq_validation" rows="14"></textarea>
+                    <div id="save-note-casq_validation" class="save-note">✓ Als neue Version gespeichert</div>
                 </div>
 
                 <div class="prompt-editor">
@@ -540,6 +554,7 @@
     <script src="js/scoring.js"></script>
     <script src="js/integrity.js"></script>
     <script src="js/pdf-extract.js"></script>
+    <script src="js/schemas.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/sync.js"></script>
     <script src="js/profile.js"></script>

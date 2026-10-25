@@ -46,6 +46,10 @@ async function autoDetectContext() {
         if (!response.ok) throw new Error(`API Fehler: ${response.status}`);
         
         const data = await response.json();
+    if (useSchema && payload.response_format?.type === 'json_schema') {
+        structuredOutputSupport[schemaKey] = 'yes';
+        stepBase.structured_output = 'json_schema';
+    }
         let ctx = null;
         
         if (data.data && data.data.length > 0) {
@@ -206,6 +210,8 @@ function buildUserContent(prompt, images) {
 
 // Ergebnis der Bildprüfung je Provider und Modell (für diese Sitzung): yes | no | unknown
 const visionSupport = {};
+// Unterstützt der Server response_format "json_schema"? je Provider|Modell: yes | no
+const structuredOutputSupport = {};
 
 function visionKey(cfg = currentLlmConfig()) {
     return `${cfg.provider}|${cfg.model || ''}`;
@@ -217,8 +223,14 @@ function visionSuffix(cfg) {
 }
 
 function visionTooltip(cfg) {
+    const structured = structuredOutputSupport[visionKey(cfg)];
+    const structuredText = structured === 'yes' ? ' Strukturierte JSON-Ausgabe (Schema): ja.' : structured === 'no' ? ' Strukturierte JSON-Ausgabe (Schema): nicht unterstützt, einfacher JSON-Modus.' : '';
     const v = visionSupport[visionKey(cfg)];
-    if (!v) return '';
+    if (!v) return structuredText;
+    return structuredText + visionTooltipText(v);
+}
+
+function visionTooltipText(v) {
     return v.state === 'yes' ? ' Das Modell verarbeitet Bilder (Tabellen/Abbildungen werden als Bild mitgeschickt).'
         : v.state === 'no' ? ' Das Modell verarbeitet keine Bilder – Tabellen und Abbildungen nur als Text.' : '';
 }
@@ -349,12 +361,24 @@ async function callLLM(prompt, meta = {}) {
     }
 
     const vllmLike = provider === 'spark' || (provider.startsWith('custom') && url.includes('8000'));
-    if (vllmLike && !isThinkingAllowed) {
-        const m = (model || '').toLowerCase();
-        // Ohne Modellnamen (Spark-Standardmodell) wird JSON-Modus ebenfalls angefordert; vLLM unterstützt ihn generell.
-        if (!m || m.includes('qwen') || m.includes('nvidia') || m.includes('deepseek')) {
-            payload.response_format = { type: "json_object" };
+    const applyJsonObjectMode = () => {
+        delete payload.response_format;
+        if (vllmLike && !isThinkingAllowed) {
+            const m = (model || '').toLowerCase();
+            // Ohne Modellnamen (Spark-Standardmodell) wird JSON-Modus ebenfalls angefordert; vLLM unterstützt ihn generell.
+            if (!m || m.includes('qwen') || m.includes('nvidia') || m.includes('deepseek')) {
+                payload.response_format = { type: "json_object" };
+            }
         }
+    };
+    // Strukturierte Ausgabe nach JSON-Schema, solange der Server sie nicht abgelehnt hat. Im Thinking-Modus
+    // nicht: Das Modell soll vor dem JSON frei nachdenken dürfen.
+    const schemaKey = `${provider}|${model || ''}`;
+    const useSchema = !!meta.schema && !isThinkingAllowed && structuredOutputSupport[schemaKey] !== 'no';
+    if (useSchema) {
+        payload.response_format = { type: 'json_schema', json_schema: { name: meta.schema.name, schema: meta.schema.schema, strict: true } };
+    } else {
+        applyJsonObjectMode();
     }
 
     const fetchHeaders = { 'Content-Type': 'application/json' };
@@ -375,6 +399,17 @@ async function callLLM(prompt, meta = {}) {
         // Abgelaufene Spark-Sitzung: einmal still neu anmelden und wiederholen.
         if (provider === 'spark' && response.status === 401 && await serverLogin(currentUser, currentPassKey)) {
             response = await send();
+        }
+        // Server kennt kein json_schema: merken und mit dem bisherigen JSON-Modus wiederholen.
+        if (useSchema && (response.status === 400 || response.status === 422)) {
+            const errText = await response.clone().text();
+            if (/schema|response_format|structured|guided|json/i.test(errText)) {
+                structuredOutputSupport[schemaKey] = 'no';
+                log(`Strukturierte JSON-Ausgabe wird vom Modell-Server nicht unterstützt – weiter mit einfachem JSON-Modus.`, 'warning');
+                applyJsonObjectMode();
+                stepBase.structured_output = 'abgelehnt';
+                response = await send();
+            }
         }
     } catch (err) {
         const hint = explainNetworkError(url);

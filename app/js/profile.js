@@ -58,15 +58,15 @@ function ensureProfileStructure(db, user) {
         db[user].sync.promptHeads.extraction = new Date().toISOString();
         db[user].prompts.extraction = db[user].prompts.extraction.slice(0, PROMPT_HISTORY_LIMIT);
     }
-    // CASQ 2.0: Prüffragen statt freier Punkte – ältere Agent-3/4-Prompts kennen den Platzhalter noch nicht.
+    // CASQ-Prüffragen laufen in eigenen Aufrufen (Agent 3b/4b) – ältere Agent-3/4-Prompts enthalten sie noch.
     if (!String(db[user].prompts.analysis?.[0]?.text || '').includes('Bestätige ausdrücklich den Tie-Breaker')
-        || !String(db[user].prompts.analysis?.[0]?.text || '').includes('{{CASQ_CHECKLIST}}')) {
+        || !String(db[user].prompts.analysis?.[0]?.text || '').includes('eigenen Aufruf (Agent 3b)')) {
         db[user].prompts.analysis.unshift(promptVersion(DEFAULT_PROMPTS.analysis, frameworkDate));
         db[user].sync.promptHeads.analysis = new Date().toISOString();
         db[user].prompts.analysis = db[user].prompts.analysis.slice(0, PROMPT_HISTORY_LIMIT);
     }
     if (!String(db[user].prompts.validation?.[0]?.text || '').includes('validiere jars_quant separat')
-        || !String(db[user].prompts.validation?.[0]?.text || '').includes('{{CASQ_CHECKLIST}}')) {
+        || !String(db[user].prompts.validation?.[0]?.text || '').includes('eigenen Aufruf (Agent 4b)')) {
         db[user].prompts.validation.unshift(promptVersion(DEFAULT_PROMPTS.validation, frameworkDate));
         db[user].sync.promptHeads.validation = new Date().toISOString();
         db[user].prompts.validation = db[user].prompts.validation.slice(0, PROMPT_HISTORY_LIMIT);
