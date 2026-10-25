@@ -243,6 +243,16 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(await hsChat(), 'Testsynthese.');
         assert.deepEqual(llm.formats.slice(formatsBefore2), ['json_schema'], 'erste Wiederholung muss unverändert sein');
         console.log('✓ Einzelner Sofort-500er: unveränderte Wiederholung gelingt, Schema bleibt erhalten');
+        // Reasoning-Modell verbraucht das Budget: leere Antwort -> Wiederholung mit doppeltem Budget; sonst klare Fehlermeldung
+        llm.state.emptyOnce = 1;
+        llm.state.payloads.length = 0;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.deepEqual(llm.state.payloads.map(pl => pl.max_tokens), [8192, 16384], 'Wiederholung mit doppeltem Budget');
+        llm.state.emptyOnce = 2;
+        const emptyError = await page.evaluate(async () => { try { await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }); return null; } catch (e) { return e.message; } });
+        assert.match(emptyError || '', /keine Antwort geliefert.*Reasoning/s, 'leere Antwort muss als Fehler gemeldet werden, nicht still weiterlaufen');
+        llm.state.emptyOnce = 0;
+        console.log('✓ Leere Antwort eines Reasoning-Modells: Wiederholung mit doppeltem Token-Budget, danach klare Fehlermeldung');
         llm.state.rejectStream = true;
         assert.equal(await hsChat(), 'Testsynthese.');
         llm.state.rejectStream = false;
@@ -402,7 +412,7 @@ async function login(page, user, pass, action = 'login') {
         const extractionPayloads = llm.state.payloads.filter(pl => pl.messages[1].content && JSON.stringify(pl.messages[1].content).includes('Du bist Agent 2'));
         const schemaKeys = extractionPayloads.map(pl => Object.keys(pl.response_format.json_schema.schema.properties).length);
         assert.deepEqual(schemaKeys, [13, 7, 6], 'Schema je Teil: ' + schemaKeys);
-        assert.deepEqual(extractionPayloads.map(pl => pl.max_tokens), [3000, 4000, 5000], 'Ausgabegrenze je Teil');
+        assert.deepEqual(extractionPayloads.map(pl => pl.max_tokens), [6000, 8000, 8192], 'Ausgabegrenze je Teil (begrenzt durch die Einstellung)');
         await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = false; });
         console.log('✓ Extraktion in 3 Teilschritten: je Teil eigenes Schema, Ergebnis wird zusammengesetzt (Marketing-Studie korrekt erkannt)');
 

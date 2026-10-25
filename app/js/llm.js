@@ -329,7 +329,7 @@ const MAX_SEND_ATTEMPTS = 3;
 async function readChatResponse(response) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '', content = '', model = null, usage = null, finish = null, mode = null, whole = '';
+    let buffer = '', content = '', model = null, usage = null, finish = null, mode = null, whole = '', reasoning = 0;
     const handleLine = raw => {
         const line = raw.trim();
         if (!line.startsWith('data:')) return;
@@ -342,6 +342,7 @@ async function readChatResponse(response) {
         if (chunk.usage) usage = chunk.usage;
         const choice = chunk.choices?.[0];
         if (choice?.delta?.content) content += choice.delta.content;
+        reasoning += String(choice?.delta?.reasoning_content ?? choice?.delta?.reasoning ?? '').length;
         if (choice?.finish_reason) finish = choice.finish_reason;
     };
     for (;;) {
@@ -367,7 +368,7 @@ async function readChatResponse(response) {
     if (!mode) throw new Error('Leere Antwort des Servers.');
     handleLine(buffer);
     if (!content && !finish) throw new Error(`Der Datenstrom enthält keinen Antworttext (${buffer.slice(0, 120).replace(/\s+/g, ' ')})`);
-    return { model, usage, choices: [{ message: { content }, finish_reason: finish }] };
+    return { model, usage, reasoning_chars: reasoning, choices: [{ message: { content }, finish_reason: finish }] };
 }
 
 async function callLLM(prompt, meta = {}) {
@@ -622,6 +623,25 @@ async function callLLM(prompt, meta = {}) {
 
     endTime = performance.now();   // bei Datenströmen erst nach dem letzten Teil
     durationSec = (endTime - startTime) / 1000;
+
+    // Leere Antwort: Reasoning-Modelle verbrauchen ihr Token-Budget manchmal vollständig zum Nachdenken (Abschluss „length“).
+    // Das darf nicht still zu einer leeren Auswertung führen: einmal mit doppeltem Budget wiederholen, sonst klar melden.
+    const answerMessage = data.choices?.[0]?.message || {};
+    const finishReason = data.choices?.[0]?.finish_reason || null;
+    const reasoningChars = data.reasoning_chars ?? String(answerMessage.reasoning_content ?? answerMessage.reasoning ?? '').length;
+    if (!String(answerMessage.content ?? '').trim()) {
+        const detail = `Abschluss: ${finishReason || 'unbekannt'}${reasoningChars ? `, ${reasoningChars} Zeichen Reasoning` : ''}`;
+        rec({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: `Leere Antwort (${detail})`, tokens_out: data.usage?.completion_tokens ?? null });
+        if (finishReason === 'length' && !meta.boosted && maxTokens < 16384 && !meta.quiet) {
+            const boosted = Math.min(maxTokens * 2, 16384);
+            log(`Das Modell hat sein Token-Budget (${maxTokens.toLocaleString('de-DE')}) zum Nachdenken verbraucht und keine Antwort geliefert – neuer Versuch mit ${boosted.toLocaleString('de-DE')} Token.`, 'warning');
+            return callLLM(prompt, { ...meta, maxTokens: boosted, boosted: true });
+        }
+        const message = `Das Modell hat keine Antwort geliefert (${detail}). ${finishReason === 'length' ? 'Das Token-Budget reichte nicht, weil das Modell zuerst nachdenkt (Reasoning). „Max. Output Tokens“ erhöhen oder Reasoning abschalten.' : 'Der Server hat eine leere Antwort geschickt.'}`;
+        markLlmCall(false, provider, message);
+        throw new Error(message);
+    }
+    if (finishReason === 'length') log(`Die Antwort wurde an der Token-Grenze abgeschnitten (${(data.usage?.completion_tokens ?? maxTokens).toLocaleString('de-DE')} Token) – das JSON kann unvollständig sein. „Max. Output Tokens“ erhöhen.`, 'warning');
 
     // Token/s Metrik aus den OpenAI-Usage-Daten extrahieren (falls vorhanden) oder schätzen
     const completionTokens = data.usage?.completion_tokens || Math.round(data.choices[0].message.content.length / 4);

@@ -119,7 +119,7 @@ function answerFor(prompt, ctx) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { streamed: [], failSchema500: 0, rejectStream: false, hangFirst: 0, rejectKwargs: false, payloads: [], sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const state = { streamed: [], failSchema500: 0, rejectStream: false, emptyOnce: 0, hangFirst: 0, rejectKwargs: false, payloads: [], sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
     const temps = [];            // Agent und Temperatur je Aufruf
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
@@ -183,6 +183,17 @@ function startMockLLM(port) {
                 answer = Object.fromEntries(Object.entries(answer).filter(([k]) => keys.includes(k)));
             }
             const content = JSON.stringify(answer);
+            if (state.emptyOnce > 0 && !isProbe) {   // Reasoning-Modell verbraucht das Budget: leere Antwort, Abschluss "length"
+                state.emptyOnce--;
+                if (payload.stream) {
+                    res.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream' });
+                    res.write(`data: ${JSON.stringify({ model: 'mock-model', choices: [{ delta: { reasoning_content: 'ich denke nach ' } }] })}\n\n`);
+                    res.write(`data: ${JSON.stringify({ model: 'mock-model', choices: [{ delta: {}, finish_reason: 'length' }] })}\n\n`);
+                    return res.end('data: [DONE]\n\n');
+                }
+                res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content: '', reasoning_content: 'ich denke nach ' }, finish_reason: 'length' }], usage: { prompt_tokens: 1, completion_tokens: payload.max_tokens } }));
+            }
             if (payload.stream && state.streamAsOneJson) {   // Server ignoriert Streaming und antwortet normal
                 res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));

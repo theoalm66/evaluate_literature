@@ -30,9 +30,9 @@ async function callWithVisuals(prompt, meta, doc) {
 // (beide mit Seitenbildern). So bleibt jeder Aufruf kurz genug für Server mit Zeitlimit.
 const EXTRACTION_PART_TITLES = { classification: 'Dokumenttyp und Design', methods: 'Stichprobe, Methoden und Messung', results: 'Ergebnisse, Limitationen und Belege' };
 
-// Ausgabegrenzen je Teil: Läuft ein Modell in eine Wiederholungsschleife, bricht es nach wenigen tausend Token ab,
-// statt bis zur (oft sehr hohen) Grenze weiterzuschreiben und das Zeitlimit des Servers zu reißen.
-const EXTRACTION_PART_MAX_TOKENS = { classification: 3000, methods: 4000, results: 5000 };
+// Ausgabegrenzen je Teil: Läuft ein Modell in eine Wiederholungsschleife, bricht es ab, statt bis zur (oft sehr hohen) Grenze
+// weiterzuschreiben. Reasoning-Modelle denken zuerst und brauchen Spielraum, deshalb nicht zu knapp.
+const EXTRACTION_PART_MAX_TOKENS = { classification: 6000, methods: 8000, results: 10000 };
 
 function extractionPartInstruction(part, partIndex, partCount, known) {
     const lines = [`TEILAUFGABE (Teil ${partIndex} von ${partCount}: ${EXTRACTION_PART_TITLES[part]}): Liefere AUSSCHLIESSLICH diese Schlüssel des JSON-SCHEMA: ${EXTRACTION_PARTS[part].join(', ')}. Lass alle anderen Schlüssel weg. Höchstens 12 Einträge je Liste, keine Wiederholungen, jede Angabe knapp.`];
