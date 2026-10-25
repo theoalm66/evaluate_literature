@@ -87,31 +87,31 @@
                     </div>
                     <div class="run-options">
                         <div class="run-options-title">Tabellen und Abbildungen</div>
-                        <label><input type="checkbox" id="opt-vision" onchange="saveUserKeys(); updateVisionHint();"> 🖼️ zusätzlich als Bild an das LLM (nur wenn das Modell Bilder verarbeitet)</label>
+                        <label><input type="checkbox" id="opt-vision" onchange="saveUserKeys(); updateVisionHint();"> <span>🖼️ zusätzlich als Bild an das LLM (nur wenn das Modell Bilder verarbeitet)</span></label>
                         <div id="vision-hint" class="vision-hint"></div>
                         <button type="button" class="btn btn-secondary btn-small" onclick="probeVisionSupport(true)" style="margin-top:.35rem;">Bildverarbeitung jetzt prüfen</button>
                     </div>
                     <div class="run-options">
                         <div class="run-options-title">Langsame Modelle / Zeitlimit des Servers</div>
-                        <label><input type="checkbox" id="opt-split-extraction" onchange="saveUserKeys()"> Extraktion (Agent 2) in drei kleineren Teilschritten (jeder Aufruf bleibt unter dem Zeitlimit)</label>
-                        <label><input type="checkbox" id="opt-no-schema" onchange="saveUserKeys()"> JSON-Schema nicht verwenden (einfacher JSON-Modus; manche Server hängen an strengen Schemata)</label>
+                        <label><input type="checkbox" id="opt-split-extraction" onchange="saveUserKeys()"> <span>Extraktion (Agent 2) in drei kleineren Teilschritten (jeder Aufruf bleibt unter dem Zeitlimit)</span></label>
+                        <label><input type="checkbox" id="opt-no-schema" onchange="saveUserKeys()"> <span>JSON-Schema nicht verwenden (einfacher JSON-Modus; manche Server hängen an strengen Schemata)</span></label>
                         <label>Zeitlimit je Aufruf in Sekunden, danach neu versuchen (0 = aus) <input type="number" id="opt-call-timeout" min="0" max="600" step="10" value="0" style="width:5rem;" onchange="saveUserKeys()"></label>
                         <button type="button" id="speed-test-btn" class="btn btn-secondary btn-small" onclick="runSpeedTest()" style="margin-top:.35rem;">Geschwindigkeit des Modells testen</button>
                         <div id="speed-test-result" class="vision-hint"></div>
-                        <label><input type="checkbox" id="opt-compact" onchange="saveUserKeys()"> Kurze Antworten (Belege und Begründungen knapp halten)</label>
-                        <label><input type="checkbox" id="opt-no-reasoning" onchange="saveUserKeys()"> Reasoning des Modells abschalten (nur für Spark, Hochschul-API und eigene Endpunkte; sendet <code>chat_template_kwargs</code>, bei Ablehnung automatisch ohne; OpenAI/Gemini ausgenommen)</label>
+                        <label><input type="checkbox" id="opt-compact" onchange="saveUserKeys()"> <span>Kurze Antworten (Belege und Begründungen knapp halten)</span></label>
+                        <label><input type="checkbox" id="opt-no-reasoning" onchange="saveUserKeys()"> <span>Reasoning des Modells abschalten (nur für Spark, Hochschul-API und eigene Endpunkte; sendet <code>chat_template_kwargs</code>, bei Ablehnung automatisch ohne; OpenAI/Gemini ausgenommen)</span></label>
                         <div class="vision-hint">Manche Server (z.B. die Hochschul-API) trennen die Verbindung nach 5 Minuten, auch bei Streaming. Dann muss eine Antwort in dieser Zeit fertig werden: kurze Antworten, kein Reasoning, keine Seitenbilder und weniger Text helfen.</div>
                     </div>
                     <div class="run-options">
                         <div class="run-options-title">Fachgebiet</div>
-                        <label><input type="checkbox" id="opt-medical-instruments" onchange="saveUserKeys()"> Medizinische Instrumente (PEDro, MINORS, AMSTAR 2, COSMIN) auch ohne Gesundheitsbezug zulassen</label>
+                        <label><input type="checkbox" id="opt-medical-instruments" onchange="saveUserKeys()"> <span>Medizinische Instrumente (PEDro, MINORS, AMSTAR 2, COSMIN) auch ohne Gesundheitsbezug zulassen</span></label>
                         <div class="vision-hint">Standardmäßig gelten sie nur für Gesundheits- und klinische Forschung. Für Marketing, Medien, Digitalisierung und E-Commerce bewerten fachspezifische Prüffragen (Befragung/SEM, Experiment, Plattform-/Big-Data-Studie u.a.).</div>
                     </div>
                     <div class="run-options">
                         <div class="run-options-title">Integritätsprüfung (p-Werte, GRIM, Stichproben, Registrierung, DOI)</div>
-                        <label><input type="checkbox" id="opt-integrity-computed" onchange="saveUserKeys()"> 🔢 rechnerisch (im Browser, ohne LLM)</label>
-                        <label><input type="checkbox" id="opt-integrity-online" onchange="saveUserKeys()"> 🌐 DOI und Retractions online bei Crossref prüfen</label>
-                        <label><input type="checkbox" id="opt-integrity-llm" onchange="saveUserKeys()"> 🤖 per LLM (Agent 6, ein zusätzlicher Aufruf je PDF)</label>
+                        <label><input type="checkbox" id="opt-integrity-computed" onchange="saveUserKeys()"> <span>🔢 rechnerisch (im Browser, ohne LLM)</span></label>
+                        <label><input type="checkbox" id="opt-integrity-online" onchange="saveUserKeys()"> <span>🌐 DOI und Retractions online bei Crossref prüfen</span></label>
+                        <label><input type="checkbox" id="opt-integrity-llm" onchange="saveUserKeys()"> <span>🤖 per LLM (Agent 6, ein zusätzlicher Aufruf je PDF)</span></label>
                     </div>
 
                     <button class="btn" id="btn-start" onclick="startWorkflow()" style="padding: 1rem; font-size: 1.1rem; margin-top: 1.5rem;">🚀 Analyse Starten</button>

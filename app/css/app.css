@@ -160,7 +160,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .run-options { margin-top: 1rem; padding: .75rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--bg); }
 .run-options-title { font-size: .8rem; font-weight: 700; color: var(--text-light); margin-bottom: .35rem; }
 .run-options label { display: flex; align-items: center; gap: .5rem; font-weight: normal; font-size: .85rem; margin: .25rem 0; cursor: pointer; }
-.run-options input { width: auto; margin: 0; }
+.run-options input { width: auto; margin: 0; flex: none; }
+.run-options label > span { flex: 1; min-width: 0; }
+.run-options code { font-size: .78rem; word-break: break-all; }
 
 /* Integritätsprüfung */
 .integ-box { margin: .9rem 0; padding: 1rem; background: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid var(--primary); border-radius: .55rem; }
