@@ -92,6 +92,12 @@
                         <button type="button" class="btn btn-secondary btn-small" onclick="probeVisionSupport(true)" style="margin-top:.35rem;">Bildverarbeitung jetzt prüfen</button>
                     </div>
                     <div class="run-options">
+                        <div class="run-options-title">Langsame Modelle / Zeitlimit des Servers</div>
+                        <label><input type="checkbox" id="opt-compact" onchange="saveUserKeys()"> Kurze Antworten (Belege und Begründungen knapp halten)</label>
+                        <label><input type="checkbox" id="opt-no-reasoning" onchange="saveUserKeys()"> Reasoning des Modells abschalten (sendet <code>chat_template_kwargs</code>; bei Ablehnung automatisch ohne)</label>
+                        <div class="vision-hint">Manche Server (z.B. die Hochschul-API) trennen die Verbindung nach 5 Minuten, auch bei Streaming. Dann muss eine Antwort in dieser Zeit fertig werden: kurze Antworten, kein Reasoning, keine Seitenbilder und weniger Text helfen.</div>
+                    </div>
+                    <div class="run-options">
                         <div class="run-options-title">Fachgebiet</div>
                         <label><input type="checkbox" id="opt-medical-instruments" onchange="saveUserKeys()"> Medizinische Instrumente (PEDro, MINORS, AMSTAR 2, COSMIN) auch ohne Gesundheitsbezug zulassen</label>
                         <div class="vision-hint">Standardmäßig gelten sie nur für Gesundheits- und klinische Forschung. Für Marketing, Medien, Digitalisierung und E-Commerce bewerten fachspezifische Prüffragen (Befragung/SEM, Experiment, Plattform-/Big-Data-Studie u.a.).</div>

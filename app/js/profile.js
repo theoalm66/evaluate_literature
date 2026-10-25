@@ -283,6 +283,8 @@ async function applyProfileSettingsToUI(profile) {
     el('opt-integrity-online').checked = keys.integrityOnline !== false;
     el('opt-integrity-llm').checked = keys.integrityLLM !== false;
     el('opt-vision').checked = keys.visionEnabled !== false;
+    el('opt-compact').checked = keys.compactAnswers === true;
+    el('opt-no-reasoning').checked = keys.disableReasoning === true;
     el('opt-medical-instruments').checked = keys.allowMedicalInstruments === true;
     el('opt-repeat-runs').value = String(keys.repeatRuns || 1);
     el('opt-repeat-temperature').value = keys.repeatTemperature ?? 0.4;
@@ -426,6 +428,8 @@ async function persistUserKeys() {
     keys.integrityOnline = el('opt-integrity-online').checked;
     keys.integrityLLM = el('opt-integrity-llm').checked;
     keys.visionEnabled = el('opt-vision').checked;
+    keys.compactAnswers = el('opt-compact').checked;
+    keys.disableReasoning = el('opt-no-reasoning').checked;
     keys.allowMedicalInstruments = el('opt-medical-instruments').checked;
     keys.repeatRuns = parseInt(el('opt-repeat-runs').value, 10) || 1;
     keys.repeatTemperature = Number.isFinite(parseFloat(el('opt-repeat-temperature').value)) ? parseFloat(el('opt-repeat-temperature').value) : 0.4;

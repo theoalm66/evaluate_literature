@@ -119,7 +119,7 @@ function answerFor(prompt, ctx) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { streamed: [], failSchema500: 0, rejectStream: false, sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const state = { streamed: [], failSchema500: 0, rejectStream: false, rejectKwargs: false, payloads: [], sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
     const temps = [];            // Agent und Temperatur je Aufruf
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
@@ -147,6 +147,11 @@ function startMockLLM(port) {
             if (format === 'json_schema' && !state.jsonSchema) {
                 res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: { message: 'response_format json_schema is not supported by this server' } }));
+            }
+            if (!prompt.includes('Welche Farbe')) state.payloads.push(payload);
+            if (payload.chat_template_kwargs && state.rejectKwargs) {
+                res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'Unrecognized request argument: chat_template_kwargs' } }));
             }
             // Datenstrom abgelehnt (manche Server kennen stream_options nicht)
             if (payload.stream && state.rejectStream) {

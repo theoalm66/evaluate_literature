@@ -254,6 +254,24 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(await hsChat(), 'Testsynthese.');
         llm.state.streamAsOneJson = false;
         console.log('✓ Datenstrom mit falschem Content-Type und Server ohne Streaming werden erkannt');
+        // Kurze Antworten und Reasoning abschalten (für Server mit Zeitlimit)
+        await page.evaluate(() => { document.querySelector('#opt-compact').checked = true; });
+        await page.evaluate(() => { document.querySelector('#opt-no-reasoning').checked = true; });
+        llm.state.payloads.length = 0;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        const p1 = llm.state.payloads[0];
+        assert.deepEqual(p1.chat_template_kwargs, { enable_thinking: false }, 'chat_template_kwargs fehlt');
+        assert.ok(p1.messages[0].content.includes('FASSE DICH KURZ'), 'Kurzhinweis fehlt');
+        llm.state.rejectKwargs = true;
+        llm.state.payloads.length = 0;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.equal(llm.state.payloads.length, 2, 'nach Ablehnung muss ohne den Parameter wiederholt werden');
+        assert.ok(llm.state.payloads[0].chat_template_kwargs && llm.state.payloads[1].chat_template_kwargs === undefined);
+        llm.state.rejectKwargs = false;
+        await page.evaluate(() => { document.querySelector('#opt-compact').checked = false; });
+        await page.evaluate(() => { document.querySelector('#opt-no-reasoning').checked = false; });
+        await page.evaluate(() => { for (const k of Object.keys(reasoningParamSupport)) delete reasoningParamSupport[k]; });
+        console.log('✓ Kurze Antworten und „Reasoning abschalten“: Parameter gesendet, bei Ablehnung automatisch ohne');
         llm.state.requireKey = null;
 
         // Eigener Endpunkt ohne Key

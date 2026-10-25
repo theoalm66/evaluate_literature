@@ -307,8 +307,8 @@ function explainNetworkError(url, elapsedMs = 0) {
     if (!navigator.onLine) return 'Das Gerät ist offline.';
     // Nach langer Wartezeit ist es fast immer ein Zeitlimit (Gateway/Proxy, z.B. 5 Minuten), kein CORS-Problem.
     if (elapsedMs > 60000) {
-        return `Die Verbindung zu ${target.host} wurde nach ${(elapsedMs / 60000).toFixed(1).replace('.', ',')} Minuten getrennt. Das ist meist ein Zeitlimit des Servers oder Gateways (z.B. 5 Minuten für eine Antwort), kein CORS-Problem. `
-            + 'Abhilfe: kürzere Antworten (Max. Output Tokens senken), Reasoning/Thinking des Modells abschalten oder ein schnelleres Modell wählen.';
+        return `Die Verbindung zu ${target.host} wurde nach ${(elapsedMs / 60000).toFixed(1).replace('.', ',')} Minuten getrennt. Das ist meist ein Zeitlimit des Servers oder Gateways (z.B. 5 Minuten für eine Antwort; auch Streaming umgeht es manchmal nicht), kein CORS-Problem. `
+            + 'Abhilfe: im Dashboard „Kurze Antworten“ und „Reasoning abschalten“ wählen, Seitenbilder abschalten, Max. Output Tokens und Max. Zeichen Evidenz senken oder ein schnelleres Modell wählen.';
     }
     return `Der Server ${target.host} ist nicht erreichbar, oder er erlaubt keine Aufrufe aus dem Browser (CORS: Der Anbieter muss „Access-Control-Allow-Origin“ senden). Bitte URL, Netzwerk und – bei Hochschul-Netzen – VPN prüfen.`;
 }
@@ -319,6 +319,7 @@ const sleepMs = ms => new Promise(resolve => setTimeout(resolve, ms));
 // Zeitlimits von Gateways (z.B. 5 Minuten ohne Antwort) und endet als scheinbarer Netzwerkfehler.
 const STREAM_PROVIDERS = ['hochschule', 'endpoint'];
 const streamingSupport = {};            // Provider|Modell: 'no', wenn der Server Streaming ablehnt
+const reasoningParamSupport = {};        // Provider|Modell: 'no', wenn der Server chat_template_kwargs ablehnt
 const schemaServerErrors = {};          // Provider|Modell: Anzahl 5xx-Fehler, nach denen ohne Schema gelang
 const RETRYABLE_STATUS = [429, 500, 502, 503, 504];
 const MAX_SEND_ATTEMPTS = 3;
@@ -408,6 +409,11 @@ async function callLLM(prompt, meta = {}) {
         isThinkingAllowed = document.getElementById(provider + '-thinking').checked;
     }
 
+    // Langsame Server mit Zeitlimit: kürzere Antworten, damit sie rechtzeitig fertig werden.
+    if (document.getElementById('opt-compact')?.checked) {
+        systemPrompt += '\n\nFASSE DICH KURZ: Zitate höchstens 25 Wörter, Begründungen und Notizen höchstens ein Satz, höchstens 12 Belegstellen in evidence_locations, leere Felder knapp als "not_reported". Keine Wiederholungen.';
+    }
+
     if (isThinkingAllowed) {
         systemPrompt += "\n\nHINWEIS: Du bist ein Reasoning-Modell. Du darfst vor der JSON-Ausgabe nachdenken. Nutze dafür ggf. <think> Tags. Dein finales Ergebnis MUSS jedoch zwingend mit '{' beginnen und ein valides JSON sein.";
     }
@@ -448,6 +454,10 @@ async function callLLM(prompt, meta = {}) {
         applyJsonObjectMode();
     }
 
+    const reasoningKey = `${provider}|${model || ''}`;
+    if (document.getElementById('opt-no-reasoning')?.checked && !isThinkingAllowed && reasoningParamSupport[reasoningKey] !== 'no') {
+        payload.chat_template_kwargs = { enable_thinking: false };
+    }
     const streamKey = `${provider}|${model || ''}`;
     if (STREAM_PROVIDERS.includes(provider) && streamingSupport[streamKey] !== 'no') {
         payload.stream = true;
@@ -499,6 +509,16 @@ async function callLLM(prompt, meta = {}) {
                 streamingSupport[streamKey] = 'no';
                 delete payload.stream; delete payload.stream_options;
                 log('Der Modell-Server lehnt Streaming ab – weiter ohne Datenstrom.', 'warning');
+                continue;
+            }
+        }
+        // Server kennt chat_template_kwargs nicht: merken und ohne wiederholen.
+        if ((rejected || RETRYABLE_STATUS.includes(response.status)) && payload.chat_template_kwargs) {
+            const errText = await response.clone().text();
+            if (rejected ? /chat_template|template_kwargs|enable_thinking|extra|unknown|unexpected|unrecognized/i.test(errText) : attempt === 1) {
+                reasoningParamSupport[reasoningKey] = 'no';
+                delete payload.chat_template_kwargs;
+                log('Der Modell-Server nimmt „Reasoning abschalten“ nicht an – weiter ohne diesen Parameter.', 'warning');
                 continue;
             }
         }
