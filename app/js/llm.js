@@ -485,11 +485,20 @@ async function callLLM(prompt, meta = {}) {
     let schemaTimeoutRetried = false;
     // Eigenes Zeitlimit je Versuch (Dashboard): Hängt ein Aufruf, wird früh abgebrochen und neu gestartet, statt 5 Minuten zu warten.
     const clientTimeoutMs = Math.max(0, parseInt(document.getElementById('opt-call-timeout')?.value, 10) || 0) * 1000;
-    const send = () => {
+    // Ob der Abbruch von diesem Zeitlimit stammt, wird über ein eigenes Kennzeichen erkannt (nicht über den Fehlernamen,
+    // der je nach Browser TimeoutError oder AbortError lautet). Das Limit gilt bis zum Eintreffen der Antwort.
+    let ownTimeoutFired = false;
+    const send = async () => {
         const init = { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) };
         const limit = meta.timeoutMs || clientTimeoutMs;
-        if (limit) init.signal = AbortSignal.timeout(limit);
-        return fetch(url, init);
+        let timer = null;
+        ownTimeoutFired = false;
+        if (limit) {
+            const ctrl = new AbortController();
+            init.signal = ctrl.signal;
+            timer = setTimeout(() => { ownTimeoutFired = true; ctrl.abort(); }, limit);
+        }
+        try { return await fetch(url, init); } finally { clearTimeout(timer); }
     };
     for (;;) {
         attempt++;
@@ -502,15 +511,21 @@ async function callLLM(prompt, meta = {}) {
             }
         } catch (err) {
             const elapsed = performance.now() - attemptStart;
+            const timedOut = ownTimeoutFired && !meta.timeoutMs;
+            if (timedOut && attempt < MAX_SEND_ATTEMPTS) {
+                log(`Keine Antwort nach ${Math.round(elapsed / 1000)} s (eigenes Zeitlimit je Aufruf) – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}...`, 'warning');
+                continue;
+            }
+            if (timedOut) {
+                const message = `Keine Antwort innerhalb von ${Math.round(clientTimeoutMs / 1000)} s (Ihr eigenes „Zeitlimit je Aufruf“) nach ${attempt} Versuchen. Bitte das Zeitlimit erhöhen (Richtwert 120 bis 180 s) oder auf 0 stellen.`;
+                rec({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: message });
+                markLlmCall(false, provider, message);
+                throw new Error(message);
+            }
             // Verbindungsaufbau gescheitert (schnell): wiederholen. Nach langer Wartezeit ist es ein Zeitlimit – dann nicht erneut warten.
             if (attempt < MAX_SEND_ATTEMPTS && elapsed < 30000 && navigator.onLine !== false) {
                 log(`Keine Verbindung zu ${new URL(url, location.href).host} – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}...`, 'warning');
                 await sleepMs(2000 * attempt);
-                continue;
-            }
-            const timedOut = err?.name === 'TimeoutError' && !meta.timeoutMs;
-            if (timedOut && attempt < MAX_SEND_ATTEMPTS) {
-                log(`Keine Antwort nach ${Math.round(elapsed / 1000)} s (eigenes Zeitlimit) – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}...`, 'warning');
                 continue;
             }
             // Lange Wartezeit mit JSON-Schema: Das Schema kann den Server aufhalten – einmal ohne Schema wiederholen und es merken.

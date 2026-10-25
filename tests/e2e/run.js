@@ -490,6 +490,12 @@ async function login(page, user, pass, action = 'login') {
         const hung = await page.evaluate(async () => parseJSONRobust(await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') })).narrative_summary);
         assert.equal(hung, 'Testsynthese.');
         assert.equal(llm.state.hangFirst, 0);
+        // Alle Versuche laufen ins eigene Zeitlimit: klare Meldung statt „Keine Verbindung / CORS“
+        llm.state.hangFirst = 3;
+        const timeoutError = await page.evaluate(async () => { try { await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }); return null; } catch (e) { return e.message; } });
+        assert.match(timeoutError || '', /Keine Antwort innerhalb von 1 s.*eigenes.*Zeitlimit/s, 'Meldung beim eigenen Zeitlimit: ' + timeoutError);
+        assert.ok(!/CORS/.test(timeoutError), 'darf nicht als CORS-Problem gemeldet werden');
+        llm.state.hangFirst = 0;
         await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '0'; });
         console.log('✓ Eigenes Zeitlimit je Aufruf: hängender Aufruf wird abgebrochen und erfolgreich wiederholt');
         console.log('✓ Geschwindigkeitstest (4 Messungen) und Option „JSON-Schema nicht verwenden“');
