@@ -384,7 +384,7 @@ function calculateFrameworkMetrics(validation, appraisal) {
 // ==========================================
 // FESTE BEWERTUNGSREGELN (gehören zum Code, nicht zum Prompt)
 // ==========================================
-const SCORING_VERSION = '2026-10-casq2-4';
+const SCORING_VERSION = '2026-10-casq2-5';
 
 const PEDRO_SCORED_ITEMS = ['2','3','4','5','6','7','8','9','10','11'];
 const AMSTAR2_CRITICAL_ITEMS = new Set(['2','4','7','9','11','13','15']);
@@ -691,7 +691,7 @@ const CASQ_RUBRICS = {
             'Das Zuteilungsverfahren (Randomisierung, Blockbildung, Auslieferung beim A/B-Test) ist beschrieben.']],
         ['Experimental control & manipulation', 12, [
             'Die Manipulation ist konkret beschrieben (Stimuli, Dauer, Ablauf).',
-            '! Ein Manipulationscheck zeigt, dass die Manipulation wirkt.',
+            '! Die Wirksamkeit der Manipulation ist belegt (Manipulationscheck oder Pretest der Stimuli). Besteht die Manipulation nur aus objektiv definierten Reizunterschieden (z.B. sprachliche oder physikalische Reizkategorien), ist die Frage nicht anwendbar.',
             'Eine geeignete Kontroll- bzw. Vergleichsbedingung ist vorhanden.']],
         ['Stimulus realism & construct validity', 8, [
             'Die Stimuli sind realistisch bzw. ihre Auswahl ist begründet (z.B. Pretest, reale Marken oder fiktive Marken mit Begründung).',
