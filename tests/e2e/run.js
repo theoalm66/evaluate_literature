@@ -417,6 +417,14 @@ async function login(page, user, pass, action = 'login') {
         await page.evaluate(async () => { await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }); });
         assert.notEqual(llm.state.payloads[0].response_format?.type, 'json_schema', 'Schema trotz Option gesendet');
         await page.evaluate(() => { document.querySelector('#opt-no-schema').checked = false; });
+        // Eigenes Zeitlimit: hängender Aufruf wird nach 1 s abgebrochen und neu gestartet
+        await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '1'; });
+        llm.state.hangFirst = 1;
+        const hung = await page.evaluate(async () => parseJSONRobust(await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') })).narrative_summary);
+        assert.equal(hung, 'Testsynthese.');
+        assert.equal(llm.state.hangFirst, 0);
+        await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '0'; });
+        console.log('✓ Eigenes Zeitlimit je Aufruf: hängender Aufruf wird abgebrochen und erfolgreich wiederholt');
         console.log('✓ Geschwindigkeitstest (4 Messungen) und Option „JSON-Schema nicht verwenden“');
 
         const relevantErrors = errors.filter(e => !e.includes('net::ERR_INTERNET_DISCONNECTED'));

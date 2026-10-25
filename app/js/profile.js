@@ -286,6 +286,7 @@ async function applyProfileSettingsToUI(profile) {
     el('opt-vision').checked = keys.visionEnabled !== false;
     el('opt-compact').checked = keys.compactAnswers === true;
     el('opt-no-schema').checked = keys.noSchema === true;
+    el('opt-call-timeout').value = String(keys.callTimeout || 0);
     el('opt-split-extraction').checked = keys.splitExtraction === true;
     el('opt-no-reasoning').checked = keys.disableReasoning === true;
     el('opt-medical-instruments').checked = keys.allowMedicalInstruments === true;
@@ -433,6 +434,7 @@ async function persistUserKeys() {
     keys.visionEnabled = el('opt-vision').checked;
     keys.compactAnswers = el('opt-compact').checked;
     keys.noSchema = el('opt-no-schema').checked;
+    keys.callTimeout = Math.max(0, parseInt(el('opt-call-timeout').value, 10) || 0);
     keys.splitExtraction = el('opt-split-extraction').checked;
     keys.disableReasoning = el('opt-no-reasoning').checked;
     keys.allowMedicalInstruments = el('opt-medical-instruments').checked;

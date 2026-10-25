@@ -480,9 +480,12 @@ async function callLLM(prompt, meta = {}) {
     let response, attempt = 0, schemaFallbackUsed = false, attemptStart = performance.now();
     const rec = step => { if (!meta.quiet) recordStep(step); };
     let schemaTimeoutRetried = false;
+    // Eigenes Zeitlimit je Versuch (Dashboard): Hängt ein Aufruf, wird früh abgebrochen und neu gestartet, statt 5 Minuten zu warten.
+    const clientTimeoutMs = Math.max(0, parseInt(document.getElementById('opt-call-timeout')?.value, 10) || 0) * 1000;
     const send = () => {
         const init = { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) };
-        if (meta.timeoutMs) init.signal = AbortSignal.timeout(meta.timeoutMs);
+        const limit = meta.timeoutMs || clientTimeoutMs;
+        if (limit) init.signal = AbortSignal.timeout(limit);
         return fetch(url, init);
     };
     for (;;) {
@@ -500,6 +503,11 @@ async function callLLM(prompt, meta = {}) {
             if (attempt < MAX_SEND_ATTEMPTS && elapsed < 30000 && navigator.onLine !== false) {
                 log(`Keine Verbindung zu ${new URL(url, location.href).host} – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}...`, 'warning');
                 await sleepMs(2000 * attempt);
+                continue;
+            }
+            const timedOut = err?.name === 'TimeoutError' && !meta.timeoutMs;
+            if (timedOut && attempt < MAX_SEND_ATTEMPTS) {
+                log(`Keine Antwort nach ${Math.round(elapsed / 1000)} s (eigenes Zeitlimit) – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}...`, 'warning');
                 continue;
             }
             // Lange Wartezeit mit JSON-Schema: Das Schema kann den Server aufhalten – einmal ohne Schema wiederholen und es merken.

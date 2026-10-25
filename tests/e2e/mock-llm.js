@@ -119,7 +119,7 @@ function answerFor(prompt, ctx) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { streamed: [], failSchema500: 0, rejectStream: false, rejectKwargs: false, payloads: [], sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const state = { streamed: [], failSchema500: 0, rejectStream: false, hangFirst: 0, rejectKwargs: false, payloads: [], sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
     const temps = [];            // Agent und Temperatur je Aufruf
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
@@ -134,6 +134,10 @@ function startMockLLM(port) {
                 return res.end(JSON.stringify({ error: { message: 'Invalid API key' } }));
             }
             if (req.url.endsWith('/models')) { res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock-model', max_model_len: 32768 }, { id: 'mock-embedding-model' }, { id: 'zweites-modell' }] })); }
+            if (state.hangFirst > 0 && !req.url.endsWith('/models')) {   // Aufruf, der nie beantwortet wird (hängender Server)
+                state.hangFirst--;
+                return void setTimeout(() => { try { res.destroy(); } catch (e) { /* schon geschlossen */ } }, 4000);
+            }
             const payload = JSON.parse(body || '{}');
             const raw = payload.messages?.find(m => m.role === 'user')?.content || '';
             const parts = Array.isArray(raw) ? raw : [{ type: 'text', text: raw }];
