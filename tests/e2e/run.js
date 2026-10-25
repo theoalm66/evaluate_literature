@@ -442,6 +442,12 @@ async function login(page, user, pass, action = 'login') {
         // 13) Zeitschriftenliste importieren: Zuordnung, Anzeige, CASQ unverändert
         const casqBefore = await page.evaluate(() => document.querySelector('#res-studies')?.textContent.match(/CASQ intern: ([0-9.]+)/)?.[1]);
         await page.click('nav button[data-tab="config"]');
+        // Vorlage enthält die bereits erkannten Zeitschriften (Name und ISSN), Ratings leer
+        const tplDownload = await Promise.all([page.waitForEvent('download'), page.click('text=Vorlage mit erkannten Zeitschriften')]).then(([d]) => d);
+        const tplText = fs.readFileSync(await tplDownload.path(), 'utf8');
+        assert.ok(tplText.startsWith('zeitschrift;issn;issn_2;vhb;abdc;ft50;sjr;sjr_quartil;bemerkung') && tplText.includes('Journal of Marketing;'), 'Vorlage ohne erkannte Zeitschrift: ' + tplText);
+        assert.equal((tplText.match(/Journal of Marketing/g) || []).length, 1, 'Zeitschrift darf nur einmal vorkommen');
+        assert.match(await page.textContent('#journal-message'), /Vorlage mit 1 Zeitschrift\(en\)/);
         const journalCsv = path.join(tmp, 'zeitschriften.csv');
         fs.writeFileSync(journalCsv, 'zeitschrift;issn;vhb;abdc;ft50;sjr;sjr_quartil;bemerkung\nJournal of Marketing;0022-2429;A+;A*;ja;11,2;Q1;Testeintrag\nAndere Zeitschrift;1234-5679;C;B;nein;0,5;Q3;\n');
         await page.setInputFiles('#journal-csv-input', journalCsv);

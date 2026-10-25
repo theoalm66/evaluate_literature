@@ -70,3 +70,34 @@ test('Der Zeitschriftenkontext ändert den CASQ nicht', () => {
     assert.equal(ctx.status, 'matched');
     assert.equal(s.calculateCASQ2({}, { casq_checklist: ids, journal_context: ctx }, 'experiment').score, before);
 });
+
+test('Vorlage: erkannte Zeitschriften aus Auswertungen, bestehende Liste bleibt mit allen Werten erhalten', () => {
+    const studies = [
+        { title: 'a.pdf', journal_context: { venue_name: 'Journal of Marketing', issns: ['0022-2429'] } },
+        { title: 'b.pdf', journal_context: { venue_name: 'Journal of Marketing', issns: ['0022-2429'] } },   // Dublette
+        { title: 'c.pdf', journal_context: { venue_name: 'Journal; of "Media"', issns: [] } },
+        { title: 'd.pdf', integrity: { online: { journal: 'Journal of Memory and Language', issn: ['0749-596X', '1096-0821'] } } },   // ältere Auswertung ohne journal_context
+        { title: 'e.pdf', extraction: { publication_venue: 'Nur Name aus Extraktion' } },
+        { title: 'f.pdf', journal_context: { venue_name: null, issns: [], status: 'unknown_venue' } },
+        { title: 'g.pdf', extraction: { publication_venue: 'not_reported' } }
+    ];
+    const found = j.collectJournalsFromStudies(studies);
+    assert.deepEqual(found.map(f => f.name), ['Journal of Marketing', 'Journal; of "Media"', 'Journal of Memory and Language', 'Nur Name aus Extraktion']);
+    assert.equal(found[2].issn2, '1096-0821');
+
+    const existing = j.parseJournalCsv('zeitschrift;issn;vhb;abdc\nJournal of Marketing;0022-2429;A+;A*').rows;
+    const { csv, added, total } = j.buildJournalTemplateFromStudies(existing, studies);
+    assert.equal(total, 4);
+    assert.equal(added, 3);
+    // CSV lässt sich wieder einlesen: bestehende Werte bleiben, neue Zeilen haben nur Name und ISSN, Sonderzeichen überleben
+    const back = j.parseJournalCsv(csv).rows;
+    assert.equal(back.length, 4);
+    assert.equal(back[0].vhb, 'A+');
+    assert.equal(back[0].abdc, 'A*');
+    assert.equal(back[1].name, 'Journal; of "Media"');
+    assert.equal(back[2].issn, '0749-596X');
+    assert.equal(back[2].vhb, '');
+    // ohne Studien und ohne Liste: Beispielvorlage
+    assert.equal(j.buildJournalTemplateFromStudies([], []).total, 0);
+    assert.match(j.buildJournalTemplateFromStudies([], []).csv, /Beispiel/);
+});

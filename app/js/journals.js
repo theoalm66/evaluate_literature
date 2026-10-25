@@ -82,6 +82,46 @@ function buildJournalTemplateCsv() {
         'Beispiel: Journal of Marketing;0022-2429;1547-7185;;;;;;Werte aus den offiziellen Listen eintragen und diese Zeile löschen'].join('\r\n') + '\r\n';
 }
 
+function journalCsvCell(value) {
+    const text = String(value ?? '');
+    return /[;"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+// Zeitschriften aus bereits ausgewerteten Studien (Zeitschriftenkontext, sonst Crossref bzw. Extraktion), ohne Doppelte.
+function collectJournalsFromStudies(studies) {
+    const found = [];
+    const add = ({ name, issns }) => {
+        const key = normalizeJournalName(name);
+        const hit = found.find(f => (key && f.key === key) || issns.some(i => f.issns.includes(i)));
+        if (hit) {
+            if (!hit.name && name) { hit.name = name; hit.key = key; }
+            issns.forEach(i => { if (!hit.issns.includes(i)) hit.issns.push(i); });
+        } else if (name || issns.length) found.push({ name: name || '', key, issns: [...issns] });
+    };
+    for (const r of studies || []) {
+        const ctx = r?.journal_context || journalContext([], { crossref: r?.integrity?.online ? { journal: r.integrity.online.journal, issn: r.integrity.online.issn || [] } : null, textIssns: [], llmName: r?.extraction?.publication_venue || '' });
+        if (ctx.venue_name || ctx.issns?.length) add({ name: ctx.venue_name || '', issns: ctx.issns || [] });
+    }
+    return found.map(f => ({ name: f.name, issn: f.issns[0] || '', issn2: f.issns[1] || '' }));
+}
+
+// Vorlage für den Import: Ihre bisherige Liste (mit allen Werten) plus die in Auswertungen erkannten Zeitschriften, die noch fehlen.
+// Neue Zeilen enthalten nur Name und ISSN; die Ratings tragen Sie aus den offiziellen Listen nach.
+function buildJournalTemplateFromStudies(existingRows, studies) {
+    const rows = [...(existingRows || [])];
+    let added = 0;
+    for (const j of collectJournalsFromStudies(studies)) {
+        const known = findJournal(rows, { names: [j.name], issns: [j.issn, j.issn2].filter(Boolean) });
+        if (known) continue;
+        rows.push({ name: j.name, issn: j.issn || null, issn2: j.issn2 || null, vhb: '', abdc: '', ft50: '', sjr: '', sjr_quartil: '', note: '' });
+        added++;
+    }
+    if (!rows.length) return { csv: buildJournalTemplateCsv(), added: 0, total: 0 };
+    const header = 'zeitschrift;issn;issn_2;vhb;abdc;ft50;sjr;sjr_quartil;bemerkung';
+    const lines = rows.map(r => [r.name, r.issn, r.issn2, r.vhb, r.abdc, r.ft50, r.sjr, r.sjr_quartil, r.note].map(journalCsvCell).join(';'));
+    return { csv: [header, ...lines].join('\r\n') + '\r\n', added, total: rows.length };
+}
+
 // Sucht die Zeitschrift in der Liste: erst über die ISSN (eindeutig), dann über den normalisierten Namen.
 function findJournal(rows, { names = [], issns = [] } = {}) {
     const wantedIssns = new Set(issns.map(normalizeIssn).filter(Boolean));
@@ -115,5 +155,5 @@ function journalContext(rows, { crossref = null, textIssns = [], llmName = '' } 
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { JOURNAL_COLUMNS, normalizeJournalName, normalizeIssn, extractIssns, normalizeFt50, parseJournalCsv, buildJournalTemplateCsv, findJournal, journalContext };
+    module.exports = { JOURNAL_COLUMNS, normalizeJournalName, normalizeIssn, extractIssns, normalizeFt50, parseJournalCsv, buildJournalTemplateCsv, collectJournalsFromStudies, buildJournalTemplateFromStudies, findJournal, journalContext };
 }

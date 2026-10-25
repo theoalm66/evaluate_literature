@@ -46,8 +46,17 @@ async function importJournalCsv(fileList) {
     await refreshJournalStatus();
 }
 
-function downloadJournalTemplate() {
-    const blob = new Blob([buildJournalTemplateCsv()], { type: 'text/csv;charset=utf-8' });
+async function downloadJournalTemplate() {
+    const msg = document.getElementById('journal-message');
+    const studies = [];
+    if (currentUser) for (const run of await listRuns(currentUser)) studies.push(...(run.result?.study_results || []));
+    const existing = currentUser ? (await loadJournals()).rows : [];
+    const { csv, added, total } = buildJournalTemplateFromStudies(existing, studies);
+    msg.className = 'model-search-status ok';
+    msg.textContent = total
+        ? `Vorlage mit ${total} Zeitschrift(en): ${existing.length} aus Ihrer Liste, ${added} neu aus Ihren Auswertungen erkannt (nur Name und ISSN; die Ratings tragen Sie nach).`
+        : 'Es gibt noch keine ausgewerteten Studien und keine Liste – die Vorlage enthält nur eine Beispielzeile.';
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'zeitschriftenliste-vorlage.csv';
