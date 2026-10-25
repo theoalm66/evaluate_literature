@@ -87,6 +87,18 @@ Methoden und Messung / Ergebnisse und Belege; nur Teil 2 und 3 bekommen Seitenbi
 Serverfehlern und fällt bei Ablehnung automatisch auf einfachere Anfragen zurück. Gescannte PDFs ohne Textschicht werden erkannt und
 gemeldet; OCR gibt es bewusst nicht (eine durchsuchbare Fassung verwenden).
 
+### Modell-Server prüfen: `tools/api-probe.js`
+
+Eigenständiges Diagnoseprogramm (Node ≥ 18, keine Installation nötig), das unabhängig von der App einen OpenAI-kompatiblen Server mit den
+Anfragen der App misst: Kurzaufrufe, Streaming, JSON-Modus und JSON-Schema, die echte Extraktion (Teil 1 und 2) mit Beispieltext oder Ihrem
+PDF-Text, Erzeugungstempo, den Reasoning-Parameter und gleichzeitige Anfragen, je mehrfach (Streuung). Es schreibt einen Bericht mit
+Auswertung; der API-Key wird nie ausgegeben oder gespeichert.
+
+```bash
+LIT_PROBE_KEY='<API-Key>' node tools/api-probe.js --url https://<Server>/v1 --model <Modell>
+node tools/api-probe.js --help     # Optionen: --text datei.txt, --repeat, --timeout, --only, --quick
+```
+
 ### Konten und Synchronisation
 
 - **Neues Konto:** beim Registrieren den Einladungscode eingeben. Ohne Code entsteht wie bisher ein rein lokales Profil.

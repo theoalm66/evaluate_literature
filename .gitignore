@@ -1,3 +1,4 @@
 node_modules/
 test-results/
 data/
+api-probe-bericht*.json
