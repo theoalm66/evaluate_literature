@@ -320,9 +320,11 @@ const sleepMs = ms => new Promise(resolve => setTimeout(resolve, ms));
 const STREAM_PROVIDERS = ['hochschule', 'endpoint'];
 const streamingSupport = {};            // Provider|Modell: 'no', wenn der Server Streaming ablehnt
 const reasoningParamSupport = {};        // Provider|Modell: 'no', wenn der Server chat_template_kwargs ablehnt
+const reasoningServerErrors = {};
 const schemaServerErrors = {};          // Provider|Modell: Anzahl 5xx-Fehler, nach denen ohne Schema gelang
 const RETRYABLE_STATUS = [429, 500, 502, 503, 504];
-const MAX_SEND_ATTEMPTS = 3;
+const MAX_SEND_ATTEMPTS = 3;           // bei Verbindungsfehlern und Zeitüberschreitung
+const MAX_SERVER_ATTEMPTS = 6;         // bei 5xx/429 (schlagen oft sofort fehl)
 
 // Liest eine Chat-Antwort, die als Datenstrom (SSE) oder – wenn der Server Streaming ignoriert – als einzelnes
 // JSON kommt. Entschieden wird am Inhalt, nicht am Content-Type: Gateways liefern SSE auch als text/plain.
@@ -478,7 +480,7 @@ async function callLLM(prompt, meta = {}) {
         provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt, run: meta.run, part: meta.part,
         images: meta.images?.length ? meta.imagePages || meta.images.length : undefined
     };
-    let response, attempt = 0, schemaFallbackUsed = false, attemptStart = performance.now();
+    let response, attempt = 0, serverAttempts = 0, kwargsDropped = false, schemaFallbackUsed = false, attemptStart = performance.now();
     const rec = step => { if (!meta.quiet) recordStep(step); };
     let schemaTimeoutRetried = false;
     // Eigenes Zeitlimit je Versuch (Dashboard): Hängt ein Aufruf, wird früh abgebrochen und neu gestartet, statt 5 Minuten zu warten.
@@ -538,10 +540,10 @@ async function callLLM(prompt, meta = {}) {
                 continue;
             }
         }
-        // Server kennt chat_template_kwargs nicht: merken und ohne wiederholen.
-        if ((rejected || RETRYABLE_STATUS.includes(response.status)) && payload.chat_template_kwargs) {
+        // Server kennt chat_template_kwargs nicht (ausdrückliche Ablehnung 400/422): merken und ohne wiederholen.
+        if (rejected && payload.chat_template_kwargs) {
             const errText = await response.clone().text();
-            if (rejected ? /chat_template|template_kwargs|enable_thinking|extra|unknown|unexpected|unrecognized/i.test(errText) : attempt === 1) {
+            if (/chat_template|template_kwargs|enable_thinking|extra|unknown|unexpected|unrecognized/i.test(errText)) {
                 reasoningParamSupport[reasoningKey] = 'no';
                 delete payload.chat_template_kwargs;
                 log(`Der Modell-Server nimmt „Reasoning abschalten“ nicht an (${response.status}: ${errText.replace(/\s+/g, ' ').slice(0, 160) || 'ohne Text'}) – weiter ohne diesen Parameter.`, 'warning');
@@ -559,29 +561,41 @@ async function callLLM(prompt, meta = {}) {
                 continue;
             }
         }
-        // Serverfehler (500/502/503/504) oder Überlastung (429): erst ohne Schema, dann mit Wartezeit erneut versuchen.
-        if (RETRYABLE_STATUS.includes(response.status) && attempt < MAX_SEND_ATTEMPTS) {
-            const errText = (await response.clone().text()).slice(0, 200);
-            // Erst derselbe Aufruf noch einmal: Bei manchen Gateways scheitert ein Teil der Anfragen zufällig und sofort (defekter Knoten).
-            if (attempt === 1) {
-                log(`Modell-Server meldet ${response.status} (${errText || 'ohne Text'}) – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}.`, 'warning');
-                await sleepMs(1000);
+        // Serverfehler (500/502/503/504) oder Überlastung (429). Sofort-Fehler kosten fast nichts, deshalb mehrere Versuche:
+        // 1 unverändert (zufälliger Fehler eines Knotens), 2 ohne Reasoning-Parameter, 2/3 ohne JSON-Schema, danach unverändert mit Wartezeit.
+        if (RETRYABLE_STATUS.includes(response.status) && serverAttempts < MAX_SERVER_ATTEMPTS - 1) {
+            serverAttempts++;
+            const errText = (await response.clone().text()).replace(/\s+/g, ' ').slice(0, 160);
+            const what = `Modell-Server meldet ${response.status} (${errText || 'ohne Text'})`;
+            const progress = `${serverAttempts + 1}/${MAX_SERVER_ATTEMPTS}`;
+            if (serverAttempts === 2 && payload.chat_template_kwargs) {
+                delete payload.chat_template_kwargs;
+                kwargsDropped = true;
+                log(`${what} – neuer Versuch ohne „Reasoning abschalten“ (${progress}).`, 'warning');
                 continue;
             }
-            if (payload.response_format?.type === 'json_schema' && !schemaFallbackUsed) {
+            if (serverAttempts >= 2 && payload.response_format?.type === 'json_schema' && !schemaFallbackUsed) {
                 schemaFallbackUsed = true;
                 applyJsonObjectMode();
                 stepBase.structured_output = 'Serverfehler-Rückfall';
-                log(`Modell-Server meldet ${response.status} (${errText || 'ohne Text'}) – neuer Versuch ohne JSON-Schema (${attempt + 1}/${MAX_SEND_ATTEMPTS}).`, 'warning');
+                log(`${what} – neuer Versuch ohne JSON-Schema (${progress}).`, 'warning');
                 continue;
             }
             const retryAfter = Number(response.headers.get('retry-after'));
-            const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 60) * 1000 : 3000 * attempt * attempt;
-            log(`Modell-Server meldet ${response.status} (${errText || 'ohne Text'}) – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS} in ${Math.round(wait / 1000)} s...`, 'warning');
+            const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 60) * 1000 : Math.min(1000 * 2 ** (serverAttempts - 1), 12000);
+            log(`${what} – neuer Versuch ${progress} in ${Math.round(wait / 1000)} s...`, 'warning');
             await sleepMs(wait);
             continue;
         }
         break;
+    }
+    // Ohne Reasoning-Parameter gelang, was mit ihm an Serverfehlern scheiterte: nach wiederholtem Auftreten für dieses Modell abschalten.
+    if (response.ok && kwargsDropped) {
+        reasoningServerErrors[reasoningKey] = (reasoningServerErrors[reasoningKey] || 0) + 1;
+        if (reasoningServerErrors[reasoningKey] >= 2 && reasoningParamSupport[reasoningKey] !== 'no') {
+            reasoningParamSupport[reasoningKey] = 'no';
+            log('Der Modell-Server scheitert wiederholt mit „Reasoning abschalten“ – ab jetzt ohne diesen Parameter.', 'warning');
+        }
     }
     // Ohne Schema gelang, was mit Schema am Serverfehler scheiterte: nach wiederholtem Auftreten das Schema für dieses Modell abschalten.
     if (response.ok && schemaFallbackUsed) {
@@ -603,7 +617,7 @@ async function callLLM(prompt, meta = {}) {
         const authHint = (response.status === 401 || response.status === 403) && provider !== 'spark' ? ' – API-Key ungültig, abgelaufen oder für dieses Modell nicht berechtigt.' : '';
         // Manche Gateways melden ein zu kleines Kontextfenster nur als allgemeinen 500er – die Größe der Anfrage dazusetzen.
         const promptTokens = Math.round(JSON.stringify(payload.messages).length / 3.5);
-        const sizeHint = response.status >= 500 || response.status === 413
+        const sizeHint = (response.status >= 500 || response.status === 413) && promptTokens + maxTokens > 24000
             ? ` – Anfrage: ca. ${promptTokens.toLocaleString('de-DE')} Token Prompt + bis zu ${maxTokens.toLocaleString('de-DE')} Token Antwort. Hat das Modell ein kleineres Kontextfenster (z.B. 32.000), hilft es, „Max. Zeichen Evidenz“ oder „Max. Output Tokens“ zu senken.`
             : '';
         const errorText = `API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}${authHint}${sizeHint}`;

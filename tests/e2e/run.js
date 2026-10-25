@@ -283,6 +283,19 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(llm.state.payloads.length, 2, 'nach Ablehnung muss ohne den Parameter wiederholt werden');
         assert.ok(llm.state.payloads[0].chat_template_kwargs && llm.state.payloads[1].chat_template_kwargs === undefined);
         llm.state.rejectKwargs = false;
+        // Parameter führt zu 500er: erst unveränderte Wiederholung, dann ohne Parameter; nach zweimal wird er für das Modell abgeschaltet
+        await page.evaluate(() => { for (const k of Object.keys(reasoningParamSupport)) delete reasoningParamSupport[k]; for (const k of Object.keys(reasoningServerErrors)) delete reasoningServerErrors[k]; });
+        llm.state.kwargs500 = true;
+        for (let round = 1; round <= 2; round++) {
+            llm.state.payloads.length = 0;
+            assert.equal(await hsChat(), 'Testsynthese.');
+            assert.deepEqual(llm.state.payloads.map(pl => pl.chat_template_kwargs ? 'mit' : 'ohne'), ['mit', 'mit', 'ohne'], 'Wiederholungsfolge Runde ' + round);
+        }
+        llm.state.payloads.length = 0;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.deepEqual(llm.state.payloads.map(pl => pl.chat_template_kwargs ? 'mit' : 'ohne'), ['ohne'], 'nach zweimal wird der Parameter abgeschaltet');
+        llm.state.kwargs500 = false;
+        console.log('✓ Parameter verursacht 500er: unveränderte Wiederholung, dann ohne Parameter, danach dauerhaft ohne');
         await page.evaluate(() => { document.querySelector('#opt-compact').checked = false; });
         await page.evaluate(() => { document.querySelector('#opt-no-reasoning').checked = false; });
         await page.evaluate(() => { for (const k of Object.keys(reasoningParamSupport)) delete reasoningParamSupport[k]; });
