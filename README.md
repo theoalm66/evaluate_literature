@@ -123,6 +123,20 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
   Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.
 
+**PDF-Einlesen: Layout, Tabellen, Abbildungen** (`app/js/pdf-extract.js`)
+- Der Text wird aus den Positionen der Textstücke zeilenweise rekonstruiert; Tabellenspalten werden durch
+  Tabulatoren getrennt, Wortteile ohne Abstand nicht mehr zerrissen. Tabellen kommen so zeilenweise mit
+  getrennten Zellen bei den Agenten an. Die Reihenfolge folgt weiter der PDF-Datei (zweispaltige Layouts bleiben lesbar).
+- Je Seite werden Tabellen (Beschriftung oder Spaltenzeilen), Abbildungen (Beschriftung) und Bilder erkannt.
+- Seiten ohne Textschicht (gescannt) werden gemeldet; hat das ganze PDF keine Textschicht, wird es mit einem
+  klaren Hinweis übersprungen statt mit leerem Text analysiert (OCR gibt es nicht).
+- Häkchen **„Tabellen und Abbildungen zusätzlich als Bild an das LLM“**: Die App prüft mit einem kleinen
+  Testbild, ob das gewählte Modell Bilder verarbeitet (Ergebnis unter dem Häkchen und in der Status-Lampe:
+  „🖼️ Bilder“ bzw. „nur Text“). Wenn ja, gehen bis zu 6 Seiten mit Tabellen/Abbildungen als Bild an Agent 2
+  (Extraktion) und Agent 6 (Integrität). Wenn nein – oder lehnt der Server Bilder später ab –, läuft die Analyse
+  nur mit Text weiter. Bei jeder Publikation steht, wie sie gelesen wurde (Seiten, Tabellen, Abbildungen,
+  ob als Bild ausgewertet).
+
 **Integritätsprüfung – rechnerisch und per LLM zum Vergleich** (`app/js/integrity.js`, Agent 6)
 - Auswahl per Häkchen auf dem Dashboard: *rechnerisch*, *online bei Crossref*, *per LLM*. Alle drei sind
   voreingestellt; die Auswahl wird mit dem Profil synchronisiert.

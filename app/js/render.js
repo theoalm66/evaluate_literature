@@ -202,6 +202,7 @@ function renderResults(res) {
         studiesHtml += `
             <div style="background:white;padding:1rem;border:1px solid var(--border);border-radius:.5rem;margin-bottom:1rem;">
                 <h4 style="margin-bottom:.4rem;color:#0f172a;">${escapeHTML(r.title)}</h4>
+                ${renderSourceInfo(r.source_info)}
                 <div style="font-size:.9rem;margin-bottom:.35rem;"><strong>Dokumenttyp:</strong> ${escapeHTML(ex.document_type || ap.document_type_confirmed || 'unclear')}</div>
                 <div style="font-size:.9rem;margin-bottom:.7rem;"><strong>${escapeHTML(ex.study_family || 'Unclear')} / ${escapeHTML(ex.study_design || 'Unclear')}</strong> &nbsp; | &nbsp; Etabliert: <strong>${escapeHTML(jq?.applicable ? ('APA JARS-Quant (Reporting)' + (established.applicable ? ' + ' + established.display : '')) : established.display)}</strong> &nbsp; | &nbsp; CASQ intern: <strong>${scoreTxt}</strong> &nbsp; | &nbsp; ${va.casq_details?.version === 'casq2' ? `Informationsgrad: <strong>${Math.round(Number(va.information_grade)||0)} %</strong> &nbsp; | &nbsp; Belege verifiziert` : va.casq_details ? 'Evidenz (verifiziert)' : 'Evidenz'}: <strong>${Math.round(Number(r.evidence_coverage)||0)} %</strong></div>
                 <div style="font-size:.9rem;color:var(--text-light);margin-bottom:.7rem;">
@@ -261,6 +262,22 @@ function renderCASQ2(d, title) {
         </details>
         <div style="font-size:.72rem;color:var(--text-light);margin-top:.5rem;">Berechnung im Code: ja = 1, teilweise = 0,5, nein / nicht berichtet = 0; „ja/teilweise“ ohne im PDF gefundenes Zitat wird eine Stufe herabgesetzt. Teilscore = 10 × Mittelwert, CASQ = gewichtetes Mittel; ein kritischer Mangel begrenzt auf 5, mehrere auf 3. Die Spanne zeigt den Wert, wenn alles nicht Berichtete erfüllt wäre.</div>
     </div>`;
+}
+
+// Wie wurde das PDF gelesen? Seiten, Tabellen/Abbildungen und ob sie als Bild ans Modell gingen.
+function renderSourceInfo(info) {
+    if (!info?.quality) return '';
+    const q = info.quality;
+    const pagesText = list => list.length ? `S. ${list.join(', ')}` : 'keine erkannt';
+    const visionText = {
+        used: `🖼️ als Bild ausgewertet: ${info.visual_pages.map(v => `S. ${v.page}`).join(', ')}`,
+        none: '🖼️ Bildauswertung aktiv, aber keine Tabellen/Abbildungen erkannt',
+        unsupported: '<span class="warn">🖼️ nur als Text – das Modell verarbeitet keine Bilder</span>',
+        rejected: '<span class="warn">🖼️ nur als Text – das Modell hat die Bilder abgelehnt</span>',
+        off: '🖼️ Bildauswertung ausgeschaltet – Tabellen/Abbildungen nur als Text'
+    }[info.vision_status] || '';
+    const scanned = q.scanned_pages.length ? ` · <span class="warn">⚠ ohne Textschicht (gescannt?): S. ${q.scanned_pages.join(', ')}</span>` : '';
+    return `<div class="source-info">📄 ${q.pages} Seiten gelesen · Tabellen: ${pagesText(q.table_pages)} · Abbildungen: ${pagesText(q.figure_pages)}${scanned}${visionText ? ` · ${visionText}` : ''}</div>`;
 }
 
 // ---------- Integritätsprüfung: rechnerisch und per LLM nebeneinander ----------

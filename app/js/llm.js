@@ -154,7 +154,7 @@ async function checkLlmStatus() {
         if (cfg.checkModel && !known) {
             setLlmStatus('warn', `${cfg.label}: Modell „${cfg.model}“ nicht gefunden`, `Verbunden, aber das eingestellte Modell fehlt in der Liste (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? ', …' : ''}). Geprüft um ${checkedAt}.`);
         } else {
-            setLlmStatus('ok', `${cfg.label} · ${shown}`, `Verbunden, ${ids.length} Modell(e) verfügbar. Geprüft um ${checkedAt}.`);
+            setLlmStatus('ok', `${cfg.label} · ${shown}${visionSuffix(cfg)}`, `Verbunden, ${ids.length} Modell(e) verfügbar. Geprüft um ${checkedAt}.${visionTooltip(cfg)}`);
         }
     } catch (err) {
         if (seq !== llmStatusSeq) return;
@@ -187,8 +187,91 @@ function markLlmCall(ok, provider, modelOrError) {
     llmStatusSeq++;   // laufende Prüfung soll diese Information nicht überschreiben
     const label = PROVIDER_LABELS[provider] || provider;
     if (ok && modelOrError) lastRespondedModel[provider] = modelOrError;
-    if (ok) setLlmStatus('ok', `${label} · ${modelOrError || 'Standardmodell'}`, `Letzte Antwort um ${new Date().toLocaleTimeString()} von diesem Modell erhalten.`);
+    if (ok) {
+        const cfg = currentLlmConfig();
+        setLlmStatus('ok', `${label} · ${modelOrError || 'Standardmodell'}${visionSuffix(cfg)}`, `Letzte Antwort um ${new Date().toLocaleTimeString()} von diesem Modell erhalten.${visionTooltip(cfg)}`);
+    }
     else setLlmStatus('err', `${label}: Aufruf fehlgeschlagen`, modelOrError);
+}
+
+// ==========================================
+// BILDER (Tabellen/Abbildungen) AN DAS MODELL
+// ==========================================
+// OpenAI-kompatibles Format: Text plus image_url-Teile. Verstehen OpenAI, Gemini, vLLM mit
+// Vision-Modell und LM Studio mit Vision-Modell; reine Textmodelle lehnen das ab oder ignorieren es.
+function buildUserContent(prompt, images) {
+    if (!Array.isArray(images) || !images.length) return prompt;
+    return [{ type: 'text', text: prompt }, ...images.map(url => ({ type: 'image_url', image_url: { url } }))];
+}
+
+// Ergebnis der Bildprüfung je Provider und Modell (für diese Sitzung): yes | no | unknown
+const visionSupport = {};
+
+function visionKey(cfg = currentLlmConfig()) {
+    return `${cfg.provider}|${cfg.model || ''}`;
+}
+
+function visionSuffix(cfg) {
+    const v = visionSupport[visionKey(cfg)];
+    return v?.state === 'yes' ? ' · 🖼️ Bilder' : v?.state === 'no' ? ' · nur Text' : '';
+}
+
+function visionTooltip(cfg) {
+    const v = visionSupport[visionKey(cfg)];
+    if (!v) return '';
+    return v.state === 'yes' ? ' Das Modell verarbeitet Bilder (Tabellen/Abbildungen werden als Bild mitgeschickt).'
+        : v.state === 'no' ? ' Das Modell verarbeitet keine Bilder – Tabellen und Abbildungen nur als Text.' : '';
+}
+
+function probeImageDataUrl() {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#e00000';
+    ctx.fillRect(0, 0, 64, 64);
+    return canvas.toDataURL('image/png');
+}
+
+// Kleiner Testaufruf mit einem roten Bild. Kommt "rot/red" zurück, versteht das Modell Bilder.
+async function probeVisionSupport(force = false) {
+    const cfg = currentLlmConfig();
+    const key = visionKey(cfg);
+    if (!force && visionSupport[key] && visionSupport[key].state !== 'unknown') return visionSupport[key];
+    if (cfg.error) return (visionSupport[key] = { state: 'unknown', detail: cfg.error });
+    updateVisionHint('checking');
+    let result;
+    try {
+        const answer = await callLLM('Welche Farbe hat das beigefügte Bild? Antworte als JSON {"farbe":"..."}.', { agent: 'vision-probe', images: [probeImageDataUrl()] });
+        result = /\b(rot|red|rote|rosso|rouge)\b/i.test(String(answer))
+            ? { state: 'yes', detail: 'Testbild erkannt.' }
+            : { state: 'no', detail: 'Das Modell hat das Testbild nicht erkannt.' };
+    } catch (err) {
+        const msg = err?.message || String(err);
+        // HTTP-Fehler 4xx bei Bildern heißt fast immer: Modell/Server ohne Bildverarbeitung
+        result = /API Fehler \(4\d\d\)/.test(msg)
+            ? { state: 'no', detail: 'Der Modell-Server lehnt Bilder ab.' }
+            : { state: 'unknown', detail: msg };
+    }
+    result.checkedAt = new Date().toLocaleTimeString();
+    visionSupport[key] = result;
+    updateVisionHint();
+    if (result.state !== 'unknown') scheduleLlmStatusCheck(200);
+    return result;
+}
+
+function updateVisionHint(phase) {
+    const el = document.getElementById('vision-hint');
+    if (!el || !currentUser) return;
+    const enabled = document.getElementById('opt-vision')?.checked;
+    const v = visionSupport[visionKey()];
+    let text, cls;
+    if (phase === 'checking') { text = '⏳ Prüfe, ob das Modell Bilder verarbeitet…'; cls = 'checking'; }
+    else if (!enabled) { text = 'Aus – Tabellen und Abbildungen werden nur als Text ausgewertet.'; cls = 'off'; }
+    else if (v?.state === 'yes') { text = '✓ Das gewählte Modell verarbeitet Bilder – Tabellen und Abbildungen werden zusätzlich als Bild ausgewertet.'; cls = 'yes'; }
+    else if (v?.state === 'no') { text = '✗ Das gewählte Modell verarbeitet keine Bilder – Tabellen und Abbildungen werden nur als Text ausgewertet.'; cls = 'no'; }
+    else { text = v?.detail ? `? Nicht prüfbar (${v.detail}). Wird beim Start erneut geprüft.` : '? Noch nicht geprüft – wird beim Start der Analyse automatisch geprüft.'; cls = 'unknown'; }
+    el.textContent = text;
+    el.className = `vision-hint ${cls}`;
 }
 
 // Der Browser verrät bei abgelehnten Verbindungen keinen Grund ("NetworkError" / "Failed to fetch").
@@ -254,7 +337,7 @@ async function callLLM(prompt, meta = {}) {
         ...(model ? { model } : {}),
         messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: prompt }
+            { role: "user", content: buildUserContent(prompt, meta.images) }
         ],
         temperature: temperature
     };
@@ -282,7 +365,8 @@ async function callLLM(prompt, meta = {}) {
 
     const stepBase = {
         agent: meta.agent || null, doc: meta.doc || null, prompt_version_id: meta.promptVersionId || null,
-        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt
+        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt,
+        images: meta.images?.length ? meta.imagePages || meta.images.length : undefined
     };
     let response;
     const send = () => fetch(url, { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) });

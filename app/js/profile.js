@@ -256,6 +256,8 @@ function applyProfileSettingsToUI(profile) {
     document.getElementById('opt-integrity-computed').checked = keys.integrityComputed !== false;
     document.getElementById('opt-integrity-online').checked = keys.integrityOnline !== false;
     document.getElementById('opt-integrity-llm').checked = keys.integrityLLM !== false;
+    document.getElementById('opt-vision').checked = keys.visionEnabled !== false;
+    updateVisionHint();
     document.getElementById('spark-thinking').checked = keys.sparkThinking || false;
 
     document.getElementById('max-evidence-chars').value = keys.maxEvidence || 50000;
@@ -344,6 +346,7 @@ function saveUserKeys() {
     db[currentUser].keys.integrityComputed = document.getElementById('opt-integrity-computed').checked;
     db[currentUser].keys.integrityOnline = document.getElementById('opt-integrity-online').checked;
     db[currentUser].keys.integrityLLM = document.getElementById('opt-integrity-llm').checked;
+    db[currentUser].keys.visionEnabled = document.getElementById('opt-vision').checked;
     
     db[currentUser].keys.maxEvidence = parseInt(document.getElementById('max-evidence-chars').value, 10) || 50000;
     db[currentUser].keys.maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
@@ -354,6 +357,7 @@ function saveUserKeys() {
     saveUserDB(db);
     enqueueChanges(currentUser, [['settings', 'settings']]);
     scheduleLlmStatusCheck();
+    updateVisionHint();
     
     const provider = document.getElementById('llm-provider').value;
     const note = document.getElementById(`save-note-${provider}`);

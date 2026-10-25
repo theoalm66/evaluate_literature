@@ -93,7 +93,9 @@ function answerFor(prompt) {
 }
 
 function startMockLLM(port) {
-    const calls = [];
+    const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
+    const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
+    const state = { vision: true };
     const server = http.createServer((req, res) => {
         const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' };
         if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
@@ -102,14 +104,23 @@ function startMockLLM(port) {
         req.on('end', () => {
             if (req.url.endsWith('/models')) { res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock-model', max_model_len: 32768 }] })); }
             const payload = JSON.parse(body || '{}');
-            const prompt = payload.messages?.find(m => m.role === 'user')?.content || '';
-            calls.push(prompt);
-            const content = JSON.stringify(answerFor(prompt));
+            const raw = payload.messages?.find(m => m.role === 'user')?.content || '';
+            const parts = Array.isArray(raw) ? raw : [{ type: 'text', text: raw }];
+            const prompt = parts.filter(p => p.type === 'text').map(p => p.text).join('\n');
+            const images = parts.filter(p => p.type === 'image_url').length;
+            if (images && !state.vision) {
+                res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'This model does not support image input.' } }));
+            }
+            const isProbe = prompt.includes('Welche Farbe');
+            if (!isProbe) calls.push(prompt);
+            if (images && !isProbe) imageCalls.push({ agent: (prompt.match(/Du bist Agent (\d)/) || [])[1], images });
+            const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt));
             res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } }));
         });
     });
-    return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls })));
+    return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls, imageCalls, state })));
 }
 
 module.exports = { startMockLLM, QUOTES: Q };

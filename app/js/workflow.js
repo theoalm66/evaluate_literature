@@ -1,21 +1,38 @@
 // ==========================================
 // WORKFLOW AGENTEN
 // ==========================================
-async function extractTextFromPDF(file) {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-    let fullText = "";
-    const pages = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const pageText = content.items.map(item => item.str).join(" ");
-        pages.push({ page: i, text: pageText });
-        fullText += `\n--- PAGE ${i} ---\n${pageText}\n`;
-    }
-    return { fullText, pages, numPages: pdf.numPages };
+
+
+// Hinweis an das Modell, wenn Seitenbilder angehängt sind
+function visualNote(doc) {
+    if (!doc.visuals?.length) return '';
+    const list = doc.visuals.map(v => `S. ${v.page}${v.reason ? ` (${v.reason})` : ''}`).join(', ');
+    return `\n\nZUSÄTZLICH: Angehängt sind Bilder dieser PDF-Seiten: ${list}. Nutze sie, um Tabellen und Abbildungen (z.B. Flussdiagramme, Forest Plots, Ergebnistabellen) korrekt zu lesen. Gib als Beleg die Seitenzahl an; bei Angaben aus Bildern setze section auf "Tabelle" bzw. "Abbildung".`;
 }
 
+// Modellaufruf mit Seitenbildern; lehnt der Server Bilder ab, wird ohne Bilder wiederholt und das Modell
+// für den Rest der Sitzung als "nur Text" vermerkt.
+async function callWithVisuals(prompt, meta, doc) {
+    if (!doc.visuals?.length || doc.vision_status !== 'used') return callLLM(prompt, meta);
+    try {
+        return await callLLM(prompt + visualNote(doc), { ...meta, images: doc.visuals.map(v => v.dataUrl), imagePages: doc.visuals.map(v => v.page) });
+    } catch (err) {
+        if (!/API Fehler \(4\d\d\)/.test(err?.message || '')) throw err;
+        log(`${doc.title}: Das Modell lehnt Bilder ab – weiter nur mit Text.`, 'warning');
+        visionSupport[visionKey()] = { state: 'no', detail: 'Bilder beim Aufruf abgelehnt.', checkedAt: new Date().toLocaleTimeString() };
+        doc.vision_status = 'rejected';
+        updateVisionHint();
+        return callLLM(prompt, meta);
+    }
+}
+
+function sourceInfoFor(doc) {
+    return {
+        quality: doc.quality,
+        visual_pages: (doc.visuals || []).map(v => ({ page: v.page, reason: v.reason })),
+        vision_status: doc.vision_status
+    };
+}
 
 // Integritätsprüfung einer Publikation: rechnerisch im Browser und/oder per LLM (Agent 6), je nach Auswahl.
 // Fehler hier brechen die Analyse nicht ab – das Ergebnis der Studie bleibt erhalten.
@@ -37,7 +54,7 @@ async function runIntegrityChecks(doc, ext, options, promptVersionId) {
         try {
             log(`Integrität (LLM, Agent 6): ${doc.title}`, 'info');
             const prompt = fillTemplate(getCurrentPrompt('integrity'), { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text });
-            result.llm = parseJSONRobust(await callLLM(prompt, { agent: 'integrity', doc: doc.title, promptVersionId }));
+            result.llm = parseJSONRobust(await callWithVisuals(prompt, { agent: 'integrity', doc: doc.title, promptVersionId }, doc));
         } catch (err) {
             result.llm_error = err?.message || String(err);
             log(`Integrität (LLM) für ${doc.title} fehlgeschlagen: ${result.llm_error}`, 'warning');
@@ -89,6 +106,16 @@ async function startWorkflow() {
     const maxOutTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
     const llmTemp = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
 
+    // Bildverarbeitung vor dem Lauf klären (der Testaufruf landet nicht im Agent-Protokoll)
+    const visionWanted = document.getElementById('opt-vision').checked;
+    let visionActive = false;
+    if (visionWanted) {
+        const vision = await probeVisionSupport();
+        visionActive = vision.state === 'yes';
+        log(visionActive ? 'Bildverarbeitung: Modell versteht Bilder – Tabellen/Abbildungen werden als Bild mitgeschickt.'
+            : `Bildverarbeitung: ${vision.state === 'no' ? 'Modell verarbeitet keine Bilder' : 'nicht prüfbar'} – Tabellen/Abbildungen nur als Text.`, visionActive ? 'success' : 'warning');
+    }
+
     window.currentRunMetrics = [];
     currentRunSteps = [];
 
@@ -120,10 +147,17 @@ async function startWorkflow() {
         log('PHASE 1: Lese PDFs vollständig ein und markiere Seiten...', 'info');
         for (const file of selectedFiles) {
             try {
-                const parsed = await extractTextFromPDF(file);
+                const parsed = await extractPdf(file, { renderVisuals: visionActive });
+                const q = parsed.quality;
+                if (q.textless) throw new Error('Keine Textschicht gefunden – vermutlich ein gescanntes PDF. Bitte eine durchsuchbare Fassung (OCR) verwenden.');
                 const evidenceText = buildEvidenceContext(parsed.pages, maxEvChars);
-                docs.push({ title: file.name, full_text: parsed.fullText, evidence_text: evidenceText, pages: parsed.pages, num_pages: parsed.numPages });
-                log(`${file.name}: ${parsed.numPages} Seiten, ${parsed.fullText.length.toLocaleString()} Zeichen gelesen, ${evidenceText.length.toLocaleString()} Zeichen Evidenzkontext.`, 'success');
+                const visionStatus = !visionWanted ? 'off' : !visionActive ? 'unsupported' : parsed.visuals.length ? 'used' : 'none';
+                docs.push({ title: file.name, full_text: parsed.fullText, evidence_text: evidenceText, pages: parsed.pages, num_pages: parsed.numPages,
+                    quality: q, visuals: parsed.visuals, vision_status: visionStatus });
+                log(`${file.name}: ${parsed.numPages} Seiten, ${parsed.fullText.length.toLocaleString()} Zeichen gelesen, ${evidenceText.length.toLocaleString()} Zeichen Evidenzkontext`
+                    + `${q.table_pages.length ? `, Tabellen S. ${q.table_pages.join(', ')}` : ''}${q.figure_pages.length ? `, Abbildungen S. ${q.figure_pages.join(', ')}` : ''}`
+                    + `${parsed.visuals.length ? `, ${parsed.visuals.length} Seitenbild(er) für das Modell` : ''}.`, 'success');
+                if (q.scanned_pages.length) log(`${file.name}: ${q.scanned_pages.length} Seite(n) ohne Textschicht (gescannt?): S. ${q.scanned_pages.join(', ')} – deren Inhalt fehlt im Text.`, 'warning');
             } catch (err) {
                 registerFailure(file.name, 'Ingestion', err);
             }
@@ -138,7 +172,7 @@ async function startWorkflow() {
             try {
                 log(`Evidence Extraction: ${doc.title}`, 'info');
                 const prompt = fillTemplate(extPromptBase, { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text });
-                let ext = parseJSONRobust(await callLLM(prompt, { agent: 'extraction', doc: doc.title, promptVersionId: promptVersionIds.extraction }));
+                let ext = parseJSONRobust(await callWithVisuals(prompt, { agent: 'extraction', doc: doc.title, promptVersionId: promptVersionIds.extraction }, doc));
                 ext.title = doc.title;
                 ext = verifyExtractionEvidenceRefs(ext, doc.pages);
                 extractedDocs.push({ doc, ext });
@@ -215,7 +249,8 @@ async function startWorkflow() {
                     casq_score: validation.casq_score,
                     evidence_coverage: validation.evidence_coverage,
                     quality_label: validation.quality_label,
-                    integrity
+                    integrity,
+                    source_info: sourceInfoFor(doc)
                 });
             } catch (err) {
                 registerFailure(doc.title, 'Evidence Validation', err);

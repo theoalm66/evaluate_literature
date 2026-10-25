@@ -73,6 +73,12 @@
                     <div class="file-list" id="file-list">Keine Dateien ausgewählt.</div>
 
                     <div class="run-options">
+                        <div class="run-options-title">Tabellen und Abbildungen</div>
+                        <label><input type="checkbox" id="opt-vision" onchange="saveUserKeys(); updateVisionHint();"> 🖼️ zusätzlich als Bild an das LLM (nur wenn das Modell Bilder verarbeitet)</label>
+                        <div id="vision-hint" class="vision-hint"></div>
+                        <button type="button" class="btn btn-secondary btn-small" onclick="probeVisionSupport(true)" style="margin-top:.35rem;">Bildverarbeitung jetzt prüfen</button>
+                    </div>
+                    <div class="run-options">
                         <div class="run-options-title">Integritätsprüfung (p-Werte, GRIM, Stichproben, Registrierung, DOI)</div>
                         <label><input type="checkbox" id="opt-integrity-computed" onchange="saveUserKeys()"> 🔢 rechnerisch (im Browser, ohne LLM)</label>
                         <label><input type="checkbox" id="opt-integrity-online" onchange="saveUserKeys()"> 🌐 DOI und Retractions online bei Crossref prüfen</label>
@@ -533,6 +539,7 @@
     <script src="js/prompts.js"></script>
     <script src="js/scoring.js"></script>
     <script src="js/integrity.js"></script>
+    <script src="js/pdf-extract.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/sync.js"></script>
     <script src="js/profile.js"></script>

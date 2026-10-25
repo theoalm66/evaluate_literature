@@ -182,3 +182,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .lamp.err { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.25); }
 .lamp.checking { background: #f59e0b; animation: lamp-pulse 1s ease-in-out infinite; }
 @keyframes lamp-pulse { 50% { opacity: .35; } }
+
+.vision-hint { font-size: .78rem; margin-top: .25rem; color: var(--text-light); }
+.vision-hint.yes { color: #047857; }
+.vision-hint.no { color: #b45309; }
+.vision-hint.checking { color: #1e40af; }
+.source-info { font-size: .8rem; color: var(--text-light); margin: -.3rem 0 .7rem; }
+.source-info .warn { color: #b45309; font-weight: 600; }

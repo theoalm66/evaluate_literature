@@ -34,6 +34,9 @@ async function makePdf(browser, file) {
         <h1>Supervised exercise for chronic low back pain</h1>
         <p>doi: 10.1234/test.2026.001 · Registered at ClinicalTrials.gov (NCT01234567).</p>
         <p>${QUOTES.rq}</p><p>${QUOTES.alloc}</p><p>${QUOTES.stats}</p>
+        <p>Table 1. Baseline characteristics</p>
+        <table style="width:100%;border-collapse:collapse"><tr><td></td><td>Group A</td><td>Group B</td></tr>
+        <tr><td>Age</td><td>54.2</td><td>55.1</td></tr><tr><td>Women</td><td>18</td><td>17</td></tr></table>
         <p>In total N = 60 patients took part. Pain decreased, t(28) = 2.10, p = .045, and the group effect was F(2, 57) = 1.20, p < .05.</p>
         <div style="page-break-before:always"></div>
         <h2>Discussion</h2><p>${QUOTES.limits}</p></body></html>`);
@@ -117,7 +120,16 @@ async function login(page, user, pass, action = 'login') {
         await page.click('#btn-start');
         await page.waitForSelector('#results-view.active', { timeout: 60000 });
         assert.equal(llm.calls.length, 5, 'erwartet 5 LLM-Aufrufe (inkl. Agent 6)');
-        assert.equal(await page.textContent('#llm-status-text'), 'Lokales Profil 1 · mock-model', 'Lampe zeigt nicht das antwortende Modell');
+        // Layout-Extraktion: Tabellenzeile kommt mit getrennten Zellen beim Modell an
+        assert.match(llm.calls[0], /Age\t54\.2\t55\.1/, 'Tabellenzeile nicht in Zellen getrennt');
+        // Seite mit Tabelle ging als Bild an Agent 2 und Agent 6
+        assert.deepEqual(llm.imageCalls.map(c => c.agent).sort(), ['2', '6']);
+        assert.ok(llm.calls[0].includes('ZUSÄTZLICH: Angehängt sind Bilder dieser PDF-Seiten: S. 1 (Tabelle)'), 'Bildhinweis fehlt im Prompt');
+        assert.match(await page.textContent('#llm-status-text'), /🖼️ Bilder/);
+        const sourceInfo = await page.textContent('.source-info');
+        assert.ok(sourceInfo.includes('Tabellen: S. 1') && sourceInfo.includes('als Bild ausgewertet: S. 1'), 'Quelleninfo falsch: ' + sourceInfo);
+        console.log('✓ Tabelle zeilenweise mit Zellen extrahiert, Seitenbild an Agent 2 und 6, Hinweis:', sourceInfo.trim());
+        assert.match(await page.textContent('#llm-status-text'), /^Lokales Profil 1 · mock-model · 🖼️ Bilder$/, 'Lampe zeigt nicht das antwortende Modell');
         const integ = await page.textContent('#res-studies');
         assert.ok(integ.includes('INTEGRITÄTSPRÜFUNG'), 'Integritätsprüfung fehlt');
         assert.ok(integ.includes('2 Tests1 abweichend · 1 Signifikanz geändert'), 'statcheck-Zusammenfassung falsch');
@@ -140,6 +152,15 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(analysisPrompt.includes('QN-2.2 [Design appropriateness]') && !analysisPrompt.includes('{{CASQ_CHECKLIST}}'), 'Prüffragen nicht im Prompt');
         assert.ok(study.includes('Testvalidierung $& mit Sonderzeichen.'), 'Sonderzeichen verfälscht');
         console.log('✓ Analyse-Lauf: PEDro 4/10 (unvollständig), CASQ 2.0 = 8.7 (Spanne 8.7–9.2), Informationsgrad 96 %, Belege 96 %');
+
+        // Modell ohne Bildverarbeitung: Prüfung erkennt das, Hinweis und Lampe zeigen „nur Text“
+        llm.state.vision = false;
+        await page.click('text=Bildverarbeitung jetzt prüfen');
+        await page.waitForFunction(() => document.getElementById('vision-hint').classList.contains('no'));
+        assert.match(await page.textContent('#vision-hint'), /verarbeitet keine Bilder/);
+        await page.waitForFunction(() => document.getElementById('llm-status-text').textContent.includes('nur Text'));
+        llm.state.vision = true;
+        console.log('✓ Modell ohne Bildverarbeitung erkannt:', await page.textContent('#vision-hint'));
 
         // 4) Lauf + Agent-Protokoll in IndexedDB
         const stored = await page.evaluate(async () => {

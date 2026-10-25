@@ -2,7 +2,7 @@
 // Strategie "Netz zuerst, Cache als Rückfall": online kommt immer die aktuelle Version vom Spark,
 // offline (oder bei sehr langsamer Verbindung) die zuletzt geladene. Anfragen an LLM-Endpunkte
 // (andere Hosts oder POST) und die Spark-API werden nicht angefasst.
-const CACHE_NAME = 'lit-agent-v9';
+const CACHE_NAME = 'lit-agent-v10';
 const NETWORK_TIMEOUT_MS = 4000;
 const APP_SHELL = [
     './',
@@ -12,6 +12,7 @@ const APP_SHELL = [
     'js/prompts.js',
     'js/scoring.js',
     'js/integrity.js',
+    'js/pdf-extract.js',
     'js/storage.js',
     'js/sync.js',
     'js/profile.js',
