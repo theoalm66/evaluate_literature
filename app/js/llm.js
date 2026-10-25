@@ -400,7 +400,7 @@ async function callLLM(prompt, meta = {}) {
         key = null;
     }
 
-    const maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
+    const maxTokens = Number.isFinite(meta.maxTokens) ? meta.maxTokens : (parseInt(document.getElementById('max-output-tokens').value, 10) || 8192);
     const temperature = Number.isFinite(meta.temperature) ? meta.temperature : (parseFloat(document.getElementById('llm-temperature').value) || 0.0);
     let systemPrompt = document.getElementById('llm-system-prompt').value || DEFAULT_SYSTEM_PROMPT;
 
@@ -447,7 +447,9 @@ async function callLLM(prompt, meta = {}) {
     // Strukturierte Ausgabe nach JSON-Schema, solange der Server sie nicht abgelehnt hat. Im Thinking-Modus
     // nicht: Das Modell soll vor dem JSON frei nachdenken dürfen.
     const schemaKey = `${provider}|${model || ''}`;
-    const useSchema = !!meta.schema && !isThinkingAllowed && structuredOutputSupport[schemaKey] !== 'no';
+    // Manche Server hängen bei strengen JSON-Schemata oder brauchen dafür sehr lange: per Option abschaltbar.
+    const schemaWanted = meta.forceSchema || (!meta.noSchema && !document.getElementById('opt-no-schema')?.checked && structuredOutputSupport[schemaKey] !== 'no');
+    const useSchema = !!meta.schema && !isThinkingAllowed && schemaWanted;
     if (useSchema) {
         payload.response_format = { type: 'json_schema', json_schema: { name: meta.schema.name, schema: meta.schema.schema, strict: true } };
     } else {
@@ -476,7 +478,13 @@ async function callLLM(prompt, meta = {}) {
         images: meta.images?.length ? meta.imagePages || meta.images.length : undefined
     };
     let response, attempt = 0, schemaFallbackUsed = false, attemptStart = performance.now();
-    const send = () => fetch(url, { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) });
+    const rec = step => { if (!meta.quiet) recordStep(step); };
+    let schemaTimeoutRetried = false;
+    const send = () => {
+        const init = { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) };
+        if (meta.timeoutMs) init.signal = AbortSignal.timeout(meta.timeoutMs);
+        return fetch(url, init);
+    };
     for (;;) {
         attempt++;
         attemptStart = performance.now();
@@ -494,8 +502,17 @@ async function callLLM(prompt, meta = {}) {
                 await sleepMs(2000 * attempt);
                 continue;
             }
+            // Lange Wartezeit mit JSON-Schema: Das Schema kann den Server aufhalten – einmal ohne Schema wiederholen und es merken.
+            if (elapsed >= 60000 && !meta.quiet && !schemaTimeoutRetried && payload.response_format?.type === 'json_schema' && !meta.timeoutMs) {
+                schemaTimeoutRetried = true;
+                structuredOutputSupport[schemaKey] = 'no';
+                applyJsonObjectMode();
+                stepBase.structured_output = 'Zeitlimit-Rückfall';
+                log(`Keine Antwort nach ${(elapsed / 60000).toFixed(1).replace('.', ',')} Minuten – neuer Versuch ohne JSON-Schema (strenge Schemata können Server aufhalten). Das Schema bleibt für dieses Modell aus.`, 'warning');
+                continue;
+            }
             const hint = explainNetworkError(url, elapsed);
-            recordStep({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
+            rec({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
             markLlmCall(false, provider, hint);
             throw new Error(`Keine Verbindung zu ${url}. ${hint}`);
         }
@@ -565,7 +582,7 @@ async function callLLM(prompt, meta = {}) {
 
     if (!response.ok) {
         const err = await response.text();
-        recordStep({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: err });
+        rec({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: err });
         let message = err;
         try { message = JSON.parse(err).error?.message || JSON.parse(err).error || err; } catch (e) { /* kein JSON */ }
         const authHint = (response.status === 401 || response.status === 403) && provider !== 'spark' ? ' – API-Key ungültig, abgelaufen oder für dieses Modell nicht berechtigt.' : '';
@@ -584,7 +601,7 @@ async function callLLM(prompt, meta = {}) {
     } catch (err) {
         const elapsed = performance.now() - startTime;
         const hint = explainNetworkError(url, elapsed);
-        recordStep({ ...stepBase, duration_ms: Math.round(elapsed), error: `Antwort abgebrochen: ${err?.message || err} – ${hint}` });
+        rec({ ...stepBase, duration_ms: Math.round(elapsed), error: `Antwort abgebrochen: ${err?.message || err} – ${hint}` });
         markLlmCall(false, provider, hint);
         throw new Error(`Antwort von ${url} wurde unterbrochen: ${err?.message || err}. ${hint}`);
     }
@@ -602,7 +619,7 @@ async function callLLM(prompt, meta = {}) {
 
     markLlmCall(true, provider, data.model || model);
 
-    recordStep({
+    rec({
         ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status,
         response: data.choices?.[0]?.message?.content ?? null,
         tokens_in: data.usage?.prompt_tokens ?? null, tokens_out: data.usage?.completion_tokens ?? null,
@@ -610,4 +627,48 @@ async function callLLM(prompt, meta = {}) {
     });
 
     return data.choices[0].message.content;
+}
+
+
+// ==========================================
+// GESCHWINDIGKEITSTEST (zeigt, ob Schema, Wartezeit oder Erzeugungstempo bremsen)
+// ==========================================
+async function runSpeedTest() {
+    const out = document.getElementById('speed-test-result');
+    const button = document.getElementById('speed-test-btn');
+    const provider = document.getElementById('llm-provider').value;
+    out.innerHTML = '';
+    button.disabled = true;
+    const line = (text, cls = '') => { const div = document.createElement('div'); div.textContent = text; if (cls) div.className = cls; out.appendChild(div); return div; };
+    const numbers = Array.from({ length: 150 }, (_, i) => i + 1).join(', ');
+    const tests = [
+        { label: 'Kurzer Aufruf ohne Schema', prompt: 'Antworte nur mit {"ok": true}', opts: { noSchema: true, maxTokens: 30 } },
+        { label: 'Kurzer Aufruf mit kleinem JSON-Schema', prompt: 'Antworte nur mit {"ok": true}',
+            opts: { forceSchema: true, maxTokens: 30, schema: { name: 'speedtest', schema: S.obj({ ok: S.bool() }) } } },
+        { label: 'Aufruf mit dem Schema der Extraktion (Teil 1)', prompt: 'Titel: Test. Es handelt sich um eine Online-Befragung mit 200 Teilnehmenden im Marketing. Fülle das JSON aus.',
+            opts: { forceSchema: true, maxTokens: 1500, schema: agentSchema('extraction', { part: 'classification' }) } },
+        { label: 'Erzeugungstempo (ca. 450 Token Ausgabe ohne Schema)', prompt: `Antworte nur mit JSON: {"zahlen": [${numbers}]} – gib genau diese Zahlen aus.`, opts: { noSchema: true, maxTokens: 900 }, rate: true }
+    ];
+    try {
+        for (const t of tests) {
+            const row = line(`${t.label}: läuft…`);
+            const before = (window.currentRunMetrics || []).length;
+            const started = performance.now();
+            try {
+                await callLLM(t.prompt, { quiet: true, timeoutMs: 150000, agent: 'speedtest', ...t.opts });
+                const sec = (performance.now() - started) / 1000;
+                const tps = (window.currentRunMetrics || []).slice(before).pop();
+                row.textContent = `${t.label}: ${sec.toFixed(1).replace('.', ',')} s${t.rate && tps ? `, ca. ${tps} Token/s` : ''}`;
+                row.className = sec > 60 ? 'warn' : 'ok';
+            } catch (err) {
+                const sec = (performance.now() - started) / 1000;
+                const timeout = err?.name === 'TimeoutError' || /timeout|aborted|getrennt|Zeitlimit/i.test(String(err?.message));
+                row.textContent = `${t.label}: ${timeout ? `keine Antwort nach ${sec.toFixed(0)} s` : 'Fehler'} – ${String(err?.message || err).slice(0, 200)}`;
+                row.className = 'err';
+            }
+        }
+        line('Einordnung: Ist der Aufruf mit Schema viel langsamer als ohne, hilft „JSON-Schema nicht verwenden“. Dauert schon der Kurzaufruf lange, ist der Dienst ausgelastet oder wartet in einer Warteschlange. Ist nur das Erzeugungstempo niedrig, sind lange Antworten das Problem.');
+    } finally {
+        button.disabled = false;
+    }
 }

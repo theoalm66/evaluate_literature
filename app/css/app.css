@@ -202,3 +202,6 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .encryption-note { font-size: .78rem; margin-top: .6rem; }
 .encryption-note.ok { color: #047857; }
 .encryption-note.warn { color: #b45309; }
+#speed-test-result .ok { color: #047857; }
+#speed-test-result .warn { color: #b45309; }
+#speed-test-result .err { color: #b91c1c; }

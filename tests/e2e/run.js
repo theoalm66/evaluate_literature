@@ -400,6 +400,24 @@ async function login(page, user, pass, action = 'login') {
         await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = false; });
         console.log('✓ Extraktion in 3 Teilschritten: je Teil eigenes Schema, Ergebnis wird zusammengesetzt (Marketing-Studie korrekt erkannt)');
 
+        // 12) Geschwindigkeitstest und Option „JSON-Schema nicht verwenden“
+        await page.click('nav button[data-tab="dashboard"]');
+        llm.state.payloads.length = 0;
+        await page.click('#speed-test-btn');
+        await page.waitForFunction(() => !document.getElementById('speed-test-btn').disabled, null, { timeout: 60000 });
+        const speedLines = await page.$$eval('#speed-test-result div', els => els.map(e => e.textContent));
+        assert.equal(speedLines.length, 5, 'Geschwindigkeitstest: 4 Messungen plus Einordnung: ' + speedLines.join(' | '));
+        assert.ok(speedLines.slice(0, 4).every(l => /\d+,\d s/.test(l)), 'Messzeiten fehlen: ' + speedLines.join(' | '));
+        const speedFormats = llm.state.payloads.map(pl => pl.response_format?.type || 'none');
+        assert.deepEqual(speedFormats, ['none', 'json_schema', 'json_schema', 'none'], 'Schema-Nutzung im Test: ' + speedFormats);
+        // Option: kein JSON-Schema
+        await page.evaluate(() => { document.querySelector('#opt-no-schema').checked = true; });
+        llm.state.payloads.length = 0;
+        await page.evaluate(async () => { await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }); });
+        assert.notEqual(llm.state.payloads[0].response_format?.type, 'json_schema', 'Schema trotz Option gesendet');
+        await page.evaluate(() => { document.querySelector('#opt-no-schema').checked = false; });
+        console.log('✓ Geschwindigkeitstest (4 Messungen) und Option „JSON-Schema nicht verwenden“');
+
         const relevantErrors = errors.filter(e => !e.includes('net::ERR_INTERNET_DISCONNECTED'));
         assert.deepEqual(relevantErrors, [], 'Fehler in der Browser-Konsole');
         ok = true;

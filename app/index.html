@@ -94,6 +94,9 @@
                     <div class="run-options">
                         <div class="run-options-title">Langsame Modelle / Zeitlimit des Servers</div>
                         <label><input type="checkbox" id="opt-split-extraction" onchange="saveUserKeys()"> Extraktion (Agent 2) in drei kleineren Teilschritten (jeder Aufruf bleibt unter dem Zeitlimit)</label>
+                        <label><input type="checkbox" id="opt-no-schema" onchange="saveUserKeys()"> JSON-Schema nicht verwenden (einfacher JSON-Modus; manche Server hängen an strengen Schemata)</label>
+                        <button type="button" id="speed-test-btn" class="btn btn-secondary btn-small" onclick="runSpeedTest()" style="margin-top:.35rem;">Geschwindigkeit des Modells testen</button>
+                        <div id="speed-test-result" class="vision-hint"></div>
                         <label><input type="checkbox" id="opt-compact" onchange="saveUserKeys()"> Kurze Antworten (Belege und Begründungen knapp halten)</label>
                         <label><input type="checkbox" id="opt-no-reasoning" onchange="saveUserKeys()"> Reasoning des Modells abschalten (nur für Spark, Hochschul-API und eigene Endpunkte; sendet <code>chat_template_kwargs</code>, bei Ablehnung automatisch ohne; OpenAI/Gemini ausgenommen)</label>
                         <div class="vision-hint">Manche Server (z.B. die Hochschul-API) trennen die Verbindung nach 5 Minuten, auch bei Streaming. Dann muss eine Antwort in dieser Zeit fertig werden: kurze Antworten, kein Reasoning, keine Seitenbilder und weniger Text helfen.</div>
