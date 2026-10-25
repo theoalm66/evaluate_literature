@@ -339,7 +339,7 @@ async function callLLM(prompt, meta = {}) {
     }
 
     const maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
-    const temperature = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
+    const temperature = Number.isFinite(meta.temperature) ? meta.temperature : (parseFloat(document.getElementById('llm-temperature').value) || 0.0);
     let systemPrompt = document.getElementById('llm-system-prompt').value || DEFAULT_SYSTEM_PROMPT;
 
     let isThinkingAllowed = false;
@@ -395,7 +395,7 @@ async function callLLM(prompt, meta = {}) {
 
     const stepBase = {
         agent: meta.agent || null, doc: meta.doc || null, prompt_version_id: meta.promptVersionId || null,
-        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt,
+        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt, run: meta.run,
         images: meta.images?.length ? meta.imagePages || meta.images.length : undefined
     };
     let response;

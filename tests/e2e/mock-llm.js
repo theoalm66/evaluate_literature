@@ -20,11 +20,19 @@ const quantitativeDims = [
     ['Limitations', Q.limits, 8, 'supported']
 ];
 
-const pedroItems = ['1','2','3','4','5','6','7','8','9'].map(id => ({
-    item_id: id, criterion: `PEDro ${id}`, response: ['2','3','8','9'].includes(id) || id === '1' ? 'yes' : 'no',
-    points: id !== '1' && ['2','3','8','9'].includes(id) ? 1 : 0, max_points: id === '1' ? 0 : 1,
-    evidence: id === '3' ? [{ page: 2, section: 'Methods', quote: Q.alloc }] : []
-}));
+// Bei Temperatur > 0 (Mehrfachbewertung) weicht jeder dritte Aufruf in zwei Antworten ab: Item 4 und QN-2.1
+const varies = ctx => ctx && ctx.temperature > 0 && ctx.index % 3 === 1;
+
+function pedroItemsFor(ctx) {
+    const yes = ['2', '3', '8', '9'];
+    return ['1','2','3','4','5','6','7','8','9'].map(id => {
+        const isYes = id === '1' || yes.includes(id) || (id === '4' && varies(ctx));
+        return { item_id: id, criterion: `PEDro ${id}`, response: isYes ? 'yes' : 'no',
+            points: id !== '1' && isYes ? 1 : 0, max_points: id === '1' ? 0 : 1,
+            evidence: id === '3' ? [{ page: 2, section: 'Methods', quote: Q.alloc }] : [] };
+    });
+}
+const pedroItems = pedroItemsFor(null);
 
 // Prüffragen-IDs werden aus dem Prompt gelesen (wie ein echtes Modell sie sieht).
 function checklistIds(prompt) {
@@ -40,16 +48,17 @@ const CHECKLIST_SPECIAL = {
     'QN-6.3': ['no', null]
 };
 
-function checklist(prompt, validated) {
+function checklist(prompt, validated, ctx) {
     return checklistIds(prompt).map(id => {
         let [response, quote] = CHECKLIST_SPECIAL[id] || ['yes', id.startsWith('QN-6') ? Q.alloc : id.startsWith('QN-5') ? Q.stats : id.startsWith('QN-9') ? Q.limits : Q.rq];
         if (validated && id === 'QN-1.2') response = 'partial';
+        if (!validated && id === 'QN-2.1' && varies(ctx)) response = 'partial';
         return { id, response, evidence: quote ? [{ page: 1, section: 'Methods', quote }] : [], [validated ? 'validation_note' : 'rationale']: `Test ${id}` };
     });
 }
 
-function answerFor(prompt) {
-    if (prompt.includes('Du bist Agent 3b')) return { casq_checklist: checklist(prompt, false) };
+function answerFor(prompt, ctx) {
+    if (prompt.includes('Du bist Agent 3b')) return { casq_checklist: checklist(prompt, false, ctx) };
     if (prompt.includes('Du bist Agent 4b')) return { validated_casq_checklist: checklist(prompt, true) };
     if (prompt.includes('Du bist Agent 2')) return {
         document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Randomised controlled trial',
@@ -61,7 +70,7 @@ function answerFor(prompt) {
     };
     if (prompt.includes('Du bist Agent 3')) return {
         document_type_confirmed: 'primary_empirical_study',
-        established_appraisal: { instrument: 'PEDro Scale', applicable: true, applicability_reason: 'Physiotherapie-RCT', items: pedroItems },
+        established_appraisal: { instrument: 'PEDro Scale', applicable: true, applicability_reason: 'Physiotherapie-RCT', items: pedroItemsFor(ctx) },
         framework_appraisal: { primary_framework: 'none' },
         ...(checklistIds(prompt).length ? { casq_checklist: checklist(prompt, false) }
             : { dimensions: quantitativeDims.map(([name, , score, status]) => ({ name, score, weight: 11, status: status === 'not_applicable' ? 'not_applicable' : 'applicable' })) }),
@@ -97,7 +106,8 @@ function answerFor(prompt) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { vision: true, jsonSchema: true, requireKey: null };
+    const state = { vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const temps = [];            // Agent und Temperatur je Aufruf
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
         const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' };
@@ -129,12 +139,15 @@ function startMockLLM(port) {
             if (!isProbe) formats.push(format);
             if (!isProbe) calls.push(prompt);
             if (images && !isProbe) imageCalls.push({ agent: (prompt.match(/Du bist Agent (\d)/) || [])[1], images });
-            const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt));
+            const agentTag = (prompt.match(/Du bist Agent (\d+b?)/) || [])[1] || '?';
+            const index = (state.agentCalls[agentTag] = (state.agentCalls[agentTag] ?? -1) + 1);
+            if (!isProbe) temps.push({ agent: agentTag, temperature: payload.temperature });
+            const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt, { temperature: payload.temperature, index }));
             res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } }));
         });
     });
-    return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls, imageCalls, state, formats })));
+    return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls, imageCalls, state, formats, temps })));
 }
 
 module.exports = { startMockLLM, QUOTES: Q };

@@ -6,7 +6,7 @@
 // einzelnen Agent-Schritte liegen in eigenen Object Stores und werden erst bei Bedarf gelesen.
 
 const DB_NAME = 'lit-agent';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const LEGACY_STORAGE_KEY = 'agentUsers';
 const EXPORT_FORMAT = 'lit-agent-export';
 
@@ -50,6 +50,8 @@ function openDatabase() {
             if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
             // v2: Warteschlange der noch nicht zum Spark übertragenen Änderungen
             if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'key' }).createIndex('user', 'user');
+            // v3: Referenzbewertungen von Fachleuten (z.B. PEDro-Datenbank) für den Zuverlässigkeits-Abgleich
+            if (!db.objectStoreNames.contains('references')) db.createObjectStore('references', { keyPath: 'id' }).createIndex('user', 'user');
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -247,7 +249,8 @@ async function exportUserData(user) {
     for (const run of runs) steps.push(...await getRunSteps(run.id));
     return {
         format: EXPORT_FORMAT, version: 1, exportedAt: new Date().toISOString(),
-        user, prompts: profile.prompts || {}, runs, run_steps: steps
+        user, prompts: profile.prompts || {}, runs, run_steps: steps,
+        references: (await listReferences(user)).map(({ id, user: _u, ...rest }) => rest)
     };
 }
 
@@ -286,9 +289,38 @@ async function importUserData(user, data) {
         if (step?.id && importedRuns.has(step.run)) tx.objectStore('run_steps').put(step);
     }
     await transactionDone(tx);
+    let referenceCount = 0;
+    const existingRefs = new Set((await listReferences(user)).map(r => r.key));
+    for (const ref of data.references || []) {
+        if (!ref?.key || existingRefs.has(ref.key)) continue;
+        await putReference(user, ref);
+        referenceCount++;
+    }
     await enqueueChanges(user, [...importedRuns].flatMap(id => [['run', id], ['run_steps', id]]));
     if (typeof enqueueProfileState === 'function') await enqueueProfileState(user);
-    return { runs: runCount, prompts: promptCount };
+    return { runs: runCount, prompts: promptCount, references: referenceCount };
+}
+
+// ==========================================
+// REFERENZBEWERTUNGEN (Experten) – nur lokal, Teil von Export/Import
+// ==========================================
+async function listReferences(user) {
+    if (!storageAvailable || !idb) return [];
+    return requestToPromise(idb.transaction('references').objectStore('references').index('user').getAll(user));
+}
+
+async function putReference(user, ref) {
+    if (!storageAvailable || !idb || !ref?.key) return;
+    const tx = idb.transaction('references', 'readwrite');
+    tx.objectStore('references').put({ ...ref, id: `${user}|${ref.key}`, user, updatedAt: new Date().toISOString() });
+    await transactionDone(tx);
+}
+
+async function deleteReference(user, key) {
+    if (!storageAvailable || !idb) return;
+    const tx = idb.transaction('references', 'readwrite');
+    tx.objectStore('references').delete(`${user}|${key}`);
+    await transactionDone(tx);
 }
 
 async function storageEstimate() {

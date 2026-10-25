@@ -80,6 +80,10 @@ async function startWorkflow() {
     if (selectedFiles.length === 0) { alert("Bitte lade zuerst PDFs hoch!"); return; }
 
     PROMPT_TYPES.forEach(type => savePrompt(type));
+    // Mehrfachbewertung: Anzahl Durchläufe von Agent 3 und 3b und deren Temperatur (bei 0 wären alle Läufe gleich)
+    const repeatRuns = Math.max(1, Math.min(7, parseInt(document.getElementById('opt-repeat-runs').value, 10) || 1));
+    const repeatTempInput = parseFloat(document.getElementById('opt-repeat-temperature').value);
+    const runTemperature = Number.isFinite(repeatTempInput) ? Math.max(0, Math.min(1.5, repeatTempInput)) : 0.4;
     const integrityOptions = {
         computed: document.getElementById('opt-integrity-computed').checked,
         online: document.getElementById('opt-integrity-online').checked,
@@ -194,19 +198,64 @@ async function startWorkflow() {
                 const rubricKey = selectCASQRubric(ext);
                 const casqFields = { CASQ_RUBRIC: `${CASQ_RUBRICS[rubricKey].label} (${rubricKey})`, CASQ_CHECKLIST: casqChecklistText(rubricKey) };
                 const prompt = fillTemplate(analysisPromptBase, { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
-                const appraisal = parseJSONRobust(await callLLM(prompt, { agent: 'analysis', doc: doc.title, promptVersionId: promptVersionIds.analysis, schema: agentSchema('analysis') }));
+                const casqPrompt = fillTemplate(getCurrentPrompt('casq'), { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
+
+                // Mehrfachbewertung: Agent 3 und 3b laufen repeatRuns-mal (mit der eingestellten Wiederholungs-Temperatur);
+                // je Frage entscheidet die Mehrheit. Ein einzelner fehlgeschlagener Durchlauf wird übersprungen.
+                const analysisRuns = [], casqRuns = [];
+                let analysisError = null;
+                for (let run = 1; run <= repeatRuns; run++) {
+                    const runInfo = repeatRuns > 1 ? { run, temperature: runTemperature } : {};
+                    try {
+                        if (repeatRuns > 1) log(`Critical Appraisal (Agent 3) – Durchlauf ${run}/${repeatRuns}: ${doc.title}`, 'info');
+                        analysisRuns.push(parseJSONRobust(await callLLM(prompt, { agent: 'analysis', doc: doc.title, promptVersionId: promptVersionIds.analysis, schema: agentSchema('analysis'), ...runInfo })));
+                    } catch (err) {
+                        analysisError = err;
+                        if (repeatRuns > 1) log(`Durchlauf ${run}/${repeatRuns} (Agent 3) fehlgeschlagen: ${err?.message || err}`, 'warning');
+                    }
+                    // Agent 3b: CASQ-Prüffragen in einem eigenen, kürzeren Aufruf. Ein Fehler hier kostet nur den CASQ.
+                    try {
+                        log(`CASQ-Prüffragen (Agent 3b)${repeatRuns > 1 ? ` – Durchlauf ${run}/${repeatRuns}` : ''}: ${doc.title} – Rubrik ${CASQ_RUBRICS[rubricKey].label}`, 'info');
+                        const casq = parseJSONRobust(await callLLM(casqPrompt, { agent: 'casq', doc: doc.title, promptVersionId: promptVersionIds.casq, schema: agentSchema('casq', { rubric: rubricKey }), ...runInfo }));
+                        if (Array.isArray(casq.casq_checklist)) casqRuns.push(casq.casq_checklist);
+                    } catch (err) {
+                        log(`CASQ-Prüffragen für ${doc.title} fehlgeschlagen: ${err?.message || err}`, 'warning');
+                    }
+                }
+                if (!analysisRuns.length) throw analysisError || new Error('Agent 3 hat keine auswertbare Antwort geliefert.');
+
+                const appraisal = analysisRuns[0];
                 appraisal.title = doc.title;
                 appraisal.casq_rubric = rubricKey;
-                // Agent 3b: CASQ-Prüffragen in einem eigenen, kürzeren Aufruf. Ein Fehler hier kostet nur den CASQ.
-                try {
-                    log(`CASQ-Prüffragen (Agent 3b): ${doc.title} – Rubrik ${CASQ_RUBRICS[rubricKey].label}`, 'info');
-                    const casqPrompt = fillTemplate(getCurrentPrompt('casq'), { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
-                    const casq = parseJSONRobust(await callLLM(casqPrompt, { agent: 'casq', doc: doc.title, promptVersionId: promptVersionIds.casq, schema: agentSchema('casq', { rubric: rubricKey }) }));
-                    if (Array.isArray(casq.casq_checklist)) appraisal.casq_checklist = casq.casq_checklist;
-                } catch (err) {
-                    log(`CASQ-Prüffragen für ${doc.title} fehlgeschlagen: ${err?.message || err}`, 'warning');
+                const reliability = repeatRuns > 1 ? { runs_requested: repeatRuns, temperature: runTemperature, analysis_runs: analysisRuns.length, casq_runs: casqRuns.length, established: null, casq: null } : null;
+
+                if (analysisRuns.length > 1) {
+                    const est = aggregateEstablishedRuns(analysisRuns.map(r => r.established_appraisal));
+                    if (est.merged) appraisal.established_appraisal = est.merged;
+                    reliability.established = {
+                        instrument: est.instrument, applicable_runs: est.applicable_runs, agreement: est.agreement, fleiss: est.fleiss, uncertain: est.uncertain,
+                        runs: analysisRuns.map(r => {
+                            const e = calculateEstablishedResult({}, { established_appraisal: r.established_appraisal }, ext);
+                            return { applicable: e.applicable, instrument: e.instrument, display: e.display, score: e.score, rating: e.rating };
+                        })
+                    };
                 }
-                appraisedDocs.push({ doc, ext, appraisal, rubricKey, casqFields });
+                if (casqRuns.length === 1) {
+                    appraisal.casq_checklist = casqRuns[0];
+                } else if (casqRuns.length > 1) {
+                    const ids = CASQ_RUBRICS[rubricKey].dimensions.flatMap(d => d.questions.map(q => q.id));
+                    const agg = aggregateChecklistRuns(casqRuns, ids, normalizeChecklistResponse);
+                    appraisal.casq_checklist = agg.merged;
+                    // CASQ je Durchlauf, mit derselben Belegprüfung gegen das PDF wie im Normalfall
+                    const perRun = casqRuns.map(list => {
+                        const copy = JSON.parse(JSON.stringify(list));
+                        verifyChecklistEvidence({}, { casq_checklist: copy }, doc.pages);
+                        return calculateCASQ2({}, { casq_checklist: copy }, rubricKey)?.score ?? null;
+                    });
+                    reliability.casq = { ...scoreSpread(perRun), agreement: agg.agreement, unanimous_share: agg.unanimous_share, fleiss: agg.fleiss, uncertain: agg.uncertain };
+                }
+                if (reliability) log(`Mehrfachbewertung ${doc.title}: CASQ ${reliability.casq?.scores?.map(v => v === null ? '–' : v.toFixed(1)).join(' / ') || 'nicht berechenbar'}; ${reliability.casq?.uncertain?.length ?? 0} unsichere Prüffrage(n).`, 'info');
+                appraisedDocs.push({ doc, ext, appraisal, rubricKey, casqFields, reliability });
             } catch (err) {
                 registerFailure(doc.title, 'Critical Appraisal', err);
             }
@@ -218,7 +267,7 @@ async function startWorkflow() {
         log('PHASE 4: Evidence Validation – prüfe Scores und Begründungen gegen Originaltext...', 'info');
         const validationPromptBase = getCurrentPrompt('validation');
         for (const item of appraisedDocs) {
-            const { doc, ext, appraisal, rubricKey, casqFields } = item;
+            const { doc, ext, appraisal, rubricKey, casqFields, reliability } = item;
             try {
                 log(`Validiere Evidenz: ${doc.title}`, 'info');
                 // Die CASQ-Antworten validiert Agent 4b separat; Agent 4 bekommt sie nicht mit.
@@ -272,6 +321,7 @@ async function startWorkflow() {
                     evidence_coverage: validation.evidence_coverage,
                     quality_label: validation.quality_label,
                     integrity,
+                    reliability,
                     source_info: sourceInfoFor(doc)
                 });
             } catch (err) {

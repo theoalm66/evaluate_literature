@@ -218,6 +218,7 @@ function renderResults(res) {
                 ${casqDetails?.version === 'casq2' ? renderCASQ2(casqDetails, r.title)
                     : dims ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">CASQ-Dimension</th><th>Score</th><th>Gewicht</th><th>Status</th><th style="text-align:left;">Begründung / Validation</th></tr></thead><tbody>${dims}</tbody></table></div>${casqNote}` : ''}
                 ${r.integrity ? renderIntegrity(r.integrity, r.title) : ''}
+                ${r.reliability ? renderReliability(r.reliability, r) : ''}
                 ${strengths ? `<div style="margin-top:.7rem;"><strong>Stärken</strong><ul style="margin-left:1.2rem;">${strengths}</ul></div>` : ''}
                 ${limits ? `<div style="margin-top:.5rem;"><strong>Kritische Limitationen</strong><ul style="margin-left:1.2rem;">${limits}</ul></div>` : ''}
                 ${va.validation_summary ? `<div style="margin-top:.5rem;"><strong>Validierung:</strong> ${escapeHTML(va.validation_summary)}</div>` : ''}
@@ -478,7 +479,7 @@ async function importHistory(fileList) {
     try {
         const result = await importUserData(currentUser, JSON.parse(await file.text()));
         loadPromptsToUI();
-        alert(`Import abgeschlossen: ${result.runs} Lauf/Läufe und ${result.prompts} Prompt-Version(en) übernommen.`);
+        alert(`Import abgeschlossen: ${result.runs} Lauf/Läufe, ${result.prompts} Prompt-Version(en) und ${result.references} Referenzbewertung(en) übernommen.`);
         loadHistory();
     } catch (err) {
         alert(`Import fehlgeschlagen: ${err?.message || err}`);

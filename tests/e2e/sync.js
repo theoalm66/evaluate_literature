@@ -197,6 +197,61 @@ const runCount = (page, user) => page.evaluate(u => listRuns(u).then(r => r.leng
         assert.equal(sparkRun, 'Spark-Modell (Standard)');
         console.log('✓ Analyse mit dem Spark-Modell über die Server-Weiterleitung');
 
+        // 8) Mehrfachbewertung mit 3 Durchläufen: Agent 3 und 3b dreimal (mit Wiederholungs-Temperatur), Rest einmal
+        await D.page.click('nav button[data-tab="dashboard"]');
+        await D.page.selectOption('#opt-repeat-runs', '3');
+        await D.page.fill('#opt-repeat-temperature', '0.4');
+        await D.page.dispatchEvent('#opt-repeat-temperature', 'change');
+        const callsBefore8 = llm.calls.length, tempsBefore8 = llm.temps.length;
+        await analyse(D.page, pdfFile);
+        assert.equal(llm.calls.length - callsBefore8, 11, 'erwartet 11 Aufrufe (Agent 2, 3×3, 3b×3, 4, 4b, 6, 5)');
+        const temps8 = llm.temps.slice(tempsBefore8);
+        const repeated = temps8.filter(t => t.agent === '3' || t.agent === '3b');
+        assert.equal(repeated.length, 6);
+        assert.ok(repeated.every(t => t.temperature === 0.4), 'Agent 3/3b nicht mit der Wiederholungs-Temperatur');
+        assert.ok(temps8.filter(t => !['3', '3b'].includes(t.agent)).every(t => t.temperature === 0), 'andere Agenten dürfen die Temperatur nicht ändern');
+        const rel = await D.page.textContent('#res-studies');
+        assert.ok(rel.includes('MEHRFACHBEWERTUNG · 3 Durchläufe'), 'Mehrfachbewertung fehlt in der Ansicht');
+        assert.ok(rel.includes('Unsichere Antworten (2)'), 'erwartet 2 unsichere Antworten (QN-2.1 und PEDro-Item 4)');
+        assert.ok(rel.includes('Fleiss-κ') && rel.includes('Median'), 'Kennzahlen fehlen');
+        const relData = await D.page.evaluate(async () => { const st = (await collectStudiesForReliability('dora'))[0]; return st.reliability; });
+        assert.equal(relData.casq.scores.length, 3);
+        assert.ok(relData.casq.scores[0] !== null && new Set(relData.casq.scores).size === 2, 'ein Durchlauf müsste abweichen: ' + relData.casq.scores);
+        assert.deepEqual(relData.casq.uncertain.map(u => u.id), ['QN-2.1']);
+        assert.equal(relData.casq.uncertain[0].chosen, 'yes', 'Mehrheit gewinnt');
+        assert.deepEqual(relData.established.uncertain.map(u => u.item_id), ['4']);
+        assert.equal(relData.established.runs.length, 3);
+        console.log('✓ Mehrfachbewertung: 3 Durchläufe, CASQ je Durchlauf', relData.casq.scores.map(v => v.toFixed(1)).join(' / '), '– unsicher: QN-2.1, PEDro-Item 4');
+
+        // 9) Tab "Zuverlässigkeit": Referenzen per CSV importieren, Abgleich, manuelle Eingabe, Vorlage, Export
+        await D.page.click('nav button[data-tab="reliability"]');
+        await D.page.waitForSelector('#ref-table tr[data-key]');
+        const csvFile = path.join(tmp, 'experten.csv');
+        fs.writeFileSync(csvFile, [
+            'dokument;doi;pedro_gesamt;pedro_2;pedro_3;pedro_4;pedro_5;pedro_6;pedro_7;pedro_8;pedro_9;pedro_10;pedro_11;amstar2;casq_experte',
+            'studie.pdf;;6;ja;ja;ja;nein;nein;nein;ja;ja;ja;nein;;8',
+            'fehlt.pdf;;5;;;;;;;;;;;;'
+        ].join('\r\n'));
+        await D.page.setInputFiles('#ref-csv-input', csvFile);
+        await D.page.waitForFunction(() => document.getElementById('ref-message').textContent.includes('2 Referenz(en) übernommen, davon 1'));
+        await D.page.waitForSelector('#agreement-results .integ-box');
+        const agree = await D.page.textContent('#agreement-results');
+        assert.ok(agree.includes('PEDro-Gesamtwert (0–10)') && agree.includes('n = 1 Dokumente'), 'PEDro-Abgleich fehlt');
+        assert.ok(agree.includes('2.00 Punkte') && agree.includes('-2.00'), 'Abweichung/Bias falsch: ' + agree.slice(0, 400));
+        assert.ok(agree.includes('80 %'), 'Item-Übereinstimmung 8 von 10 erwartet');
+        assert.ok(agree.includes('Weniger als 5 Dokumente'), 'Warnung bei kleiner Stichprobe fehlt');
+        assert.ok(agree.includes('CASQ (interner Index, Experten-CASQ)'), 'CASQ-Abgleich fehlt');
+        assert.ok((await D.page.textContent('#ref-table')).includes('1 Referenz(en) ohne analysiertes Dokument: fehlt.pdf'), 'Waise nicht gemeldet');
+        await D.page.fill('#ref-table tr[data-key] [data-field="casq"]', '8.5');
+        await D.page.waitForFunction(async () => (await listReferences('dora')).find(r => r.key === 'studie')?.casq === 8.5);
+        const [tpl] = await Promise.all([D.page.waitForEvent('download'), D.page.click('#tab-reliability button:has-text("Vorlage laden")')]);
+        const tplText = fs.readFileSync(await tpl.path(), 'utf8');
+        assert.ok(tplText.includes('dokument;doi;pedro_gesamt') && tplText.includes('studie.pdf'), 'Vorlage unvollständig');
+        const exported2 = await D.page.evaluate(async () => (await exportUserData('dora')).references.map(r => r.key).sort());
+        assert.deepEqual(exported2, ['fehlt', 'studie']);
+        assert.ok((await D.page.textContent('#repeat-results')).includes('Ø Übereinstimmung der Prüffragen'), 'Stabilitätstabelle fehlt');
+        console.log('✓ Zuverlässigkeit: CSV-Import, PEDro-Abgleich (Abweichung 2.00, Items 80 %), manuelle Eingabe, Vorlage, Export');
+
         assert.deepEqual(errors, [], 'Fehler in der Browser-Konsole');
         ok = true;
     } catch (err) {

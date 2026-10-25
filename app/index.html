@@ -49,6 +49,7 @@
                 <button data-tab="config" onclick="switchTab('config')">⚙️ Konfiguration</button>
                 <button data-tab="info" onclick="switchTab('info')">Prompts & Info</button>
                 <button data-tab="history" onclick="switchTab('history'); loadHistory();">Historie</button>
+                <button data-tab="reliability" onclick="switchTab('reliability'); loadReliability();">Zuverlässigkeit</button>
             </nav>
             <div class="user-controls">
                 <span id="sync-status" class="sync-status"></span>
@@ -72,6 +73,18 @@
                     </div>
                     <div class="file-list" id="file-list">Keine Dateien ausgewählt.</div>
 
+                    <div class="run-options">
+                        <div class="run-options-title">Mehrfachbewertung (Zuverlässigkeit)</div>
+                        <label>Durchläufe je PDF für Agent 3 und 3b
+                            <select id="opt-repeat-runs" onchange="saveUserKeys()">
+                                <option value="1">1 – einmal (Standard)</option>
+                                <option value="3">3 – Mehrheitsentscheid</option>
+                                <option value="5">5 – Mehrheitsentscheid</option>
+                            </select>
+                        </label>
+                        <label>Temperatur der Durchläufe <input type="number" id="opt-repeat-temperature" min="0" max="1.5" step="0.1" value="0.4" style="width:5rem;" onchange="saveUserKeys()"></label>
+                        <div class="vision-hint">Bei mehreren Durchläufen entscheidet je Frage die Mehrheit; unsichere Fragen werden ausgewiesen. Kostet 2 zusätzliche Modellaufrufe je Durchlauf und PDF. Bei Temperatur 0 wären alle Durchläufe gleich.</div>
+                    </div>
                     <div class="run-options">
                         <div class="run-options-title">Tabellen und Abbildungen</div>
                         <label><input type="checkbox" id="opt-vision" onchange="saveUserKeys(); updateVisionHint();"> 🖼️ zusätzlich als Bild an das LLM (nur wenn das Modell Bilder verarbeitet)</label>
@@ -564,6 +577,33 @@
             </div>
         </div>
 
+        <!-- TAB: ZUVERLÄSSIGKEIT -->
+        <div id="tab-reliability" class="container">
+            <div class="full-center">
+                <div class="card" style="width: 100%; max-width: 1100px;">
+                    <h2 style="font-size: 1.4rem;">📏 Zuverlässigkeit der Bewertungen</h2>
+                    <p style="font-size:.9rem;margin-bottom:.75rem;">Wie gut stimmen die Bewertungen der App mit Fachleuten überein, und wie stabil sind sie bei Wiederholung? Die Übereinstimmung wird je Modell berechnet (jeweils der letzte Lauf je Dokument), damit sich Modelle vergleichen lassen.</p>
+
+                    <h3 style="margin:1rem 0 .4rem;">1 · Expertenbewertungen (Referenz)</h3>
+                    <p class="provider-info">Tragen Sie für analysierte Dokumente die Bewertung von Fachleuten ein, z.B. PEDro-Werte aus der PEDro-Datenbank (pedro.org.au) oder Ihre eigene Doppelbewertung. Viele Dokumente lassen sich per CSV übernehmen: <em>Vorlage laden</em>, ausfüllen (Spalten: dokument, doi, pedro_gesamt, pedro_2 … pedro_11 mit ja/nein, amstar2, casq_experte), <em>CSV importieren</em>. Dokumente werden über den Dateinamen (oder die DOI) zugeordnet. Referenzen bleiben auf diesem Gerät und sind Teil von Export/Import.</p>
+                    <div class="history-toolbar">
+                        <button class="btn btn-secondary btn-small" onclick="downloadReferenceTemplate()">⬇️ Vorlage laden (CSV)</button>
+                        <button class="btn btn-secondary btn-small" onclick="document.getElementById('ref-csv-input').click()">⬆️ CSV importieren</button>
+                        <input type="file" id="ref-csv-input" accept=".csv,text/csv,text/plain" style="display:none;" onchange="importReferenceCsv(this.files)">
+                    </div>
+                    <div id="ref-message" class="model-search-status"></div>
+                    <div id="ref-table"></div>
+
+                    <h3 style="margin:1.5rem 0 .4rem;">2 · Übereinstimmung der App mit den Experten</h3>
+                    <p class="provider-info">Zahlen (PEDro-Summe, CASQ): Abweichung, systematische Verschiebung, Korrelation und ICC(2,1) (absolute Übereinstimmung). Kategorien (PEDro-Items, AMSTAR 2): Cohens κ, bei AMSTAR 2 linear gewichtet. Intervalle per Bootstrap. Faustregeln: κ ≤ 0,40 mäßig, 0,41–0,60 moderat, 0,61–0,80 substanziell, &gt; 0,80 nahezu perfekt; ICC &lt; 0,5 schlecht, 0,5–0,75 mäßig, 0,75–0,9 gut, &gt; 0,9 ausgezeichnet.</p>
+                    <div id="agreement-results"></div>
+
+                    <h3 style="margin:1.5rem 0 .4rem;">3 · Stabilität bei Mehrfachbewertung</h3>
+                    <div id="repeat-results"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- TAB: HISTORIE -->
         <div id="tab-history" class="container">
             <div class="card text-content" style="width: 100%;">
@@ -604,6 +644,8 @@
     <script src="js/crypto.js"></script>
     <script src="js/sync.js"></script>
     <script src="js/providers.js"></script>
+    <script src="js/reliability.js"></script>
+    <script src="js/reliability-ui.js"></script>
     <script src="js/profile.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/llm.js"></script>

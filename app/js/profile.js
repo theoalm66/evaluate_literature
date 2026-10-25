@@ -281,6 +281,8 @@ async function applyProfileSettingsToUI(profile) {
     el('opt-integrity-online').checked = keys.integrityOnline !== false;
     el('opt-integrity-llm').checked = keys.integrityLLM !== false;
     el('opt-vision').checked = keys.visionEnabled !== false;
+    el('opt-repeat-runs').value = String(keys.repeatRuns || 1);
+    el('opt-repeat-temperature').value = keys.repeatTemperature ?? 0.4;
     updateVisionHint();
     el('spark-thinking').checked = keys.sparkThinking || false;
 
@@ -421,6 +423,8 @@ async function persistUserKeys() {
     keys.integrityOnline = el('opt-integrity-online').checked;
     keys.integrityLLM = el('opt-integrity-llm').checked;
     keys.visionEnabled = el('opt-vision').checked;
+    keys.repeatRuns = parseInt(el('opt-repeat-runs').value, 10) || 1;
+    keys.repeatTemperature = Number.isFinite(parseFloat(el('opt-repeat-temperature').value)) ? parseFloat(el('opt-repeat-temperature').value) : 0.4;
 
     keys.maxEvidence = parseInt(el('max-evidence-chars').value, 10) || 50000;
     keys.maxTokens = parseInt(el('max-output-tokens').value, 10) || 8192;

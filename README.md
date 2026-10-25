@@ -136,6 +136,22 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   https oder localhost – über eine reine http-Adresse bleibt es beim alten Verfahren (die App zeigt das an), und ein
   bereits umgestelltes Profil lässt sich dort nicht öffnen.
 
+**Zuverlässigkeit messen** (`app/js/reliability.js`, `reliability-ui.js`, Tab „Zuverlässigkeit“)
+- **Mehrfachbewertung:** Auf dem Dashboard „Durchläufe je PDF“ auf 3 oder 5 stellen. Agent 3 und 3b laufen dann mehrfach
+  (mit eigener Temperatur, Standard 0,4 – bei 0 wären alle Durchläufe gleich); je Frage und je Instrument-Item entscheidet
+  die Mehrheit (bei Gleichstand die vorsichtigere Antwort), Agent 4/4b validieren das Ergebnis einmal. Je PDF steht dort:
+  CASQ je Durchlauf mit Median, Spanne und SD, Übereinstimmung der Prüffragen (Anteil, Fleiss-κ), das Instrument-Ergebnis
+  je Durchlauf und die **unsicheren Fragen**, bei denen sich die Durchläufe nicht einig waren. Kosten: 2 Modellaufrufe je
+  zusätzlichem Durchlauf und PDF.
+- **Abgleich mit Expertenbewertungen:** Im Tab Referenzen eintragen (PEDro-Gesamtwert, AMSTAR 2, CASQ) oder per CSV
+  importieren (*Vorlage laden* liefert die Spalten und Ihre Dokumente; zusätzlich PEDro-Items 2–11 als ja/nein; Zuordnung
+  über Dateiname oder DOI), z.B. aus der PEDro-Datenbank (pedro.org.au) oder aus einer eigenen Doppelbewertung.
+  Ausgewertet wird **je Modell** (jeweils der letzte Lauf je Dokument), damit sich Modelle vergleichen lassen:
+  PEDro-Summe und CASQ: mittlere Abweichung, systematische Verschiebung, Korrelation, ICC(2,1), Übereinstimmungsgrenzen;
+  PEDro-Items und AMSTAR 2: Übereinstimmung, Cohens κ (AMSTAR 2 linear gewichtet), PABAK; Intervalle per Bootstrap.
+  Unter 5 Dokumenten warnt die App; für eine belastbare Aussage werden 30–50 doppelt bewertete Dokumente empfohlen.
+  Referenzen bleiben auf dem Gerät (nicht synchronisiert), sind aber Teil von Export/Import.
+
 **Strukturierte JSON-Ausgabe, ein Instrument je Aufruf** (`app/js/schemas.js`)
 - Jeder Agent schickt ein JSON-Schema als `response_format: json_schema` mit (strikter Modus: alle Felder Pflicht,
   feste Werte für Entscheidungsfelder, bei den CASQ-Prüffragen nur die IDs der gewählten Rubrik). vLLM, OpenAI und
