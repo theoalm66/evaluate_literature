@@ -233,11 +233,16 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(await hsChat(), 'Testsynthese.');
         assert.equal(llm.state.streamed.length, beforeStream + 1, 'Antwort kam nicht als Datenstrom');
         console.log('✓ Hochschul-API: Antwort als Datenstrom gelesen (reasoning-Teile ignoriert)');
-        llm.state.failSchema500 = 1;
+        llm.state.failSchema500 = 2;   // erster Versuch und identische Wiederholung scheitern, erst dann ohne Schema
         const formatsBefore = llm.formats.length;
         assert.equal(await hsChat(), 'Testsynthese.');
         assert.deepEqual(llm.formats.slice(formatsBefore), ['none'], 'Wiederholung ohne Schema fehlt');
         console.log('✓ Serverfehler 500 mit JSON-Schema: automatischer neuer Versuch ohne Schema');
+        llm.state.failSchema500 = 1;   // ein zufälliger Sofort-500er: derselbe Aufruf wird einfach wiederholt, das Schema bleibt
+        const formatsBefore2 = llm.formats.length;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.deepEqual(llm.formats.slice(formatsBefore2), ['json_schema'], 'erste Wiederholung muss unverändert sein');
+        console.log('✓ Einzelner Sofort-500er: unveränderte Wiederholung gelingt, Schema bleibt erhalten');
         llm.state.rejectStream = true;
         assert.equal(await hsChat(), 'Testsynthese.');
         llm.state.rejectStream = false;

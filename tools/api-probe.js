@@ -69,7 +69,7 @@ function buildDocument(args) {
 // ---------- Anfrage ----------
 // Liefert Zeiten bis zu den Antwortköpfen, bis zum ersten Datenteil und bis zum Ende, plus Fehler und Inhalt.
 async function request(cfg, body, { stream = false, timeoutMs = cfg.timeoutMs, method = 'POST', endpoint = '/chat/completions' } = {}) {
-    const result = { ok: false, status: null, headersMs: null, firstChunkMs: null, totalMs: null, chunks: 0, bytes: 0, error: null, content: '', usage: null, model: null };
+    const result = { ok: false, status: null, headersMs: null, firstChunkMs: null, totalMs: null, chunks: 0, bytes: 0, error: null, content: '', reasoning: 0, finish: null, usage: null, model: null };
     const started = performance.now();
     try {
         const res = await fetch(cfg.url + endpoint, {
@@ -97,7 +97,10 @@ async function request(cfg, body, { stream = false, timeoutMs = cfg.timeoutMs, m
         if (endpoint === '/models') { result.ok = true; result.content = raw; return result; }
         if (raw.trimStart().startsWith('{')) {
             const json = JSON.parse(raw);
-            result.content = json.choices?.[0]?.message?.content ?? '';
+            const message = json.choices?.[0]?.message || {};
+            result.content = message.content ?? '';
+            result.reasoning = String(message.reasoning_content ?? message.reasoning ?? '').length;
+            result.finish = json.choices?.[0]?.finish_reason ?? null;
             result.usage = json.usage || null;
             result.model = json.model || null;
         } else {
@@ -107,7 +110,10 @@ async function request(cfg, body, { stream = false, timeoutMs = cfg.timeoutMs, m
                 if (!payload || payload === '[DONE]') continue;
                 try {
                     const chunk = JSON.parse(payload);
-                    result.content += chunk.choices?.[0]?.delta?.content || '';
+                    const delta = chunk.choices?.[0]?.delta || {};
+                    result.content += delta.content || '';
+                    result.reasoning += String(delta.reasoning_content ?? delta.reasoning ?? '').length;
+                    if (chunk.choices?.[0]?.finish_reason) result.finish = chunk.choices[0].finish_reason;
                     if (chunk.usage) result.usage = chunk.usage;
                     if (chunk.model) result.model = chunk.model;
                 } catch (e) { /* unvollständige Zeile */ }
@@ -119,6 +125,13 @@ async function request(cfg, body, { stream = false, timeoutMs = cfg.timeoutMs, m
         result.error = err?.name === 'TimeoutError' ? `keine vollständige Antwort nach ${Math.round(timeoutMs / 1000)} s (Zeitlimit der Probe)` : `${err?.cause?.code || err?.name || 'Fehler'}: ${err?.message || err}`;
     }
     return result;
+}
+
+function jsonValid(text) {
+    const t = String(text || '');
+    const a = t.indexOf('{'), b = t.lastIndexOf('}');
+    if (a < 0 || b < a) return false;
+    try { JSON.parse(t.slice(a, b + 1)); return true; } catch (e) { return false; }
 }
 
 function chatBody(cfg, userContent, extra = {}) {
@@ -192,6 +205,7 @@ async function runProbe(args, log = console.log) {
                 const flag = r.ok ? 'ok ' : 'FEHLER';
                 const tokens = r.usage?.completion_tokens;
                 log(`   ${flag} gesamt ${fmt(r.totalMs)}, Antwortkopf ${fmt(r.headersMs)}, erstes Datenstück ${fmt(r.firstChunkMs)}, ${r.chunks} Stücke${tokens ? `, ${tokens} Token (${(tokens / (r.totalMs / 1000)).toFixed(0)}/s)` : ''}${r.error ? `\n      ${r.error}` : ''}`);
+                if (r.ok && probe.id !== 'models') log(`      Antwort: ${r.content.length} Zeichen, JSON ${jsonValid(r.content) ? 'gültig' : 'UNGÜLTIG oder abgeschnitten'}, Reasoning ${r.reasoning} Zeichen, Abschluss: ${r.finish || 'unbekannt'}`);
             }
             if (pauseMs && i < repeat - 1) await sleep(pauseMs);
         }
@@ -200,7 +214,7 @@ async function runProbe(args, log = console.log) {
             id: probe.id, title: probe.title, runs: runs.length, failures: runs.filter(r => !r.ok).length,
             medianMs: median(okTimes), minMs: okTimes.length ? Math.min(...okTimes) : null, maxMs: okTimes.length ? Math.max(...okTimes) : null,
             details: runs.map(r => ({ ok: r.ok, status: r.status, totalMs: Math.round(r.totalMs), headersMs: r.headersMs && Math.round(r.headersMs), firstChunkMs: r.firstChunkMs && Math.round(r.firstChunkMs),
-                chunks: r.chunks, bytes: r.bytes, contentType: r.contentType, completionTokens: r.usage?.completion_tokens ?? null, error: r.error, sample: probe.id === 'models' ? undefined : r.content.slice(0, 160) }))
+                chunks: r.chunks, bytes: r.bytes, contentType: r.contentType, finish: r.finish, contentChars: r.content.length, reasoningChars: r.reasoning, jsonValid: probe.id === 'models' ? undefined : jsonValid(r.content), completionTokens: r.usage?.completion_tokens ?? null, error: r.error, sample: probe.id === 'models' ? undefined : r.content.slice(0, 160) }))
         });
         log('');
         if (pauseMs) await sleep(pauseMs);
@@ -240,6 +254,11 @@ function interpret(report) {
                 : `Streaming (${id}): Daten kommen fortlaufend an. Streaming funktioniert und kann Zeitlimits entschärfen.`);
         }
     }
+    const answered = report.probes.filter(p => p.id !== 'models').flatMap(p => p.details).filter(d => d.ok);
+    const cut = answered.filter(d => d.finish === 'length');
+    if (cut.length) f.push(`${cut.length} Antwort(en) wurden an der Token-Grenze abgeschnitten (Abschluss „length“). Mit Reasoning verbraucht das Modell einen Teil des Budgets zum Denken.`);
+    const thinking = answered.filter(d => d.reasoningChars > 0);
+    if (thinking.length) f.push(`${thinking.length} Antwort(en) enthalten Reasoning-Text (im Mittel ${Math.round(thinking.reduce((a, d) => a + d.reasoningChars, 0) / thinking.length)} Zeichen): Das Modell denkt vor der Antwort, das kostet Zeit und Token.`);
     const speed = by('speed');
     const tok = speed?.details.find(d => d.ok && d.completionTokens);
     if (tok) f.push(`Erzeugungstempo: etwa ${(tok.completionTokens / (tok.totalMs / 1000)).toFixed(0)} Token/s. Für ${(5 * 60 * (tok.completionTokens / (tok.totalMs / 1000))).toFixed(0)} Token Ausgabe in 5 Minuten.`);

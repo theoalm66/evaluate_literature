@@ -561,6 +561,12 @@ async function callLLM(prompt, meta = {}) {
         // Serverfehler (500/502/503/504) oder Überlastung (429): erst ohne Schema, dann mit Wartezeit erneut versuchen.
         if (RETRYABLE_STATUS.includes(response.status) && attempt < MAX_SEND_ATTEMPTS) {
             const errText = (await response.clone().text()).slice(0, 200);
+            // Erst derselbe Aufruf noch einmal: Bei manchen Gateways scheitert ein Teil der Anfragen zufällig und sofort (defekter Knoten).
+            if (attempt === 1) {
+                log(`Modell-Server meldet ${response.status} (${errText || 'ohne Text'}) – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}.`, 'warning');
+                await sleepMs(1000);
+                continue;
+            }
             if (payload.response_format?.type === 'json_schema' && !schemaFallbackUsed) {
                 schemaFallbackUsed = true;
                 applyJsonObjectMode();
