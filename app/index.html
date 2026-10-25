@@ -94,7 +94,7 @@
                     <div class="run-options">
                         <div class="run-options-title">Langsame Modelle / Zeitlimit des Servers</div>
                         <label><input type="checkbox" id="opt-compact" onchange="saveUserKeys()"> Kurze Antworten (Belege und Begründungen knapp halten)</label>
-                        <label><input type="checkbox" id="opt-no-reasoning" onchange="saveUserKeys()"> Reasoning des Modells abschalten (sendet <code>chat_template_kwargs</code>; bei Ablehnung automatisch ohne)</label>
+                        <label><input type="checkbox" id="opt-no-reasoning" onchange="saveUserKeys()"> Reasoning des Modells abschalten (nur für Spark, Hochschul-API und eigene Endpunkte; sendet <code>chat_template_kwargs</code>, bei Ablehnung automatisch ohne; OpenAI/Gemini ausgenommen)</label>
                         <div class="vision-hint">Manche Server (z.B. die Hochschul-API) trennen die Verbindung nach 5 Minuten, auch bei Streaming. Dann muss eine Antwort in dieser Zeit fertig werden: kurze Antworten, kein Reasoning, keine Seitenbilder und weniger Text helfen.</div>
                     </div>
                     <div class="run-options">

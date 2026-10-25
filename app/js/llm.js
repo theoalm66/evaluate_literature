@@ -455,7 +455,7 @@ async function callLLM(prompt, meta = {}) {
     }
 
     const reasoningKey = `${provider}|${model || ''}`;
-    if (document.getElementById('opt-no-reasoning')?.checked && !isThinkingAllowed && reasoningParamSupport[reasoningKey] !== 'no') {
+    if (document.getElementById('opt-no-reasoning')?.checked && (isUrlProvider(provider) || provider === 'spark') && !isThinkingAllowed && reasoningParamSupport[reasoningKey] !== 'no') {
         payload.chat_template_kwargs = { enable_thinking: false };
     }
     const streamKey = `${provider}|${model || ''}`;
