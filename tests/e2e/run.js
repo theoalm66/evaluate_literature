@@ -164,6 +164,7 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(study.includes('CASQ (INTERNER INDEX) · Quantitativ'), 'Rubrik fehlt');
         assert.ok(study.includes('Methodische Grundlage der Prüffragen') && study.includes('kein offizieller Score'), 'Grundlage/Kennzeichnung als interner Index fehlt');
         assert.ok(study.includes('kein Zitat im PDF gefunden'), 'Herabstufung ohne Beleg nicht angezeigt');
+        assert.ok(study.includes('Warum dieser Wert?') && study.includes('Schwächste Dimensionen'), 'Erklärung zum CASQ-Wert fehlt');
         assert.ok(study.includes('Prüffragen (27)'), 'Prüffragen-Tabelle fehlt');
         const analysisPrompt = llm.calls.find(c => c.includes('Du bist Agent 3b'));
         assert.ok(analysisPrompt.includes('QN-2.2 [Design appropriateness]') && !analysisPrompt.includes('{{CASQ_CHECKLIST}}'), 'Prüffragen nicht im Prompt');
