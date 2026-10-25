@@ -68,7 +68,7 @@ function answerFor(prompt, ctx) {
     };
     if (prompt.includes('Du bist Agent 2') && ctx.domain === 'business') return {
         document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Cross-sectional online survey', method_class: 'survey_sem',
-        research_domain: 'Business / Marketing', clinical_context: { is_health_clinical: false, is_physiotherapy_rehabilitation: false, is_comparative: false, is_intervention_study: false },
+        research_domain: 'Business / Marketing', publication_venue: 'Journal of Marketing', clinical_context: { is_health_clinical: false, is_physiotherapy_rehabilitation: false, is_comparative: false, is_intervention_study: false },
         evidence_locations: [{ claim: 'Fragestellung', section: 'Introduction', page: 9, quote: Q.rq }],
         research_question: { value: 'Beeinflusst Social-Media-Werbung die Kaufabsicht?' },
         sample: { n: '412', population: 'Online-Käufer' }, methods: ['PLS-SEM'], main_results: [{ result: 'Pfad signifikant' }]

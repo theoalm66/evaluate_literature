@@ -121,6 +121,7 @@ async function startWorkflow() {
     PROMPT_TYPES.forEach(type => savePrompt(type));
     // Mehrfachbewertung: Anzahl Durchläufe von Agent 3 und 3b und deren Temperatur (bei 0 wären alle Läufe gleich)
     const splitExtraction = !!document.getElementById('opt-split-extraction')?.checked;
+    const journalList = (await loadJournals()).rows;
     const allowMedical = !!document.getElementById('opt-medical-instruments')?.checked;
     const repeatRuns = Math.max(1, Math.min(7, parseInt(document.getElementById('opt-repeat-runs').value, 10) || 1));
     const repeatTempInput = parseFloat(document.getElementById('opt-repeat-temperature').value);
@@ -365,12 +366,14 @@ async function startWorkflow() {
                     validation.quality_label = qualityLabel(validation.casq_score, calc.coverage);
                 }
                 const integrity = await runIntegrityChecks(doc, ext, integrityOptions, promptVersionIds.integrity);
+                const journal_context = journalContextForDoc(journalList, doc, ext, integrity);
                 studyResults.push({
                     title: doc.title, extraction: ext, appraisal, validation,
                     casq_score: validation.casq_score,
                     evidence_coverage: validation.evidence_coverage,
                     quality_label: validation.quality_label,
                     integrity,
+                    journal_context,
                     reliability,
                     source_info: sourceInfoFor(doc)
                 });

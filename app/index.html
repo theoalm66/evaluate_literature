@@ -185,6 +185,19 @@
         <div id="tab-config" class="container">
             <div class="full-center">
                 <div class="card" style="width: 100%; max-width: 650px; margin-bottom: 1.5rem;">
+                    <h2 style="font-size: 1.25rem; border: none; margin-bottom: .5rem;">📚 Zeitschriftenkontext</h2>
+                    <p class="provider-info">Zu jeder Auswertung zeigt die App, in welcher Zeitschrift die Arbeit erschienen ist, samt VHB-Rating, ABDC, FT50 und SJR – als <strong>reine Zusatzinformation, die nie in den CASQ eingeht</strong>. Die App kennt keine Ratings: Importieren Sie eine CSV, die Sie aus den offiziellen Listen befüllen (VHB Publication Media Rating 2024, ABDC Journal Quality List 2025, FT50, SJR). Spalten: zeitschrift, issn, issn_2, vhb, abdc, ft50 (ja/nein), sjr, sjr_quartil, bemerkung. Zugeordnet wird über die ISSN, sonst über den Namen. Die Liste bleibt in diesem Browser und ist Teil von Export/Import.</p>
+                    <div class="history-toolbar">
+                        <button class="btn btn-secondary btn-small" onclick="downloadJournalTemplate()">⬇️ Vorlage laden (CSV)</button>
+                        <button class="btn btn-secondary btn-small" onclick="document.getElementById('journal-csv-input').click()">⬆️ Liste importieren</button>
+                        <button class="btn btn-secondary btn-small" onclick="clearJournals()">🗑️ Liste löschen</button>
+                        <input type="file" id="journal-csv-input" accept=".csv,text/csv,text/plain" style="display:none;" onchange="importJournalCsv(this.files)">
+                    </div>
+                    <div id="journal-status" style="font-size:.85rem;margin-top:.5rem;"></div>
+                    <div id="journal-message" class="model-search-status"></div>
+                </div>
+
+                <div class="card" style="width: 100%; max-width: 650px; margin-bottom: 1.5rem;">
                     <h2 style="font-size: 1.25rem; border: none; margin-bottom: .5rem;">☁️ Synchronisation mit dem Spark</h2>
                     <div id="sync-detail" style="font-size:.9rem;"></div>
                     <button class="btn btn-secondary btn-small" id="btn-sync-now" onclick="syncNow()" style="margin-top:.75rem;display:none;">Jetzt synchronisieren</button>
@@ -662,6 +675,8 @@
     <script src="js/providers.js"></script>
     <script src="js/reliability.js"></script>
     <script src="js/reliability-ui.js"></script>
+    <script src="js/journals.js"></script>
+    <script src="js/journals-ui.js"></script>
     <script src="js/profile.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/llm.js"></script>

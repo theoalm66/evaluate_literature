@@ -70,6 +70,7 @@ JSON-SCHEMA:
   "research_domain": "z.B. Health/Clinical|Psychology|Social Science|Business|Engineering|Other|Unclear",
   "clinical_context": {"is_health_clinical":false,"is_physiotherapy_rehabilitation":false,"is_surgical":false,"is_intervention_study":false,"is_measurement_property_study":false,"is_PROM_study":false,"is_comparative":false,"evidence":"... oder not_reported"},
   "publication_year": "Jahr oder not_reported",
+  "publication_venue": "Name der Zeitschrift bzw. des Mediums laut Titelseite, Kopf- oder Fußzeile (z.B. Journal of Marketing) oder not_reported; nur den Namen, ohne Verlag und Jahrgang",
   "research_question": {"value":"... oder not_reported","evidence":"..."},
   "hypotheses": [{"value":"...","evidence":"..."}],
   "theoretical_framework": {"value":"... oder not_reported","evidence":"..."},

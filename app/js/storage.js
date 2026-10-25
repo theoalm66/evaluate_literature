@@ -250,7 +250,8 @@ async function exportUserData(user) {
     return {
         format: EXPORT_FORMAT, version: 1, exportedAt: new Date().toISOString(),
         user, prompts: profile.prompts || {}, runs, run_steps: steps,
-        references: (await listReferences(user)).map(({ id, user: _u, ...rest }) => rest)
+        references: (await listReferences(user)).map(({ id, user: _u, ...rest }) => rest),
+        journals: (await getMeta(`journals|${user}`))?.rows || []
     };
 }
 
@@ -295,6 +296,10 @@ async function importUserData(user, data) {
         if (!ref?.key || existingRefs.has(ref.key)) continue;
         await putReference(user, ref);
         referenceCount++;
+    }
+    // Zeitschriftenliste nur übernehmen, wenn hier noch keine existiert
+    if (Array.isArray(data.journals) && data.journals.length && !((await getMeta(`journals|${user}`))?.rows || []).length) {
+        await setMeta(`journals|${user}`, { rows: data.journals, updatedAt: new Date().toISOString() });
     }
     await enqueueChanges(user, [...importedRuns].flatMap(id => [['run', id], ['run_steps', id]]));
     if (typeof enqueueProfileState === 'function') await enqueueProfileState(user);

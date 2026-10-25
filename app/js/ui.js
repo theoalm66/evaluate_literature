@@ -12,6 +12,7 @@ function switchTab(tabId) {
     // Über data-tab statt event.target, damit der Aufruf auch aus Code (z.B. Historie) funktioniert.
     const navButton = document.querySelector(`nav button[data-tab="${tabId}"]`);
     if (navButton) navButton.classList.add('active');
+    if (tabId === 'config' && typeof refreshJournalStatus === 'function') refreshJournalStatus();
 }
 
 function toggleProviderSettings() {

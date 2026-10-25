@@ -217,6 +217,7 @@ function renderResults(res) {
                 ${frameworkHtml}
                 ${casqDetails?.version === 'casq2' ? renderCASQ2(casqDetails, r.title)
                     : dims ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">CASQ-Dimension</th><th>Score</th><th>Gewicht</th><th>Status</th><th style="text-align:left;">Begründung / Validation</th></tr></thead><tbody>${dims}</tbody></table></div>${casqNote}` : ''}
+                ${renderJournalContext(r.journal_context)}
                 ${r.integrity ? renderIntegrity(r.integrity, r.title) : ''}
                 ${r.reliability ? renderReliability(r.reliability, r) : ''}
                 ${strengths ? `<div style="margin-top:.7rem;"><strong>Stärken</strong><ul style="margin-left:1.2rem;">${strengths}</ul></div>` : ''}

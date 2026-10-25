@@ -36,7 +36,7 @@ const valueWithEvidence = () => S.obj({ value: S.str(), evidence: S.str() });
 // Die Extraktion lässt sich in drei kleinere Aufrufe teilen (für Server mit Zeitlimit). Jeder Teil liefert nur seine Schlüssel.
 const EXTRACTION_PARTS = {
     classification: ['document_type', 'document_type_rationale', 'study_family', 'study_design', 'method_class', 'embedded_studies',
-        'multi_study_reporting', 'research_domain', 'clinical_context', 'publication_year', 'research_question', 'hypotheses', 'theoretical_framework'],
+        'multi_study_reporting', 'research_domain', 'clinical_context', 'publication_year', 'publication_venue', 'research_question', 'hypotheses', 'theoretical_framework'],
     methods: ['sample', 'methods', 'data_collection', 'measures', 'analysis_methods', 'datasets', 'transparency'],
     results: ['evidence_locations', 'main_results', 'limitations_reported', 'key_arguments', 'summary', 'extraction_uncertainties']
 };
@@ -69,6 +69,7 @@ function extractionProperties() {
             is_comparative: S.bool(), evidence: S.str()
         }),
         publication_year: S.str(),
+        publication_venue: S.str(),
         research_question: valueWithEvidence(),
         hypotheses: S.arr(valueWithEvidence()),
         theoretical_framework: valueWithEvidence(),

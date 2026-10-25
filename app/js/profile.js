@@ -68,7 +68,8 @@ function ensureProfileStructure(db, user) {
     const frameworkDate = new Date().toLocaleString();
     if (!String(db[user].prompts.extraction?.[0]?.text || '').includes('TIE-BREAKER methodological_paper vs. multiple_study_report')
         || !String(db[user].prompts.extraction?.[0]?.text || '').includes('method_class')
-        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('{{PART_INSTRUCTION}}')) {
+        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('{{PART_INSTRUCTION}}')
+        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('publication_venue')) {
         db[user].prompts.extraction.unshift(promptVersion(DEFAULT_PROMPTS.extraction, frameworkDate));
         db[user].sync.promptHeads.extraction = new Date().toISOString();
         db[user].prompts.extraction = db[user].prompts.extraction.slice(0, PROMPT_HISTORY_LIMIT);

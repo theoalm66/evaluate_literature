@@ -344,6 +344,7 @@ async function checkDoiOnline(doi, firstPagesText) {
             doi, checked: true, found: true,
             title: title || null,
             journal: Array.isArray(meta['container-title']) ? meta['container-title'][0] : null,
+            issn: Array.isArray(meta.ISSN) ? meta.ISSN : [],
             year: meta.issued?.['date-parts']?.[0]?.[0] || null,
             title_matches_document: titleMatchesText(title, firstPagesText),
             notices,

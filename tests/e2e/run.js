@@ -393,6 +393,7 @@ async function login(page, user, pass, action = 'login') {
         const bStudy = await page.textContent('#res-studies');
         assert.ok(bStudy.includes('CASQ (INTERNER INDEX) · Befragung / SEM / PLS-SEM'), 'fachspezifische Rubrik fehlt');
         assert.ok(bStudy.includes('Hair, Risher, Sarstedt'), 'Methodische Grundlage der Rubrik fehlt');
+        assert.ok(bStudy.includes('Zeitschriftenkontext') && bStudy.includes('Journal of Marketing') && bStudy.includes('noch keine Zeitschriftenliste'), 'Zeitschriftenkontext ohne Liste fehlt');
         assert.ok(!bStudy.includes('/ 10 (unvollständig)') && !bStudy.includes('PEDro Scale'), 'PEDro darf ohne Gesundheitsbezug nicht erscheinen');
         const bAnalysis = llm.calls.find(c => c.includes('Du bist Agent 3,'));
         assert.ok(bAnalysis.includes('Gesundheitsbezug laut Extraktion: nein'), 'Gesundheitsbezug nicht im Prompt');
@@ -426,7 +427,7 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(extractionCalls[1].includes('Bereits bestimmt (Teil 1): Dokumenttyp primary_empirical_study'), 'Ergebnis aus Teil 1 fehlt in Teil 2');
         const extractionPayloads = llm.state.payloads.filter(pl => pl.messages[1].content && JSON.stringify(pl.messages[1].content).includes('Du bist Agent 2'));
         const schemaKeys = extractionPayloads.map(pl => Object.keys(pl.response_format.json_schema.schema.properties).length);
-        assert.deepEqual(schemaKeys, [13, 7, 6], 'Schema je Teil: ' + schemaKeys);
+        assert.deepEqual(schemaKeys, [14, 7, 6], 'Schema je Teil: ' + schemaKeys);
         assert.deepEqual(extractionPayloads.map(pl => pl.max_tokens), [6000, 8000, 8192], 'Ausgabegrenze je Teil (begrenzt durch die Einstellung)');
         await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = false; });
         console.log('✓ Extraktion in 3 Teilschritten: je Teil eigenes Schema, Ergebnis wird zusammengesetzt (Marketing-Studie korrekt erkannt)');
@@ -437,6 +438,29 @@ async function login(page, user, pass, action = 'login') {
         const fullHtml = await page.evaluate(() => renderSourceInfo({ quality: { pages: 2, table_pages: [], figure_pages: [], scanned_pages: [] }, text_chars: 1000, evidence_chars: 1000, visual_pages: [], vision_status: 'off' }));
         assert.ok(!fullHtml.includes('sah nur'));
         console.log('✓ Warnung, wenn das Modell nur einen Teil des PDF-Textes sieht');
+
+        // 13) Zeitschriftenliste importieren: Zuordnung, Anzeige, CASQ unverändert
+        const casqBefore = await page.evaluate(() => document.querySelector('#res-studies')?.textContent.match(/CASQ intern: ([0-9.]+)/)?.[1]);
+        await page.click('nav button[data-tab="config"]');
+        const journalCsv = path.join(tmp, 'zeitschriften.csv');
+        fs.writeFileSync(journalCsv, 'zeitschrift;issn;vhb;abdc;ft50;sjr;sjr_quartil;bemerkung\nJournal of Marketing;0022-2429;A+;A*;ja;11,2;Q1;Testeintrag\nAndere Zeitschrift;1234-5679;C;B;nein;0,5;Q3;\n');
+        await page.setInputFiles('#journal-csv-input', journalCsv);
+        await page.waitForFunction(() => document.getElementById('journal-status').textContent.includes('2 Zeitschrift'));
+        llm.state.domain = 'business';
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#results-view.active', { timeout: 60000 });
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Testeintrag'), null, { timeout: 30000 });
+        const jStudy = await page.textContent('#res-studies');
+        assert.ok(jStudy.includes('A+') && jStudy.includes('A*') && jStudy.includes('11,2 · Q1') && jStudy.includes('geht nicht in den CASQ ein'), 'Zeitschriftenwerte fehlen');
+        assert.ok(jStudy.includes('über Name'), 'Zuordnung über Namen nicht vermerkt');
+        const casqAfter = jStudy.match(/CASQ intern: ([0-9.]+)/)?.[1];
+        assert.ok(casqAfter, 'CASQ fehlt');
+        // Liste ist Teil des Exports
+        const exportedJournals = await page.evaluate(async () => (await exportUserData(currentUser)).journals.length);
+        assert.equal(exportedJournals, 2);
+        console.log('✓ Zeitschriftenkontext: Liste importiert, Zeitschrift zugeordnet (VHB A+, ABDC A*, FT50, SJR), Export enthält die Liste');
 
         // 12) Geschwindigkeitstest und Option „JSON-Schema nicht verwenden“
         await page.click('nav button[data-tab="dashboard"]');

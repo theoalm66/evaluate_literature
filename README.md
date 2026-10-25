@@ -149,6 +149,13 @@ node tools/api-probe.js --help     # Optionen: --text datei.txt, --repeat, --tim
 - Angezeigt werden zusätzlich Informationsgrad, Belegquote, kritische Mängel, Spanne und die komplette
   Prüffragen-Tabelle mit Antworten und Belegen.
 
+**Zeitschriftenkontext (Zusatzinformation, nie Teil des CASQ)**
+- Zu jeder Auswertung zeigt die App die Zeitschrift (erkannt über Crossref, ISSN im PDF-Text oder den Namen aus der Extraktion) und, falls in Ihrer Liste
+  vorhanden, VHB Publication Media Rating 2024, ABDC, FT50 und SJR. Der Zeitschriftenkontext verändert den CASQ nicht.
+- Die App kennt keine Ratings und schreibt sie nicht aus dem Gedächtnis ab: Unter *Konfiguration → Zeitschriftenkontext* importieren Sie eine CSV
+  (Vorlage zum Download; Spalten zeitschrift, issn, issn_2, vhb, abdc, ft50, sjr, sjr_quartil, bemerkung), die Sie aus den offiziellen Listen befüllen.
+  Zugeordnet wird über die ISSN, sonst über den Namen. Die Liste liegt lokal im Browser und ist Teil von Export/Import (nicht des Spark-Sync).
+
 **Fachspezifische Rubriken statt medizinischer Instrumente (Marketing, Medien, Digitalisierung, E-Commerce, Handel)**
 - Leitprinzip: Das Gewicht liegt auf den methodenspezifischen Prüfkriterien (Einzelfragen mit Beleg). Der CASQ fasst sie nur zu einem
   **intern berechneten Vergleichsindex** zusammen, er ist kein offizieller Score. Bei jedem Ergebnis steht, worauf die Rubrik beruht.
@@ -164,7 +171,7 @@ node tools/api-probe.js --help     # Optionen: --text datei.txt, --repeat, --tim
 - PEDro, MINORS, AMSTAR 2 und COSMIN werden nur bei Gesundheitsbezug angewendet (der Code entscheidet anhand der Extraktion; im
   Dashboard unter „Fachgebiet“ lässt sich das aufheben). Der Quellcode der Instrumente bleibt erhalten.
 - Die Kriterien sind aus etablierten Methodenempfehlungen abgeleitet, aber keine offiziellen Instrumente; sie sollten fachlich
-  durchgesehen werden. Geplant: Zeitschriftenkontext.
+  durchgesehen werden.
 - Die Prompts von Agent 3 und 4 wurden dafür angepasst (Platzhalter `{{CASQ_RUBRIC}}`, `{{CASQ_CHECKLIST}}`) und
   beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
   Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.
