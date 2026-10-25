@@ -1,0 +1,19 @@
+{
+  "name": "evaluate-literature",
+  "private": true,
+  "description": "Publikations-Agent: KI-gestütztes Critical Appraisal wissenschaftlicher Literatur",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "admin": "node --disable-warning=ExperimentalWarning server/cli.js",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 tests/scoring.test.js tests/integrity.test.js tests/pdf-extract.test.js tests/server.test.js",
+    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/run.js && node --disable-warning=ExperimentalWarning tests/e2e/sync.js",
+    "serve": "node tests/e2e/static-server.js"
+  },
+  "dependencies": {
+    "@fastify/static": "10.1.6",
+    "fastify": "5.12.6"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

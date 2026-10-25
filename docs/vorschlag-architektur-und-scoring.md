@@ -139,10 +139,10 @@ sync_log         (seq INTEGER PK, user_id, table, row_id, op, at)     -- Server-
 
 | Etappe | Inhalt | Ergebnis |
 |---|---|---|
-| 0 | HTML in Module zerlegen (`ui/`, `shared/pipeline/`, `shared/scoring/`), Vite-Build, pdf.js lokal | Gleiche App, aber wartbar und testbar |
-| 1 | `localStorage` → IndexedDB, `run_steps` mitschreiben, PWA/Service Worker | Offline + vollständige Historie, noch ohne Server |
-| 2 | Backend auf Spark: Auth, SQLite, Sync-Endpoints, Migration alter `agentUsers`-Daten (Import-Button) | Daten auf Spark **und** lokal |
-| 3 | LLM-Proxy + Provider-Modell (`direct`/`proxy`), serverseitige Keys | Spark-Modell aus dem Internet nutzbar |
+| 0 ✅ | HTML in Module zerlegen, pdf.js lokal (umgesetzt **ohne** Build-Schritt: `app/js/*.js` als normale Skripte, `scoring.js` zusätzlich in Node testbar) | Gleiche App, aber wartbar und testbar |
+| 1 ✅ | `localStorage` → IndexedDB, `run_steps` mitschreiben, PWA/Service Worker, Export/Import | Offline + vollständige Historie, noch ohne Server |
+| 2 ✅ | Backend auf Spark: Auth, SQLite, Sync-Endpoints, Verknüpfen alter lokaler Profile (umgesetzt mit `node:sqlite` und scrypt statt argon2 – keine nativen Pakete auf dem ARM-Spark; Registrierung nur mit Einladungscode) | Daten auf Spark **und** lokal |
+| 3 ✅ | LLM-Proxy für das Spark-Modell (Provider „Spark-Modell“, Ziel und Key nur in der Server-Konfiguration); Weiterleitung von OpenAI/Gemini über den Server noch offen | Spark-Modell aus dem Internet nutzbar |
 | 4 | Optional: serverseitige Jobs mit SSE | Lange Läufe unabhängig vom Browser |
 | 5 | Funnel-Pfade auf das Backend umstellen (Funnel ist schon aktiv), Rate-Limits, Backups (`sqlite3 .backup` per Cron) | Öffentlicher Betrieb |
 
@@ -340,10 +340,10 @@ Diese Flags fließen nicht in den CASQ ein, sondern werden separat und gut sicht
 
 | Prio | Maßnahme | Aufwand |
 |---|---|---|
-| 1 | Gewichte im Code fixieren, Coverage selbst berechnen, unverifizierte Belege abwerten | klein |
-| 2 | AMSTAR-2-/COSMIN-/MINORS-/PEDro-Korrekturen (2.5) | klein |
-| 3 | CASQ 2.0 mit Prüffragen + Deckel + Spannweite (2.4) | mittel |
+| 1 ✅ | Gewichte im Code fixieren, Coverage selbst berechnen (nur verifizierte Belege zählen), CASQ-Spanne | klein |
+| 2 ✅ | AMSTAR-2-/COSMIN-/MINORS-/PEDro-Korrekturen (2.5) | klein |
+| 3 ✅ | CASQ 2.0 mit Prüffragen + Deckel + Spannweite (2.4); kritische Frage zählt bei „nein“ und „nicht berichtet“ als Mangel | mittel |
 | 4 | JSON-Schema-Ausgabe, ein Instrument pro Aufruf | mittel |
 | 5 | RoB 2, ROBINS-I, NOS, JBI, QUADAS-2 ergänzen | mittel–groß |
-| 6 | Deterministische Signale (statcheck, GRIM, Registrierung, Retractions) | mittel |
+| 6 ✅ | Deterministische Signale (statcheck, GRIM, Stichproben, Registrierung, DOI/Retractions über Crossref) – zusätzlich per LLM (Agent 6) zum Vergleich, per Häkchen wählbar | mittel |
 | 7 | Mehrfachbewertung + Kalibrierung gegen PEDro-/Cochrane-Daten | groß, aber entscheidend |

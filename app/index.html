@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        // Relative Pfade (css/, js/) brauchen einen abschließenden Schrägstrich: /lit → /lit/
+        if (!/\/$|\.html?$/.test(location.pathname)) location.replace(location.pathname + '/' + location.search + location.hash);
+    </script>
+    <title>Wissenschaftliche Publikations-Analyse (Hybrid-Agent)</title>
+    <meta name="theme-color" content="#2563eb">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="stylesheet" href="css/app.css">
+    <!-- PDF.js für lokales Parsen im Browser (lokal ausgeliefert, damit es offline funktioniert) -->
+    <script src="vendor/pdfjs/pdf.min.js"></script>
+</head>
+<body>
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen">
+        <div class="login-card">
+            <h2>🔐 Login / Registrierung</h2>
+            <p style="font-size: 0.85rem; color: var(--text-light); text-align: center; margin-bottom: 1.5rem;">
+                Einstellungen, Prompts und Historie liegen in diesem Browser und – mit Konto auf dem Spark – zusätzlich dort. API-Keys bleiben immer nur auf diesem Gerät.
+            </p>
+            <label>User-ID</label>
+            <input type="text" id="login-user" placeholder="Dein Benutzername" autocomplete="username">
+            <label>Passwort</label>
+            <input type="password" id="login-pass" placeholder="Dein Passwort" autocomplete="current-password">
+
+            <label>Einladungscode <span style="font-weight:normal;color:var(--text-light);">(nur beim ersten Mal, um ein Konto auf dem Spark anzulegen)</span></label>
+            <input type="text" id="login-invite" placeholder="leer lassen für ein rein lokales Profil" autocomplete="off">
+
+            <button class="btn auth-btn" onclick="handleAuth('login')" disabled>Einloggen</button>
+            <button class="btn btn-secondary auth-btn" onclick="handleAuth('register')" disabled>Neu registrieren</button>
+            <div id="storage-status" class="storage-status">Lokaler Speicher wird geöffnet…</div>
+            <div id="server-status" class="storage-status"></div>
+            <div id="login-error" style="color: var(--danger); font-size: 0.85rem; text-align: center; margin-top: 1rem; display: none;"></div>
+        </div>
+    </div>
+
+    <!-- MAIN APP SCREEN -->
+    <div id="app-screen">
+        <header>
+            <h1>🔬 Publikations-Agent (Hybrid)</h1>
+            <nav>
+                <button class="active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+                <button data-tab="config" onclick="switchTab('config')">⚙️ Konfiguration</button>
+                <button data-tab="info" onclick="switchTab('info')">Prompts & Info</button>
+                <button data-tab="history" onclick="switchTab('history'); loadHistory();">Historie</button>
+            </nav>
+            <div class="user-controls">
+                <span id="sync-status" class="sync-status"></span>
+                <span id="net-status" class="net-status" title="Keine Internetverbindung – nur lokale Modelle (z.B. LM Studio auf diesem Gerät) sind nutzbar.">offline</span>
+                👤 <span id="display-username">User</span>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <!-- TAB: DASHBOARD -->
+        <div id="tab-dashboard" class="container active">
+            <div class="col-left">
+                <div class="card" style="padding: 2rem;">
+                    <h2 style="font-size: 1.25rem; text-align: center;">📄 PDFs Hochladen</h2>
+                    <p style="font-size: 0.85rem; color: var(--text-light); text-align: center; margin-bottom: 1.5rem;">Wähle die wissenschaftlichen Arbeiten aus, die analysiert werden sollen.</p>
+
+                    <div class="file-drop" onclick="document.getElementById('file-input').click()">
+                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">📥</div>
+                        PDFs hier ablegen oder klicken
+                        <input type="file" id="file-input" multiple accept=".pdf" style="display: none;" onchange="handleFiles(this.files)">
+                    </div>
+                    <div class="file-list" id="file-list">Keine Dateien ausgewählt.</div>
+
+                    <div class="run-options">
+                        <div class="run-options-title">Tabellen und Abbildungen</div>
+                        <label><input type="checkbox" id="opt-vision" onchange="saveUserKeys(); updateVisionHint();"> 🖼️ zusätzlich als Bild an das LLM (nur wenn das Modell Bilder verarbeitet)</label>
+                        <div id="vision-hint" class="vision-hint"></div>
+                        <button type="button" class="btn btn-secondary btn-small" onclick="probeVisionSupport(true)" style="margin-top:.35rem;">Bildverarbeitung jetzt prüfen</button>
+                    </div>
+                    <div class="run-options">
+                        <div class="run-options-title">Integritätsprüfung (p-Werte, GRIM, Stichproben, Registrierung, DOI)</div>
+                        <label><input type="checkbox" id="opt-integrity-computed" onchange="saveUserKeys()"> 🔢 rechnerisch (im Browser, ohne LLM)</label>
+                        <label><input type="checkbox" id="opt-integrity-online" onchange="saveUserKeys()"> 🌐 DOI und Retractions online bei Crossref prüfen</label>
+                        <label><input type="checkbox" id="opt-integrity-llm" onchange="saveUserKeys()"> 🤖 per LLM (Agent 6, ein zusätzlicher Aufruf je PDF)</label>
+                    </div>
+
+                    <button class="btn" id="btn-start" onclick="startWorkflow()" style="padding: 1rem; font-size: 1.1rem; margin-top: 1.5rem;">🚀 Analyse Starten</button>
+                </div>
+            </div>
+
+            <!-- Rechte Spalte: Workflow & Ergebnisse -->
+            <div class="col-right">
+                <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+                        <div class="workflow-title"><h2 style="margin: 0; border: none; padding: 0;">Workflow Status & Ergebnisse</h2>
+                            <button type="button" id="llm-status" class="llm-status" onclick="checkLlmStatus()" title="Verbindung zum Sprachmodell erneut prüfen"><span class="lamp" id="llm-lamp"></span><span id="llm-status-text">Modell wird geprüft…</span></button></div>
+                        <button class="btn btn-secondary btn-small" id="btn-toggle-terminal" onclick="toggleTerminal()" style="width: auto; margin: 0; padding: 0.25rem 0.75rem;">Terminal anzeigen</button>
+                    </div>
+
+                    <div class="stepper" id="workflow-stepper">
+                        <div class="step" id="step-1"><span>1. Ingestion</span></div>
+                        <div class="step" id="step-2"><span>2. Extraction</span></div>
+                        <div class="step" id="step-3"><span>3. Analysis</span></div>
+                        <div class="step" id="step-4"><span>4. Validation</span></div>
+                        <div class="step" id="step-5"><span>5. Synthesis</span></div>
+                    </div>
+
+                    <!-- Terminal -->
+                    <div class="terminal" id="terminal">
+                        <div class="log-info">System bereit. Warten auf PDFs...</div>
+                    </div>
+
+                    <!-- Ergebnisse -->
+                    <div class="results-view" id="results-view">
+                        <div class="result-grid">
+                            <div class="metric-box">
+                                <h3>Verwendetes Modell</h3>
+                                <div class="value" id="res-model" style="font-size: 1rem; color: var(--primary); word-break: break-all;">-</div>
+                            </div>
+                            <div class="metric-box">
+                                <h3>Etablierte Instrumente</h3>
+                                <div class="value" id="res-established" style="font-size:1rem;">-</div>
+                            </div>
+                            <div class="metric-box">
+                                <h3>GRADE Evidenzsicherheit</h3>
+                                <div class="value" id="res-grade" style="font-size:1rem;">-</div>
+                            </div>
+                            <div class="metric-box">
+                                <h3>Ø CASQ (intern)</h3>
+                                <div class="value" id="res-casq">-</div>
+                            </div>
+                            <div class="metric-box">
+                                <h3>Evidenzabdeckung</h3>
+                                <div class="value" id="res-evidence">-</div>
+                            </div>
+                        </div>
+                        <div style="font-size:.75rem;color:var(--text-light);margin-top:-.8rem;margin-bottom:1rem;">Primär werden – sofern fachlich anwendbar – etablierte Instrumente wie PEDro, MINORS, AMSTAR 2, COSMIN, MMAT/CASP und bei Evidenzsynthesen GRADE ausgewiesen. <strong>CASQ ist nur ein ergänzender interner Vergleichsindex.</strong></div>
+
+                        <div id="res-grade-detail"></div>
+
+                        <h3>Dominante Themen</h3>
+                        <ul id="res-topics" style="margin-left: 1.5rem; margin-bottom: 1rem;"></ul>
+
+                        <h3>Evidenzgewichtete Synthese</h3>
+                        <p id="res-summary" style="margin-bottom: 1rem;"></p>
+
+                        <h3>Analysierte Studien</h3>
+                        <div id="res-studies"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: KONFIGURATION -->
+        <div id="tab-config" class="container">
+            <div class="full-center">
+                <div class="card" style="width: 100%; max-width: 650px; margin-bottom: 1.5rem;">
+                    <h2 style="font-size: 1.25rem; border: none; margin-bottom: .5rem;">☁️ Synchronisation mit dem Spark</h2>
+                    <div id="sync-detail" style="font-size:.9rem;"></div>
+                    <button class="btn btn-secondary btn-small" id="btn-sync-now" onclick="syncNow()" style="margin-top:.75rem;display:none;">Jetzt synchronisieren</button>
+                    <div id="sync-link" style="display:none;margin-top:.75rem;">
+                        <label>Einladungscode <span style="font-weight:normal;color:var(--text-light);">(leer lassen, wenn das Konto auf dem Spark schon existiert)</span></label>
+                        <input type="text" id="link-invite" autocomplete="off">
+                        <label>Neues Passwort <span style="font-weight:normal;color:var(--text-light);">(optional; nötig, wenn das bisherige kürzer als 8 Zeichen ist – gilt dann auch lokal)</span></label>
+                        <input type="password" id="link-password" autocomplete="new-password">
+                        <button class="btn btn-small" onclick="linkAccount()" style="margin-top:.25rem;">Mit Spark verknüpfen</button>
+                        <div id="link-message" style="font-size:.85rem;margin-top:.5rem;"></div>
+                    </div>
+                </div>
+
+                <div class="card" style="width: 100%; max-width: 650px;">
+                    <h2 style="font-size: 1.5rem; text-align: center; border: none; margin-bottom: 1.5rem;">⚙️ Systemeinstellungen</h2>
+
+                    <label style="font-size: 1rem;">Aktiver LLM-Provider</label>
+                    <select id="llm-provider" onchange="toggleProviderSettings(); saveUserKeys();" style="padding: 0.75rem; font-size: 1rem; border-color: var(--primary); background: #eff6ff;">
+                        <option value="custom1">🖥️ Lokales Profil 1 (z.B. LM Studio)</option>
+                        <option value="custom2">🖥️ Lokales Profil 2 (z.B. vLLM / Spark)</option>
+                        <option value="custom3">🖥️ Lokales Profil 3 (z.B. Ollama)</option>
+                        <option value="openai">🟢 OpenAI (ChatGPT API)</option>
+                        <option value="gemini">✨ Google Gemini (API)</option>
+                        <option value="spark">🚀 Spark-Modell (über den Server, auch von unterwegs)</option>
+                    </select>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
+
+                    <!-- Custom API Settings 1 -->
+                    <div id="settings-custom1" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🖥️ Lokales Profil 1</h3>
+                        <label>Base API URL</label>
+                        <input type="text" id="custom1-url" placeholder="z.B. http://localhost:8888/v1" onchange="saveUserKeys()">
+                        <label>Modell-Name (Optional)</label>
+                        <input type="text" id="custom1-model" placeholder="z.B. qwen-2.5-coder" onchange="saveUserKeys()">
+                        <label>API-Key (Optional)</label>
+                        <input type="password" id="custom1-key" placeholder="z.B. lm-studio" onchange="saveUserKeys()">
+
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="custom1-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+
+                        <div id="save-note-custom1" class="save-note">✓ Sicher im Profil gespeichert</div>
+                    </div>
+
+                    <!-- Custom API Settings 2 -->
+                    <div id="settings-custom2" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🖥️ Lokales Profil 2</h3>
+                        <label>Base API URL</label>
+                        <input type="text" id="custom2-url" placeholder="z.B. http://10.189.26.81:8000/v1" onchange="saveUserKeys()">
+                        <label>Modell-Name (Optional)</label>
+                        <input type="text" id="custom2-model" placeholder="z.B. nvidia/Qwen3.6-35B-A3B-NVFP4" onchange="saveUserKeys()">
+                        <label>API-Key (Optional)</label>
+                        <input type="password" id="custom2-key" placeholder="API Key eingeben falls benötigt" onchange="saveUserKeys()">
+
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="custom2-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+
+                        <div id="save-note-custom2" class="save-note">✓ Sicher im Profil gespeichert</div>
+                    </div>
+
+                    <!-- Custom API Settings 3 -->
+                    <div id="settings-custom3" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🖥️ Lokales Profil 3</h3>
+                        <label>Base API URL</label>
+                        <input type="text" id="custom3-url" placeholder="z.B. http://localhost:11434/v1" onchange="saveUserKeys()">
+                        <label>Modell-Name (Optional)</label>
+                        <input type="text" id="custom3-model" placeholder="z.B. llama3.1" onchange="saveUserKeys()">
+                        <label>API-Key (Optional)</label>
+                        <input type="password" id="custom3-key" placeholder="API Key eingeben falls benötigt" onchange="saveUserKeys()">
+
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="custom3-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+
+                        <div id="save-note-custom3" class="save-note">✓ Sicher im Profil gespeichert</div>
+                    </div>
+
+                    <!-- OpenAI Settings -->
+                    <div id="settings-openai" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: #10b981;">OpenAI API</h3>
+                        <label>OpenAI API-Key</label>
+                        <input type="password" id="openai-key" placeholder="sk-..." onchange="saveUserKeys()">
+                        <div id="save-note-openai" class="save-note">✓ Sicher im Profil gespeichert</div>
+
+                        <label>Modell</label>
+                        <input type="text" id="openai-model" placeholder="z.B. gpt-4o-mini" onchange="saveUserKeys()">
+                    </div>
+
+                    <!-- Gemini Settings -->
+                    <div id="settings-spark" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🚀 Spark-Modell</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-light); margin-bottom: 1rem;">Die Anfragen gehen an den Spark-Server, der sie intern an das dort laufende Modell weiterleitet. Funktioniert überall, wo die App erreichbar ist – auch vom Handy. Voraussetzung: ein mit dem Spark verknüpftes Konto.</p>
+                        <div id="spark-model-hint" style="font-size: 0.85rem; margin-bottom: .5rem;"></div>
+                        <label>Modell-Name (Optional)</label>
+                        <input type="text" id="spark-model" placeholder="leer = Standardmodell des Spark" onchange="saveUserKeys()">
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="spark-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+                        <div id="save-note-spark" class="save-note">✓ Im Profil gespeichert</div>
+                    </div>
+
+                    <div id="settings-gemini" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: #8b5cf6;">Google Gemini API</h3>
+                        <p style="font-size: 0.8rem; color: var(--text-light); margin-bottom: 1rem;">Nutzt die offizielle OpenAI-kompatible Schnittstelle von Google.</p>
+                        <label>Gemini API-Key</label>
+                        <input type="password" id="gemini-key" placeholder="AIzaSy..." onchange="saveUserKeys()">
+                        <div id="save-note-gemini" class="save-note">✓ Sicher im Profil gespeichert</div>
+
+                        <label>Modell</label>
+                        <input type="text" id="gemini-model" placeholder="z.B. gemini-2.5-flash" onchange="saveUserKeys()">
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
+
+                    <!-- Agenten-Steuerung & Limits -->
+                    <h3 style="margin-bottom: 1rem; color: #0f172a;">Agenten-Steuerung (Payload)</h3>
+
+                    <label style="font-size: 1rem;">System Prompt (Global)</label>
+                    <textarea id="llm-system-prompt" rows="4" onchange="saveUserKeys()" style="margin-bottom: 0.5rem; font-size: 0.9rem;"></textarea>
+                    <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0; margin-bottom: 1rem;">Überschreibt das Verhalten für alle Anfragen. <strong>Tipp für Reasoning-Modelle (Qwen, DeepSeek):</strong> Verbiete zwingend das "Nachdenken", um Parser-Fehler zu vermeiden.</p>
+
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 1rem;">Temperature</label>
+                            <input type="number" id="llm-temperature" value="0.0" step="0.1" min="0" max="2" onchange="saveUserKeys()" style="margin-bottom: 0.5rem; font-size: 1rem; padding: 0.75rem;">
+                            <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0;">0.0 = Deterministisch (am besten für strukturiertes JSON).</p>
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 1rem;">Max Output Tokens</label>
+                            <input type="number" id="max-output-tokens" value="8192" step="1024" onchange="saveUserKeys()" style="margin-bottom: 0.5rem; font-size: 1rem; padding: 0.75rem;">
+                            <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0;">Reservierter Platz für das JSON-Ergebnis.</p>
+                        </div>
+                    </div>
+
+                    <label style="font-size: 1rem; margin-top: 1rem;">Max. Evidenz-Zeichen (Input-Limit)</label>
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <input type="number" id="max-evidence-chars" value="50000" step="1000" onchange="saveUserKeys()" style="margin-bottom: 0; font-size: 1rem; padding: 0.75rem;">
+                        <button type="button" class="btn btn-secondary" onclick="autoDetectContext()" style="margin: 0; width: auto; white-space: nowrap; padding: 0.5rem 1rem;">⚙️ Auto-Detect</button>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem; background: #f1f5f9; padding: 0.75rem; border-radius: 0.375rem; border-left: 3px solid var(--primary);">
+                        <strong>Faustregel:</strong> 1 Token ≈ 3,5 Zeichen. Ziehe vom Studio-Context-Window (n_ctx) deine reservierten Output-Tokens ab.<br>
+                        <em>Beispiel: 32k Context - 8k Output = 24k für Input → max. 84.000 Zeichen.</em>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: PROMPTS & INFO -->
+        <div id="tab-info" class="container">
+            <div class="card text-content" style="width: 100%;">
+                <h2>Wie die Agenten arbeiten</h2>
+                <p>Der OnePager führt ein <strong>AI-gestütztes Critical Appraisal</strong> durch. Er bewertet nicht nur Themen oder Zusammenfassungen, sondern versucht die methodische Belastbarkeit jeder Publikation anhand nachweisbarer Textstellen einzuschätzen. Fehlende Angaben werden als <code>not_reported</code> bzw. <code>insufficient_information</code> behandelt und dürfen nicht erfunden werden.</p>
+
+                <div style="background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid var(--primary);padding:1rem;border-radius:.5rem;margin:1rem 0 1.25rem 0;">
+                    <h3 style="margin:0 0 .6rem 0;color:#1e3a8a;">Priorität: etablierte wissenschaftliche Bewertungsinstrumente</h3>
+                    <p style="margin:0 0 .65rem 0;">Der OnePager versucht zuerst ein <strong>in der Wissenschaft etabliertes, zum Studiendesign und Fachgebiet passendes Instrument</strong> anzuwenden. Nur wenn dessen Anwendungsbereich tatsächlich passt, wird der offizielle Score bzw. das offizielle Rating ausgegeben. Der interne CASQ steht bewusst an zweiter Stelle.</p>
+                    <ol style="margin:0 0 .6rem 1.2rem;">
+                        <li><strong>Primäres etabliertes Instrument:</strong> z. B. PEDro 0–10, MINORS 0–16/24, AMSTAR 2 High/Moderate/Low/Critically low oder COSMIN Very good/Adequate/Doubtful/Inadequate.</li>
+                        <li><strong>Checklisten ohne offiziellen Summenscore:</strong> MMAT und CASP werden mit ihren Einzelkriterien dokumentiert; es wird kein künstlicher offizieller Score behauptet.</li>
+                        <li><strong>GRADE auf Syntheseebene:</strong> Bei einem geeigneten Evidenzkörper wird die Sicherheit der Evidenz pro wichtigem Outcome als High, Moderate, Low oder Very low ausgewiesen.</li>
+                        <li><strong>CASQ:</strong> zusätzlicher, eigener 0–10-Vergleichsindex. Er dient der internen Vergleichbarkeit, ist aber <em>kein</em> etabliertes externes Instrument.</li>
+                    </ol>
+                    <p style="margin:0;font-size:.86rem;"><strong>Grundsatz:</strong> Ein wissenschaftlich unpassendes Instrument wird nicht erzwungen. Der Agent muss die Anwendbarkeit begründen und kann <code>not_applicable</code> ausgeben.</p>
+                </div>
+                <div style="background:#f8fafc;border:1px solid var(--border);padding:1rem;border-radius:.5rem;margin:1rem 0;">
+                    <h3 style="margin:0 0 .5rem 0;">Schutzstufe: Dokumenttyp vor Studiendesign</h3>
+                    <p style="margin:0 0 .5rem 0;">Bevor MMAT, CASP, PEDro, MINORS oder andere Instrumente ausgewählt werden, klassifiziert Agent 2 zunächst, <strong>was für ein Dokument überhaupt vorliegt</strong>. Dadurch wird ein Methodenbeitrag, der mehrere Studien nur beschreibt, nicht mehr wie eine einzelne Primärstudie bewertet.</p>
+                    <p style="margin:.4rem 0 0;font-size:.86rem;"><strong>Tie-Breaker:</strong> Mehrere erwähnte Studien machen ein Paper noch nicht zu einem <code>multiple_study_report</code>. Wenn Titel, Abstract, Zielsetzung und Gliederung primär Methoden, Messinstrumente oder Forschungszugänge erklären und die Studien nur als Beispiele/Evidenz dienen, wird <code>methodological_paper</code> gewählt. <code>multiple_study_report</code> ist für Artikel reserviert, deren mehrere originäre Teilstudien den eigentlichen empirischen Kern bilden.</p>
+                    <p style="margin:0;font-size:.86rem;"><code>primary_empirical_study</code>, <code>multiple_study_report</code>, <code>systematic_review</code>, <code>narrative_review</code>, <code>methodological_paper</code>, <code>theoretical_conceptual_paper</code>, <code>other</code> oder <code>unclear</code>.</p>
+                </div>
+                <ul>
+                    <li><strong>1. Ingestion:</strong> PDF.js liest den Text lokal und <strong>seitenweise</strong> aus den PDFs. Jede Seite erhält eine interne Seitenmarke. Aus langen Dokumenten werden gezielt Abschnitte zu Forschungsfrage, Theorie, Methodik, Stichprobe, Messung, Analyse, Ergebnissen, Limitationen und Transparenz zusammengestellt.</li>
+                    <li><strong>2. Evidence Extraction:</strong> Agent 2 klassifiziert zuerst den <strong>Dokumenttyp</strong>, danach Studienfamilie und Studiendesign und extrahiert strukturierte Evidenz mit Textbelegen. Bei Multi-Study-Reports können enthaltene Teilstudien separat beschrieben werden.</li>
+                    <li><strong>3. Design-spezifisches Appraisal:</strong> Agent 3 bewertet <em>jede Publikation einzeln</em>. Für den CASQ beantwortet Agent 3 die zum Dokumenttyp passenden Prüffragen (ja / teilweise / nein / nicht berichtet / nicht anwendbar) mit Belegstelle; Punkte vergibt er nicht.</li>
+                    <li><strong>4. Evidence Validation:</strong> Agent 4 prüft die Bewertungsbegründungen nochmals gegen den bereitgestellten Evidenzkontext und korrigiert Antworten auf die Prüffragen, die der Text nicht trägt, und liefert Originalbelege mit PDF-Seite. Der Browser prüft jedes Zitat gegen den tatsächlich extrahierten Seitentext. Erst aus den validierten Antworten wird der CASQ deterministisch berechnet.</li>
+                    <li><strong>5. Evidenzgewichtete Synthese:</strong> Agent 5 führt Ergebnisse über Studien hinweg zusammen und berücksichtigt dabei Studiendesign, validierten CASQ, Bias-Risiken und Limitationen.</li>
+                </ul>
+
+                <h2>Workflow-Prompts anpassen</h2>
+                <p>Die Prompts können versioniert angepasst werden. Die JSON-Struktur am Ende eines Prompts sollte nicht verändert werden, weil die Oberfläche diese Felder verarbeitet. Platzhalter wie <code>{{SOURCE_TEXT}}</code> werden automatisch befüllt. Für verlässliche Ergebnisse sollten die Regeln zur Evidenzpflicht und zu fehlenden Angaben erhalten bleiben.</p>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 2: Evidence Extraction</h3><div class="prompt-controls"><select id="history-extraction" onchange="restorePrompt('extraction')"></select><button class="btn btn-small" onclick="savePrompt('extraction')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{TITLE}}, {{SOURCE_TEXT}}</p>
+                    <textarea id="prompt-extraction" rows="18"></textarea>
+                    <div id="save-note-extraction" class="save-note">✓ Als neue Version gespeichert (Max. 20 Versionen)</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 3: Etablierte Instrumente + ergänzender CASQ</h3><div class="prompt-controls"><select id="history-analysis" onchange="restorePrompt('analysis')"></select><button class="btn btn-small" onclick="savePrompt('analysis')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{STUDY_DATA}}, {{SOURCE_TEXT}}, {{CASQ_RUBRIC}}, {{CASQ_CHECKLIST}} (Prüffragen werden vom Programm passend zum Dokumenttyp eingesetzt)</p>
+                    <textarea id="prompt-analysis" rows="18"></textarea>
+                    <div id="save-note-analysis" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 4: Evidence- & Score-Validation</h3><div class="prompt-controls"><select id="history-validation" onchange="restorePrompt('validation')"></select><button class="btn btn-small" onclick="savePrompt('validation')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{VALIDATION_DATA}}, {{SOURCE_TEXT}}, {{CASQ_RUBRIC}}, {{CASQ_CHECKLIST}}</p>
+                    <textarea id="prompt-validation" rows="16"></textarea>
+                    <div id="save-note-validation" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 5: Evidenzsynthese + GRADE</h3><div class="prompt-controls"><select id="history-synthesis" onchange="restorePrompt('synthesis')"></select><button class="btn btn-small" onclick="savePrompt('synthesis')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{APPRAISALS_DATA}}</p>
+                    <textarea id="prompt-synthesis" rows="14"></textarea>
+                    <div id="save-note-synthesis" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <div class="prompt-editor">
+                    <div class="prompt-header"><h3>Agent 6: Integritätsprüfung (optional)</h3><div class="prompt-controls"><select id="history-integrity" onchange="restorePrompt('integrity')"></select><button class="btn btn-small" onclick="savePrompt('integrity')">Speichern</button></div></div>
+                    <p class="warning-text">Platzhalter: {{TITLE}}, {{SOURCE_TEXT}} · läuft nur, wenn auf dem Dashboard „Integritätsprüfung per LLM“ angehakt ist</p>
+                    <textarea id="prompt-integrity" rows="14"></textarea>
+                    <div id="save-note-integrity" class="save-note">✓ Als neue Version gespeichert</div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 2rem 0;">
+
+                <h2>Kontext-Limit & Max. Evidenz-Zeichen</h2>
+                <p>Ein Sprachmodell verarbeitet Text in sogenannten "Tokens". Bei deutschen wissenschaftlichen Texten entspricht <strong>1 Token etwa 3,5 Zeichen</strong>. Das Context Window deines Modells (z. B. 16.384 Tokens) muss sich aufteilen in: den Prompt, den Evidenztext und die ausführliche JSON-Antwort.</p>
+                <p>Damit das Modell die Antwort nicht mittendrin abschneidet (was zu Parser-Fehlern führt), musst du genug Platz ("Atemluft") für die komplexe JSON-Struktur lassen – einstellbar als "Max Output Tokens" (Standard: 8.192).</p>
+
+                <div style="background: #f1f5f9; padding: 0.75rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-family: monospace; font-size: 0.9rem; color: #0f172a;">
+                    <strong>Formel:</strong> Max. Zeichen = (Context Window - Max_Output_Tokens) × 3,5
+                </div>
+
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 2rem; font-size: 0.9rem; text-align: left;">
+                    <thead>
+                        <tr style="background: var(--surface); border-bottom: 2px solid var(--border);">
+                            <th style="padding: 0.5rem;">Context Window (Studio)</th>
+                            <th style="padding: 0.5rem;">Max. Evidenz-Zeichen (bei 8k Output)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 0.5rem;"><strong>16k</strong> (16.384 Tokens)</td>
+                            <td style="padding: 0.5rem;">~ 28.000 Zeichen</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 0.5rem;"><strong>32k</strong> (32.768 Tokens)</td>
+                            <td style="padding: 0.5rem;">~ 84.000 Zeichen</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 0.5rem;"><strong>64k</strong> (65.536 Tokens)</td>
+                            <td style="padding: 0.5rem;">~ 200.000 Zeichen</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Was genau passiert beim Evidenz-Limit?</h3>
+                <p>Das "Max. Evidenz-Zeichen"-Limit schneidet das Dokument <strong>nicht</strong> einfach blind nach z. B. 50.000 Zeichen ab. Stattdessen nutzt der Algorithmus ein intelligentes Verfahren, um die wertvollsten Teile herauszusuchen:</p>
+
+                <ol style="margin-bottom: 1rem;">
+                    <li style="margin-bottom: 0.5rem;"><strong>Komplettübernahme:</strong> Wenn das gesamte PDF weniger Zeichen hat als dein eingestelltes Limit, wird einfach der komplette Text genommen.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Kopf und Fuß sichern:</strong> Wenn das Dokument zu lang ist, sichert der Algorithmus zuerst immer zwingend die <strong>ersten 4 Seiten</strong> (wo Titel, Abstract, Forschungsfrage und Einleitung stehen) sowie die <strong>letzten 3 Seiten</strong> (wo Diskussion und Fazit stehen).</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Keyword-Scanning:</strong> Anschließend durchsucht das Skript alle restlichen Seiten nach spezifischen, methodisch relevanten Schlüsselwörtern (z.B. <em>Methodik, Stichprobe, sample, data collection, Messung, statistical, Ergebnisse, limitations, funding, preregistration</em>). Jede Seite mit Treffern wird markiert.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Zusammensetzen:</strong> All diese markierten, hochrelevanten Seiten werden in der richtigen Reihenfolge aneinandergehängt, bis das harte Zeichen-Limit (z. B. 50.000) erreicht ist.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong>Auffüllen (Fallback):</strong> Nur falls diese gezielte Stichwortsuche zu wenig Text liefert, füllt der Algorithmus den restlichen Platz der Reihe nach mit den zuvor übersprungenen Seiten auf.</li>
+                </ol>
+
+                <div style="background: #ecfdf5; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--success); margin-bottom: 2rem;">
+                    <strong>Fazit:</strong> Der Evidenzkontext ist quasi ein <strong>Best-of des Papiers</strong>. Er wirft irrelevante Seiten weg, um Platz für die methodischen Kernabschnitte zu machen. Setze das Limit so hoch wie es dein Server-VRAM zulässt, damit keine relevante "Keyword-Seite" aus Platzmangel weggelassen wird!
+                </div>
+
+                <h2>Etablierte Scores und Ratings – was sie bedeuten</h2>
+                <p>Die Instrumente messen <strong>nicht alle dasselbe</strong>. Einige liefern echte numerische Scores, andere bewusst nur Kategorien oder Einzelurteile. Genau diese Original-Logik wird beibehalten, damit Ergebnisse mit Publikationen, Reviews und anderen Forschenden vergleichbar bleiben.</p>
+
+                <div style="overflow-x:auto;margin:1rem 0 1.5rem 0;">
+                    <table style="width:100%;border-collapse:collapse;font-size:.86rem;">
+                        <thead><tr style="border-bottom:2px solid var(--border);"><th style="text-align:left;padding:.55rem;">Instrument</th><th style="text-align:left;padding:.55rem;">Wann eingesetzt?</th><th style="text-align:left;padding:.55rem;">Offizielle Ausgabe</th><th style="text-align:left;padding:.55rem;">Bedeutung</th></tr></thead>
+                        <tbody>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>PEDro Scale</strong></td><td style="padding:.55rem;">Randomisierte klinische Studien, wenn der Anwendungsbereich der PEDro-Skala fachlich passt, insbesondere Physiotherapie/Rehabilitation.</td><td style="padding:.55rem;"><strong>0–10 Punkte</strong> (11 Kriterien; Kriterium 1 zählt nicht zum Score)</td><td style="padding:.55rem;">Höhere Werte bedeuten, dass mehr Kriterien zur internen Validität und statistischen Interpretierbarkeit erfüllt sind. Nicht berichtete Kriterien gelten als nicht erfüllt.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>MINORS</strong></td><td style="padding:.55rem;">Nicht-randomisierte <strong>chirurgische</strong> Studien; nicht-komparativ oder komparativ.</td><td style="padding:.55rem;"><strong>0–16</strong> nicht-komparativ / <strong>0–24</strong> komparativ; Items 0/1/2</td><td style="padding:.55rem;">Höhere Werte stehen für eine methodisch vollständigere und adäquat berichtete nicht-randomisierte Studie. Wegen des ursprünglichen chirurgischen Anwendungsbereichs wird MINORS nicht pauschal auf alle Beobachtungsstudien übertragen.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>AMSTAR 2</strong></td><td style="padding:.55rem;">Systematische Reviews von randomisierten und/oder nicht-randomisierten Studien zu Gesundheitsinterventionen.</td><td style="padding:.55rem;"><strong>High / Moderate / Low / Critically low</strong></td><td style="padding:.55rem;">Kein Summenscore. Die Gesamtvertrauenswürdigkeit hängt vor allem von Fehlern in kritischen Domänen ab; dadurch können gute Einzelpunkte kritische methodische Mängel nicht „wegmitteln“.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>COSMIN Risk of Bias</strong></td><td style="padding:.55rem;">Studien zur Entwicklung oder zu Messeigenschaften von Gesundheits-Messinstrumenten/PROMs.</td><td style="padding:.55rem;"><strong>Very good / Adequate / Doubtful / Inadequate</strong></td><td style="padding:.55rem;">Bewertung pro Mess-Eigenschaft. Nach dem „worst score counts“-Prinzip bestimmt das schwächste relevante Kriterium das Rating der jeweiligen Box.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>MMAT 2018</strong></td><td style="padding:.55rem;">Konkrete empirische qualitative, quantitative und Mixed-Methods-Studien. Nicht für einen bloßen Methodenüberblick über mehrere Studien erzwingen.</td><td style="padding:.55rem;"><strong>2 Screening-Fragen</strong> + anschließend designspezifische <strong>Yes / No / Can't tell</strong>-Kriterien</td><td style="padding:.55rem;">Die zwei Screening-Fragen sind nur Eingangsvoraussetzungen und <strong>kein Qualitäts-Score</strong>. Erst die designspezifischen Kriterien bilden das eigentliche MMAT-Appraisal; auch daraus wird kein offizieller Summenscore erzeugt.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>CASP</strong></td><td style="padding:.55rem;">Designspezifische kritische Bewertung, u. a. qualitative Studien, RCT, Kohorte, Case-Control und Reviews.</td><td style="padding:.55rem;"><strong>Checklistenurteile</strong>; kein offizieller numerischer Score</td><td style="padding:.55rem;">CASP ist besonders gut für transparenten wissenschaftlichen Austausch über konkrete Stärken und Schwächen. Eine qualitative Einordnung ist möglich, aber kein offizieller Summenscore.</td></tr>
+                            <tr style="border-bottom:1px solid var(--border);"><td style="padding:.55rem;"><strong>GRADE</strong></td><td style="padding:.55rem;">Nicht für eine einzelne Studie, sondern für einen <strong>Evidenzkörper pro wichtigem Outcome</strong>, vor allem in Gesundheits-/Interventionsfragen.</td><td style="padding:.55rem;"><strong>High / Moderate / Low / Very low certainty</strong></td><td style="padding:.55rem;">Beschreibt, wie sicher wir sind, dass der geschätzte Effekt die Wahrheit ausreichend gut repräsentiert. Bewertet u. a. Risk of Bias, Inkonsistenz, Indirektheit, Unpräzision und Publikationsbias.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>Warum mehrere Instrumente?</h3>
+                <p>Ein universeller Qualitäts-Score für alle Arten wissenschaftlicher Publikationen existiert nicht. Ein RCT, eine qualitative Interviewstudie, ein Mixed-Methods-Projekt und ein systematisches Review haben unterschiedliche Fehlerquellen. Der OnePager wählt deshalb <strong>design- und domänenspezifisch</strong>. So kann das Ergebnis in der Terminologie kommuniziert werden, die Fachkolleginnen und Fachkollegen aus Reviews und Methodendiskussionen kennen.</p>
+
+                <h3>Routing-Regeln des OnePagers</h3>
+                <ul>
+                    <li><strong>Physiotherapie-/Rehabilitations-RCT:</strong> PEDro als primärer numerischer Score; CASP/MMAT können ergänzend dokumentiert werden.</li>
+                    <li><strong>Nicht-randomisierte chirurgische Studie:</strong> MINORS als primärer numerischer Score.</li>
+                    <li><strong>Systematisches Review zu Gesundheitsinterventionen:</strong> AMSTAR 2 als primäres Rating.</li>
+                    <li><strong>Studie zu Messinstrumenten/PROMs:</strong> COSMIN als primäres Rating.</li>
+                    <li><strong>Mixed Methods als echte Primärstudie:</strong> MMAT als primäre kriteriumsbasierte Bewertung.</li>
+                    <li><strong>Qualitative bzw. andere durch CASP abgedeckte Primärstudien:</strong> CASP als transparente Checkliste, ohne künstlichen offiziellen Score.</li>
+                    <li><strong>Methodological paper / Methodenüberblick:</strong> kein MMAT/CASP nur aufgrund der beschriebenen Studienbeispiele. Stattdessen methodologische CASQ-Rubrik und transparente Kennzeichnung „kein direkt anwendbares etabliertes Einzelstudien-Instrument“.</li>
+                    <li><strong>Multiple-study report:</strong> Framework nur dann für das Gesamtdokument, wenn die Teilstudien methodisch einheitlich sind; andernfalls kein erzwungener Gesamtscore.</li>
+                    <li><strong>Narrative Review:</strong> kein AMSTAR-2-Rating erzwingen, da AMSTAR 2 ein systematisches Review voraussetzt.</li>
+                    <li><strong>Theoretische/konzeptionelle oder fachfremde Designs:</strong> kein unpassendes etabliertes Instrument erzwingen; CASQ bleibt dann ausdrücklich nur eine interne Zusatzbewertung.</li>
+                </ul>
+
+                <h3>GRADE – warum erst nach der Einzelstudienbewertung?</h3>
+                <p>GRADE bewertet die <strong>Sicherheit eines gesamten Evidenzkörpers für ein konkretes Outcome</strong>. Deshalb wird GRADE erst in Agent 5 angewendet, nachdem die Einzelstudien bewertet wurden. Bei mehreren Outcomes kann jedes Outcome eine andere GRADE-Stufe besitzen. Wenn die Voraussetzungen für GRADE nicht gegeben sind – etwa bei rein konzeptioneller Literatur – wird <code>not_applicable</code> angezeigt.</p>
+
+                <h2>CASQ bei echten Multiple-Study-Reports</h2>
+                <p>Auch wenn für ein heterogenes Mehrstudien-Paper kein einzelnes offizielles methodisches Gesamtinstrument existiert, kann der interne CASQ auf Dokumentebene berechnet werden. Dafür verwendet der OnePager eine eigene Multiple-Study-Rubrik mit Forschungslogik, Transparenz der Teilstudien, Designqualität, Messqualität, Analyse, Integration der Studien, Cross-Study-Interpretation, Limitationen und Reproduzierbarkeit. Dieser CASQ bleibt ausdrücklich <strong>intern</strong> und wird nicht als offizieller Fachgesellschafts-Score dargestellt.</p>
+
+                <h2>APA JARS-Quant bei Multiple-Study-Reports</h2>
+                <p><strong>JARS</strong> steht für <em>Journal Article Reporting Standards</em> der American Psychological Association (APA). Bei geeigneten quantitativen Multiple-Study-Artikeln nutzt der OnePager JARS-Quant als <strong>offiziellen APA-Reporting-Standard</strong> auf Dokumentebene.</p>
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #22c55e;padding:1rem;border-radius:.5rem;margin:1rem 0;">
+                    <strong>JARS bewertet:</strong> Transparenz und Vollständigkeit der wissenschaftlichen Berichterstattung – etwa gemeinsamen theoretischen Rahmen, Logik der Studienfolge, Method/Results je Teilstudie und General Discussion.<br><br>
+                    <strong>JARS bewertet nicht:</strong> Risk of Bias oder methodische Qualität als offiziellen numerischen Score.
+                </div>
+                <p>Bei <code>multiple_study_report</code> trennt der Agent daher:</p>
+                <ul>
+                    <li><strong>Dokumentebene:</strong> APA JARS-Quant für Reporting Quality.</li>
+                    <li><strong>Teilstudienebene:</strong> jede ausreichend beschriebene Primärstudie separat mit dem fachlich passenden Instrument, sofern möglich.</li>
+                </ul>
+                <p>JARS-Kriterien erscheinen als <code>reported</code>, <code>partial</code>, <code>not_reported</code> oder <code>not_applicable</code>. Ein angezeigter Prozentwert ist ausdrücklich ein <strong>interner Reporting-Erfüllungsgrad</strong> und kein offizieller APA-JARS-Score.</p>
+                <p>Diese Trennung verhindert, dass gute Berichtsqualität mit geringerem Risk of Bias oder hoher methodischer Qualität gleichgesetzt wird.</p>
+
+                <h2>CASQ: nur ergänzender interner Vergleichsindex</h2>
+                <p><strong>CASQ – AI-assisted Critical Appraisal Score for Quality</strong> bleibt als heuristischer, <strong>nicht extern validierter</strong> Index von 0 bis 10 erhalten. Er ist nützlich, um heterogene Publikationen innerhalb des OnePagers strukturiert zu vergleichen, darf aber <strong>nicht als Ersatz</strong> für PEDro, MINORS, AMSTAR 2, COSMIN, MMAT/CASP oder GRADE kommuniziert werden.</p>
+                <p>Der CASQ wird nicht vom LLM vergeben. Je Dokumenttyp gibt es eine feste Rubrik mit gewichteten Dimensionen und 13–27 konkreten Prüffragen. Agent 3 beantwortet sie mit Belegstelle, Agent 4 korrigiert, was der Text nicht trägt. Danach rechnet das Programm: ja = 1, teilweise = 0,5, nein bzw. nicht berichtet = 0; eine „ja/teilweise“-Antwort, deren Zitat im PDF nicht auffindbar ist, wird eine Stufe herabgesetzt. Teilscore je Dimension = 10 × Mittelwert, CASQ = gewichtetes Mittel. Mit KRITISCH markierte Fragen (z.B. „Verfahren passen zu Design und Daten“) begrenzen den CASQ bei einem Mangel auf 5, bei mehreren auf 3 – gute Einzelpunkte können schwere Mängel so nicht „wegmitteln“. Zusätzlich angezeigt werden der <strong>Informationsgrad</strong> (Anteil der Prüffragen, zu denen der Text etwas sagt), die <strong>Belegquote</strong> und eine <strong>Spanne</strong> bis zu dem Wert, der bei vollständiger Berichterstattung höchstens möglich wäre. Im Ergebnis steht zuerst das etablierte Instrument und erst danach der CASQ.</p>
+                <p><strong>Wichtig:</strong> Sind keine validierten CASQ-Dimensionen mit positivem Gewicht vorhanden, zeigt die Oberfläche <strong>„nicht berechenbar“</strong> statt fälschlich <strong>0.0 / 10</strong>. Ein echter CASQ von 0 wäre nur möglich, wenn bewertbare Dimensionen tatsächlich mit 0 Punkten validiert wurden.</p>
+                <ul>
+                    <li><strong>8,0–10,0:</strong> sehr hohe interne CASQ-Bewertung</li>
+                    <li><strong>6,5–7,9:</strong> hohe interne CASQ-Bewertung</li>
+                    <li><strong>5,0–6,4:</strong> mittlere interne CASQ-Bewertung</li>
+                    <li><strong>&lt; 5,0:</strong> niedrige interne CASQ-Bewertung bzw. relevante Einschränkungen</li>
+                </ul>
+                <h3>Methodische Referenzen</h3>
+                <p style="font-size:.84rem;color:var(--text-light);">Für den wissenschaftlichen Austausch sollte im Gutachten bzw. Review immer das verwendete Originalinstrument genannt werden. Offizielle/primäre Informationsquellen:</p>
+                <ul style="font-size:.84rem;">
+                    <li><a href="https://pedro.org.au/english/resources/pedro-scale/" target="_blank" rel="noopener">PEDro Scale</a></li>
+                    <li><a href="https://pubmed.ncbi.nlm.nih.gov/12956787/" target="_blank" rel="noopener">MINORS – Entwicklung und Validierung</a></li>
+                    <li><a href="https://amstar.ca/Amstar-2.php" target="_blank" rel="noopener">AMSTAR 2</a></li>
+                    <li><a href="https://www.cosmin.nl/" target="_blank" rel="noopener">COSMIN</a></li>
+                    <li><a href="https://mixedmethodsappraisaltoolpublic.pbworks.com/" target="_blank" rel="noopener">MMAT</a></li>
+                    <li><a href="https://casp-uk.net/casp-tools-checklists/" target="_blank" rel="noopener">CASP Checklists</a></li>
+                    <li><a href="https://www.gradeworkinggroup.org/" target="_blank" rel="noopener">GRADE Working Group</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- TAB: HISTORIE -->
+        <div id="tab-history" class="container">
+            <div class="card text-content" style="width: 100%;">
+                <h2>Verlauf der Analysen</h2>
+                <p>Hier findest du vergangene Analysen. Du kannst sehen, mit welcher Prompt-Version die jeweilige Analyse durchgeführt wurde. Zu jedem neuen Lauf wird das vollständige Agent-Protokoll (Prompts und Rohantworten) gespeichert.</p>
+                <p style="font-size:.85rem;color:var(--text-light);">Die Daten liegen in diesem Browser (IndexedDB) und funktionieren auch offline. Mit Export/Import lassen sie sich sichern oder auf ein anderes Gerät übertragen.</p>
+                <div class="history-toolbar">
+                    <button class="btn btn-secondary btn-small" onclick="exportHistory()">⬇️ Export (JSON)</button>
+                    <button class="btn btn-secondary btn-small" onclick="document.getElementById('history-import').click()">⬆️ Import</button>
+                    <input type="file" id="history-import" accept="application/json,.json" style="display:none;" onchange="importHistory(this.files)">
+                    <span id="history-storage" class="history-storage"></span>
+                </div>
+                <div class="history-list" id="history-list">
+                    <!-- Injected via JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="source-modal" class="source-modal" onclick="if(event.target===this) closeSourceReference()">
+        <div class="source-modal-card">
+            <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;">
+                <div><h3 style="margin:0;color:#0f172a;">Quellenbeleg</h3><div id="source-modal-meta" class="source-meta"></div></div>
+                <button class="btn btn-secondary btn-small" onclick="closeSourceReference()">Schließen</button>
+            </div>
+            <div id="source-modal-quote" class="source-quote"></div>
+            <div id="source-modal-note" class="source-meta"></div>
+            <div class="source-actions"><button id="source-open-pdf" class="btn" onclick="openCurrentSourcePDF()">PDF auf Seite öffnen</button></div>
+        </div>
+    </div>
+
+    <script src="js/prompts.js"></script>
+    <script src="js/scoring.js"></script>
+    <script src="js/integrity.js"></script>
+    <script src="js/pdf-extract.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/sync.js"></script>
+    <script src="js/profile.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/llm.js"></script>
+    <script src="js/workflow.js"></script>
+    <script src="js/render.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

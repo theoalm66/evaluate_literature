@@ -1,0 +1,32 @@
+# Start auf dem Spark:  docker compose up -d --build
+# Einstellungen in der Datei .env neben dieser Datei, z.B.:
+#   LIT_INVITE_CODE=<selbst ausgedachter Code>
+#   LIT_HOST_PORT=8091        (falls 8080 auf dem Spark schon belegt ist)
+#   LIT_LLM_URL=http://host.docker.internal:8000/v1   (Modell-Server auf dem Spark, z.B. vLLM;
+#                             lauscht er nur auf 127.0.0.1, siehe compose.hostnet.yaml)
+#   LIT_LLM_MODEL=...         (optional; sonst das erste Modell, das der Modell-Server meldet)
+#   LIT_LLM_KEY=...           (optional, falls der Modell-Server einen API-Key verlangt)
+# Konto anlegen:        docker compose exec lit node server/cli.js user:add <login>
+# Sicherung:            docker compose exec lit node server/cli.js backup /data/backup.db
+services:
+  lit:
+    build: .
+    restart: unless-stopped
+    environment:
+      LIT_INVITE_CODE: ${LIT_INVITE_CODE:-}
+      LIT_LLM_URL: ${LIT_LLM_URL:-}
+      LIT_LLM_MODEL: ${LIT_LLM_MODEL:-}
+      LIT_LLM_KEY: ${LIT_LLM_KEY:-}
+      LIT_LLM_LABEL: ${LIT_LLM_LABEL:-Spark-Modell}
+      LIT_LLM_TIMEOUT_MIN: ${LIT_LLM_TIMEOUT_MIN:-30}
+    # Erlaubt LIT_LLM_URL=http://host.docker.internal:8000/v1 für einen Modell-Server direkt auf dem Spark
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - lit-data:/data
+    # Nur lokal erreichbar; nach außen geht es ausschließlich über Tailscale.
+    ports:
+      - "127.0.0.1:${LIT_HOST_PORT:-8080}:8080"
+
+volumes:
+  lit-data:
