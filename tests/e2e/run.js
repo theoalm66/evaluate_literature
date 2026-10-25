@@ -19,10 +19,15 @@ function legacyHash(str) {
     return hash.toString();
 }
 
+// Altes "Verschlüsselungs"-Verfahren der Einzeldatei (XOR mit dem Passwort, Base64)
+function legacyXor(text, password) {
+    return Buffer.from(Array.from(text, (c, i) => String.fromCharCode(c.charCodeAt(0) ^ password.charCodeAt(i % password.length))).join(''), 'latin1').toString('base64');
+}
+
 const legacyProfile = {
     alt: {
         passHash: legacyHash('pw'),
-        keys: { activeProvider: 'custom1', custom1Url: 'http://localhost:1/v1', custom1Key: '', custom1Model: '', maxEvidence: 50000, maxTokens: 8192, temperature: 0 },
+        keys: { activeProvider: 'custom1', custom1Url: 'http://localhost:1/v1', custom1Key: legacyXor('alt-geheim', 'pw'), custom1Model: '', maxEvidence: 50000, maxTokens: 8192, temperature: 0 },
         prompts: { extraction: [{ text: 'alter Prompt', date: '1.1.2026, 10:00:00' }] },
         history: [{ date: '1.1.2026, 10:05:00', model: 'altes-modell', provider: 'custom2', extractions: [{ title: 'alt.pdf' }], validation: { casq_score: 6.1, overall_quality: 'MITTEL' }, study_results: [] }]
     }
@@ -89,6 +94,13 @@ async function login(page, user, pass, action = 'login') {
         const promptInfo = await page.evaluate(() => getUserDB().alt.prompts.extraction.map(p => ({ id: !!p.id, createdAt: !!p.createdAt })));
         assert.ok(promptInfo.length >= 2 && promptInfo.every(p => p.id && p.createdAt), 'Prompt-Versionen ohne ID');
         console.log(`✓ Login mit migriertem Profil, ${promptInfo.length} Extraction-Prompt-Versionen mit ID`);
+
+        // Alter Key (XOR) wird gelesen und beim Login auf AES umgestellt; djb2-Hash wird durch PBKDF2-Prüfwert ersetzt
+        assert.equal(await page.inputValue('#custom1-key'), 'alt-geheim', 'alter Key nicht entschlüsselt');
+        await page.waitForFunction(() => getUserDB().alt.keys.custom1Key.startsWith('aes1:'));
+        const migrated = await page.evaluate(() => { const p = getUserDB().alt; return { auth: p.auth?.v, passHash: p.passHash, iter: p.auth?.iter, hasPlain: JSON.stringify(p).includes('alt-geheim') }; });
+        assert.deepEqual(migrated, { auth: 2, passHash: undefined, iter: 310000, hasPlain: false }, 'Umstellung auf AES unvollständig');
+        console.log('✓ Alter Key entschlüsselt und auf AES-256 umgestellt, Passwortprüfung auf PBKDF2 (310.000 Runden)');
 
         // Status-Lampe: altes Profil zeigt auf einen nicht erreichbaren Server → rot
         await page.waitForFunction(() => document.getElementById('llm-lamp').classList.contains('err'));
@@ -177,6 +189,54 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(fallback.summary, 'Testsynthese.');
         console.log('✓ Server ohne JSON-Schema: automatischer Rückfall auf einfachen JSON-Modus');
 
+        // Hochschul-API: URL und Key eintragen, Modelle suchen, Modell wählen und aktivieren
+        llm.state.requireKey = 'sk-hs-123';
+        await page.click('nav button[data-tab="config"]');
+        await page.selectOption('#llm-provider', 'hochschule');
+        await page.fill('#hochschule-url', `http://localhost:${LLM_PORT}/v1`);
+        await page.dispatchEvent('#hochschule-url', 'change');
+        await page.click('#settings-hochschule >> text=Modelle suchen');
+        await page.waitForFunction(() => document.getElementById('hochschule-search-status').textContent.includes('API-Key'));
+        assert.match(await page.textContent('#hochschule-search-status'), /Bitte zuerst den API-Key/, 'ohne Key muss gewarnt werden');
+        await page.fill('#hochschule-key', 'falscher-key');
+        await page.click('#settings-hochschule >> text=Modelle suchen');
+        await page.waitForFunction(() => document.getElementById('hochschule-search-status').classList.contains('err') && document.getElementById('hochschule-search-status').textContent.includes('ungültig'));
+        await page.fill('#hochschule-key', 'sk-hs-123');
+        await page.dispatchEvent('#hochschule-key', 'change');
+        await page.click('#settings-hochschule >> text=Modelle suchen');
+        await page.waitForFunction(() => document.getElementById('hochschule-search-status').classList.contains('ok'));
+        const hsOptions = await page.$$eval('#hochschule-model option', o => o.map(x => x.value));
+        assert.deepEqual(hsOptions, ['mock-model', 'zweites-modell'], 'Embedding-Modell muss ausgeblendet sein');
+        assert.match(await page.textContent('#hochschule-search-status'), /2 Modell\(e\) gefunden \(1 Embedding/);
+        await page.selectOption('#hochschule-model', 'zweites-modell');
+        await page.click('#settings-hochschule >> text=Modell aktivieren');
+        await page.waitForFunction(() => document.getElementById('llm-status-text').textContent === 'Hochschul-API · zweites-modell');
+        assert.equal(await page.inputValue('#llm-provider'), 'hochschule');
+        assert.match(await page.textContent('#hochschule-active'), /Aktiv: Hochschul-API · zweites-modell/);
+        const hsCall = await page.evaluate(async () => parseJSONRobust(await callLLM('Du bist Agent 5 – Test', {})).narrative_summary);
+        assert.equal(hsCall, 'Testsynthese.', 'Aufruf mit Key über die Hochschul-API fehlgeschlagen');
+        const hsStored = await page.evaluate(() => { const k = getUserDB().alt.keys; return { key: k.hochschuleKey, models: k.hochschuleModels, model: k.hochschuleModel }; });
+        assert.ok(hsStored.key.startsWith('aes1:') && !hsStored.key.includes('sk-hs'), 'Hochschul-Key nicht verschlüsselt');
+        assert.deepEqual(hsStored.models, ['mock-model', 'zweites-modell']);
+        assert.equal(hsStored.model, 'zweites-modell');
+        console.log('✓ Hochschul-API: Modelle gesucht (Embedding ausgeblendet), Modell aktiviert, Aufruf mit Key, Key verschlüsselt');
+
+        // Eigener Endpunkt ohne Key
+        llm.state.requireKey = null;
+        await page.selectOption('#llm-provider', 'endpoint');
+        await page.fill('#endpoint-url', `http://localhost:${LLM_PORT}/v1/`);
+        await page.dispatchEvent('#endpoint-url', 'change');
+        await page.click('#settings-endpoint >> text=Modelle suchen');
+        await page.waitForFunction(() => document.getElementById('endpoint-search-status').classList.contains('ok'));
+        await page.click('#settings-endpoint >> text=Modell aktivieren');
+        await page.waitForFunction(() => document.getElementById('llm-status-text').textContent === 'Eigener Endpunkt · mock-model');
+        console.log('✓ Eigener Endpunkt: Modelle gesucht und aktiviert:', await page.textContent('#llm-status-text'));
+
+        // zurück auf Lokales Profil 1 für die weiteren Prüfungen
+        await page.selectOption('#llm-provider', 'custom1');
+        await page.dispatchEvent('#llm-provider', 'change');
+        await page.waitForFunction(() => document.getElementById('llm-status-text').textContent.startsWith('Lokales Profil 1'));
+
         // 4) Lauf + Agent-Protokoll in IndexedDB
         const stored = await page.evaluate(async () => {
             const runs = await listRuns('alt');
@@ -234,6 +294,8 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(offlineRuns, 2);
         const pdfjsOk = await page.evaluate(() => typeof pdfjsLib !== 'undefined');
         assert.ok(pdfjsOk, 'pdf.js offline nicht geladen');
+        assert.equal(await page.inputValue('#hochschule-key'), 'sk-hs-123', 'AES-Key nach erneutem Login nicht lesbar');
+        assert.equal(await page.inputValue('#custom1-key'), 'alt-geheim');
         console.log('✓ Offline-Start: App, pdf.js und Historie verfügbar');
 
         const relevantErrors = errors.filter(e => !e.includes('net::ERR_INTERNET_DISCONNECTED'));

@@ -97,7 +97,7 @@ function answerFor(prompt) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { vision: true, jsonSchema: true };
+    const state = { vision: true, jsonSchema: true, requireKey: null };
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
         const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' };
@@ -105,7 +105,12 @@ function startMockLLM(port) {
         let body = '';
         req.on('data', c => { body += c; });
         req.on('end', () => {
-            if (req.url.endsWith('/models')) { res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock-model', max_model_len: 32768 }] })); }
+            // Optionaler API-Key-Zwang (Hochschul-API-Test): ohne passenden Bearer-Key 401
+            if (state.requireKey && req.headers.authorization !== `Bearer ${state.requireKey}`) {
+                res.writeHead(401, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'Invalid API key' } }));
+            }
+            if (req.url.endsWith('/models')) { res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock-model', max_model_len: 32768 }, { id: 'mock-embedding-model' }, { id: 'zweites-modell' }] })); }
             const payload = JSON.parse(body || '{}');
             const raw = payload.messages?.find(m => m.role === 'user')?.content || '';
             const parts = Array.isArray(raw) ? raw : [{ type: 'text', text: raw }];

@@ -22,6 +22,8 @@ function toggleProviderSettings() {
     document.getElementById('settings-openai').style.display = provider === 'openai' ? 'block' : 'none';
     document.getElementById('settings-gemini').style.display = provider === 'gemini' ? 'block' : 'none';
     document.getElementById('settings-spark').style.display = provider === 'spark' ? 'block' : 'none';
+    document.getElementById('settings-hochschule').style.display = provider === 'hochschule' ? 'block' : 'none';
+    document.getElementById('settings-endpoint').style.display = provider === 'endpoint' ? 'block' : 'none';
 }
 
 function isPdfFile(f) {

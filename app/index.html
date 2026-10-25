@@ -179,8 +179,12 @@
                         <option value="custom3">🖥️ Lokales Profil 3 (z.B. Ollama)</option>
                         <option value="openai">🟢 OpenAI (ChatGPT API)</option>
                         <option value="gemini">✨ Google Gemini (API)</option>
+                        <option value="hochschule">🎓 Hochschul-API</option>
+                        <option value="endpoint">🔌 Eigener Endpunkt (OpenAI-kompatibel)</option>
                         <option value="spark">🚀 Spark-Modell (über den Server, auch von unterwegs)</option>
                     </select>
+
+                    <div id="encryption-note" class="encryption-note"></div>
 
                     <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
 
@@ -250,6 +254,47 @@
                     </div>
 
                     <!-- Gemini Settings -->
+                    <div id="settings-hochschule" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🎓 Hochschul-API</h3>
+                        <p class="provider-info">ⓘ Noch keinen API-Key für die Hochschul-API? Im Hochschulportal anfordern: <a href="https://portal.rh-koeln.de/chatai-access-token" target="_blank" rel="noopener">portal.rh-koeln.de/chatai-access-token</a></p>
+                        <label>Endpunkt-URL (OpenAI-kompatibel)</label>
+                        <input type="text" id="hochschule-url" placeholder="z.B. https://chat-ai.academiccloud.de/v1" autocomplete="off" onchange="saveUserKeys()">
+                        <label>API-Key</label>
+                        <input type="password" id="hochschule-key" autocomplete="off" onchange="saveUserKeys()">
+                        <button type="button" class="btn btn-secondary btn-small" onclick="searchModels('hochschule')" style="margin-top:.4rem;">🔎 Modelle suchen</button>
+                        <div id="hochschule-search-status" class="model-search-status"></div>
+                        <label>Modell</label>
+                        <select id="hochschule-model" onchange="saveUserKeys()"></select>
+                        <p class="provider-info">ⓘ Unsicher, welches Modell Sie wählen sollen? Lesen Sie die <a href="https://docs.hpc.gwdg.de/services/ai-services/chat-ai/models/index.html" target="_blank" rel="noopener">Modellübersicht</a>.</p>
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="hochschule-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+                        <button type="button" class="btn btn-small" onclick="activateModel('hochschule')" style="margin-top:.6rem;">✓ Modell aktivieren</button>
+                        <div id="hochschule-active" class="model-active"></div>
+                        <div id="save-note-hochschule" class="save-note">✓ Im Profil gespeichert</div>
+                    </div>
+
+                    <div id="settings-endpoint" style="display: none;">
+                        <h3 style="margin-bottom: 1rem; color: var(--primary);">🔌 Eigener Endpunkt</h3>
+                        <p class="provider-info">ⓘ Jeder OpenAI-kompatible Dienst funktioniert (vLLM, LM Studio, Ollama, LiteLLM, OpenRouter, …). Die Anfragen gehen direkt aus Ihrem Browser an den Endpunkt; der Dienst muss Browser-Zugriffe (CORS) erlauben und bei einer https-Seite selbst per https erreichbar sein.</p>
+                        <label>Endpunkt-URL (OpenAI-kompatibel)</label>
+                        <input type="text" id="endpoint-url" placeholder="z.B. https://api.example.org/v1" autocomplete="off" onchange="saveUserKeys()">
+                        <label>API-Key (falls der Dienst einen verlangt)</label>
+                        <input type="password" id="endpoint-key" autocomplete="off" onchange="saveUserKeys()">
+                        <button type="button" class="btn btn-secondary btn-small" onclick="searchModels('endpoint')" style="margin-top:.4rem;">🔎 Modelle suchen</button>
+                        <div id="endpoint-search-status" class="model-search-status"></div>
+                        <label>Modell</label>
+                        <select id="endpoint-model" onchange="saveUserKeys()"></select>
+                        <label style="display: flex; align-items: center; font-weight: normal; margin-top: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="endpoint-thinking" style="width: auto; margin: 0 0.5rem 0 0;" onchange="saveUserKeys()">
+                            🧠 Thinking-Modus erlauben (für Reasoning-Modelle)
+                        </label>
+                        <button type="button" class="btn btn-small" onclick="activateModel('endpoint')" style="margin-top:.6rem;">✓ Modell aktivieren</button>
+                        <div id="endpoint-active" class="model-active"></div>
+                        <div id="save-note-endpoint" class="save-note">✓ Im Profil gespeichert</div>
+                    </div>
+
                     <div id="settings-spark" style="display: none;">
                         <h3 style="margin-bottom: 1rem; color: var(--primary);">🚀 Spark-Modell</h3>
                         <p style="font-size: 0.85rem; color: var(--text-light); margin-bottom: 1rem;">Die Anfragen gehen an den Spark-Server, der sie intern an das dort laufende Modell weiterleitet. Funktioniert überall, wo die App erreichbar ist – auch vom Handy. Voraussetzung: ein mit dem Spark verknüpftes Konto.</p>
@@ -556,7 +601,9 @@
     <script src="js/pdf-extract.js"></script>
     <script src="js/schemas.js"></script>
     <script src="js/storage.js"></script>
+    <script src="js/crypto.js"></script>
     <script src="js/sync.js"></script>
+    <script src="js/providers.js"></script>
     <script src="js/profile.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/llm.js"></script>

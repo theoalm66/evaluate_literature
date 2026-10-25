@@ -123,6 +123,19 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
   Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.
 
+**Weitere LLM-Verbindungen und sichere API-Keys**
+- **🎓 Hochschul-API** und **🔌 Eigener Endpunkt** (beide OpenAI-kompatibel, direkt aus dem Browser): Endpunkt-URL und
+  API-Key eintragen → *Modelle suchen* (`GET {url}/models`; Embedding-, Audio- und Reranker-Modelle werden
+  ausgeblendet) → Modell wählen → *Modell aktivieren*. Die Hochschul-API enthält die Hinweise zum Zugang
+  (portal.rh-koeln.de/chatai-access-token) und zur Modellauswahl (Modellübersicht der GWDG). Der Dienst muss
+  Browser-Zugriffe (CORS) erlauben; sonst nennt die App den Grund bei der Modellsuche bzw. im Terminal.
+- **API-Keys mit AES-256-GCM** (WebCrypto) statt XOR: Schlüssel per PBKDF2-SHA-256 (310.000 Runden, eigenes Salz je
+  Profil) aus dem Passwort, jeder Key mit eigenem IV, der Feldname ist gebunden. Auch die lokale Passwortprüfung
+  nutzt jetzt diese Ableitung statt des alten djb2-Hashs (mit dem sich das Passwort offline in Sekunden hätte raten
+  lassen). Profile der alten Version werden beim nächsten Login automatisch umgestellt. WebCrypto gibt es nur über
+  https oder localhost – über eine reine http-Adresse bleibt es beim alten Verfahren (die App zeigt das an), und ein
+  bereits umgestelltes Profil lässt sich dort nicht öffnen.
+
 **Strukturierte JSON-Ausgabe, ein Instrument je Aufruf** (`app/js/schemas.js`)
 - Jeder Agent schickt ein JSON-Schema als `response_format: json_schema` mit (strikter Modus: alle Felder Pflicht,
   feste Werte für Entscheidungsfelder, bei den CASQ-Prüffragen nur die IDs der gewählten Rubrik). vLLM, OpenAI und

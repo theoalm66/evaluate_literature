@@ -5,7 +5,7 @@ async function autoDetectContext() {
     const provider = document.getElementById('llm-provider').value;
     let url, key, modelName;
     
-    if (provider.startsWith('custom')) {
+    if (isUrlProvider(provider)) {
         let baseUrl = document.getElementById(provider + '-url').value.replace(/\/$/, '');
         url = baseUrl + '/models';
         key = document.getElementById(provider + '-key').value || 'lm-studio';
@@ -91,7 +91,7 @@ function recordStep(step) {
 // ==========================================
 // STATUS-LAMPE: Ist das gewählte Modell erreichbar?
 // ==========================================
-const PROVIDER_LABELS = { custom1: 'Lokales Profil 1', custom2: 'Lokales Profil 2', custom3: 'Lokales Profil 3', openai: 'OpenAI', gemini: 'Gemini', spark: 'Spark-Modell' };
+const PROVIDER_LABELS = { custom1: 'Lokales Profil 1', custom2: 'Lokales Profil 2', custom3: 'Lokales Profil 3', hochschule: 'Hochschul-API', endpoint: 'Eigener Endpunkt', openai: 'OpenAI', gemini: 'Gemini', spark: 'Spark-Modell' };
 const LLM_STATUS_INTERVAL_MS = 2 * 60 * 1000;
 let llmStatusSeq = 0;
 let llmStatusDebounce = null;
@@ -111,11 +111,14 @@ function setLlmStatus(state, text, title = '') {
 function currentLlmConfig() {
     const provider = document.getElementById('llm-provider').value;
     const label = PROVIDER_LABELS[provider] || provider;
-    if (provider.startsWith('custom')) {
+    if (isUrlProvider(provider)) {
         const base = document.getElementById(provider + '-url').value.trim().replace(/\/$/, '');
         const key = document.getElementById(provider + '-key').value;
-        if (!base) return { provider, label, error: 'keine Base-URL eingetragen' };
-        return { provider, label, url: base + '/models', headers: key && key !== 'lm-studio' ? { Authorization: `Bearer ${key}` } : {}, model: document.getElementById(provider + '-model').value.trim(), checkModel: true };
+        const model = document.getElementById(provider + '-model').value.trim();
+        if (!base) return { provider, label, error: 'keine Endpunkt-URL eingetragen' };
+        if (KEY_REQUIRED_PROVIDERS.includes(provider) && !key) return { provider, label, error: 'API-Key fehlt' };
+        if (MODEL_PROVIDERS.includes(provider) && !model) return { provider, label, error: 'kein Modell aktiviert (erst „Modelle suchen“)' };
+        return { provider, label, url: base + '/models', headers: key && key !== 'lm-studio' ? { Authorization: `Bearer ${key}` } : {}, model, checkModel: true };
     }
     if (provider === 'openai') {
         const key = document.getElementById('openai-key').value;
@@ -302,18 +305,21 @@ function explainNetworkError(url) {
             + 'LM Studio: Server starten und unter Developer → Settings „Enable CORS“ einschalten. „localhost“ meint immer das Gerät, auf dem der Browser läuft.';
     }
     if (!navigator.onLine) return 'Das Gerät ist offline.';
-    return `Der Server ${target.host} ist nicht erreichbar oder erlaubt keine Browser-Zugriffe (CORS).`;
+    return `Der Server ${target.host} ist nicht erreichbar, oder er erlaubt keine Aufrufe aus dem Browser (CORS: Der Anbieter muss „Access-Control-Allow-Origin“ senden). Bitte URL, Netzwerk und – bei Hochschul-Netzen – VPN prüfen.`;
 }
 
 async function callLLM(prompt, meta = {}) {
     const provider = document.getElementById('llm-provider').value;
     let url, key, model;
     
-    if (provider.startsWith('custom')) {
-        let baseUrl = document.getElementById(provider + '-url').value.replace(/\/$/, '');
+    if (isUrlProvider(provider)) {
+        let baseUrl = document.getElementById(provider + '-url').value.trim().replace(/\/$/, '');
+        if (!baseUrl) throw new Error(`${PROVIDER_LABELS[provider]}: Endpunkt-URL fehlt in der Konfiguration!`);
         url = baseUrl + '/chat/completions';
         model = document.getElementById(provider + '-model').value || 'local-model';
         key = document.getElementById(provider + '-key').value || 'lm-studio';
+        if (KEY_REQUIRED_PROVIDERS.includes(provider) && key === 'lm-studio') throw new Error(`${PROVIDER_LABELS[provider]}: API-Key fehlt in der Konfiguration!`);
+        if (MODEL_PROVIDERS.includes(provider) && model === 'local-model') throw new Error(`${PROVIDER_LABELS[provider]}: Kein Modell aktiviert – bitte unter Konfiguration „Modelle suchen“ und ein Modell aktivieren.`);
     } else if (provider === 'openai') {
         url = 'https://api.openai.com/v1/chat/completions';
         key = document.getElementById('openai-key').value;
@@ -337,7 +343,7 @@ async function callLLM(prompt, meta = {}) {
     let systemPrompt = document.getElementById('llm-system-prompt').value || DEFAULT_SYSTEM_PROMPT;
 
     let isThinkingAllowed = false;
-    if (provider.startsWith('custom') || provider === 'spark') {
+    if (isUrlProvider(provider) || provider === 'spark') {
         isThinkingAllowed = document.getElementById(provider + '-thinking').checked;
     }
 
@@ -426,7 +432,8 @@ async function callLLM(prompt, meta = {}) {
         recordStep({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: err });
         let message = err;
         try { message = JSON.parse(err).error?.message || JSON.parse(err).error || err; } catch (e) { /* kein JSON */ }
-        const errorText = `API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}`;
+        const authHint = (response.status === 401 || response.status === 403) && provider !== 'spark' ? ' – API-Key ungültig, abgelaufen oder für dieses Modell nicht berechtigt.' : '';
+        const errorText = `API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}${authHint}`;
         markLlmCall(false, provider, errorText);
         throw new Error(errorText);
     }

@@ -108,6 +108,8 @@ const runCount = (page, user) => page.evaluate(u => listRuns(u).then(r => r.leng
         const storedSettings = db().prepare('SELECT data FROM settings').get().data;
         assert.ok(storedSettings.includes(`localhost:${LLM_PORT}`), 'Einstellungen nicht auf dem Spark');
         assert.ok(!storedSettings.includes('Key"') && !storedSettings.includes('geheimer'), 'API-Key darf nicht übertragen werden');
+        const stored = await A.page.evaluate(() => getUserDB().anna.keys.custom1Key);
+        assert.ok(stored.startsWith('aes1:') && !stored.includes('geheimer'), 'API-Key lokal nicht mit AES gespeichert');
         console.log('✓ Gerät A: Konto, Analyse, Prompt und Einstellungen auf dem Spark (ohne API-Key)');
 
         // 2) Gerät B: Anmeldung baut das Profil aus den Spark-Daten auf
