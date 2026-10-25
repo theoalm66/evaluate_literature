@@ -266,9 +266,17 @@ function interpret(report) {
     if (spread.length) f.push(`Starke Streuung bei gleicher Anfrage (${spread.map(p => `${p.id}: ${fmt(p.minMs)} bis ${fmt(p.maxMs)}`).join('; ')}): zeitweise überlasteter Dienst bzw. Warteschlange.`);
     const par = by('parallel3');
     if (par?.medianMs && tiny?.medianMs && par.maxMs > 2.5 * tiny.maxMs && par.maxMs > 8000) f.push('Parallele Anfragen werden hintereinander abgearbeitet oder gedrosselt (Warteschlange).');
+    // Zufällige Sofort-Fehler (5xx in unter 1 s): kein Parameterproblem, sondern ein instabiler Dienst
+    const all = report.probes.flatMap(p => p.details);
+    const instant5xx = all.filter(d => !d.ok && d.status >= 500 && d.totalMs < 1500);
+    if (instant5xx.length) f.push(`${instant5xx.length} von ${all.length} Anfragen scheiterten sofort (unter 1,5 s) mit einem 5xx-Fehler, auch einfache Aufrufe. Das sind zufällige Fehler des Dienstes (z.B. ein defekter Knoten hinter dem Gateway), keine Folge bestimmter Parameter. Die App wiederholt solche Aufrufe automatisch.`);
     const rp = by('reasoning-param');
-    if (rp && rp.failures === rp.runs) f.push(`„Reasoning abschalten“ (chat_template_kwargs) wird abgelehnt: ${rp.details[0]?.error || ''}`);
-    else if (rp) f.push('„Reasoning abschalten“ (chat_template_kwargs) wird angenommen.');
+    if (rp) {
+        const rejected = rp.details.filter(d => !d.ok && (d.status === 400 || d.status === 422));
+        if (rejected.length === rp.runs) f.push(`„Reasoning abschalten“ (chat_template_kwargs) wird abgelehnt: ${rp.details[0]?.error || ''}`);
+        else if (rp.failures === 0) f.push('„Reasoning abschalten“ (chat_template_kwargs) wird angenommen.');
+        else f.push(`„Reasoning abschalten“ (chat_template_kwargs): nicht eindeutig (${rp.failures} von ${rp.runs} fehlgeschlagen, kein 400/422). Bei zufälligen 5xx-Fehlern des Dienstes mit --only reasoning-param --repeat 6 wiederholen.`);
+    }
     return f;
 }
 
