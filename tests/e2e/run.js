@@ -397,6 +397,7 @@ async function login(page, user, pass, action = 'login') {
         const extractionPayloads = llm.state.payloads.filter(pl => pl.messages[1].content && JSON.stringify(pl.messages[1].content).includes('Du bist Agent 2'));
         const schemaKeys = extractionPayloads.map(pl => Object.keys(pl.response_format.json_schema.schema.properties).length);
         assert.deepEqual(schemaKeys, [13, 7, 6], 'Schema je Teil: ' + schemaKeys);
+        assert.deepEqual(extractionPayloads.map(pl => pl.max_tokens), [3000, 4000, 5000], 'Ausgabegrenze je Teil');
         await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = false; });
         console.log('✓ Extraktion in 3 Teilschritten: je Teil eigenes Schema, Ergebnis wird zusammengesetzt (Marketing-Studie korrekt erkannt)');
 

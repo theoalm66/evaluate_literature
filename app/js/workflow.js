@@ -30,8 +30,12 @@ async function callWithVisuals(prompt, meta, doc) {
 // (beide mit Seitenbildern). So bleibt jeder Aufruf kurz genug für Server mit Zeitlimit.
 const EXTRACTION_PART_TITLES = { classification: 'Dokumenttyp und Design', methods: 'Stichprobe, Methoden und Messung', results: 'Ergebnisse, Limitationen und Belege' };
 
+// Ausgabegrenzen je Teil: Läuft ein Modell in eine Wiederholungsschleife, bricht es nach wenigen tausend Token ab,
+// statt bis zur (oft sehr hohen) Grenze weiterzuschreiben und das Zeitlimit des Servers zu reißen.
+const EXTRACTION_PART_MAX_TOKENS = { classification: 3000, methods: 4000, results: 5000 };
+
 function extractionPartInstruction(part, partIndex, partCount, known) {
-    const lines = [`TEILAUFGABE (Teil ${partIndex} von ${partCount}: ${EXTRACTION_PART_TITLES[part]}): Liefere AUSSCHLIESSLICH diese Schlüssel des JSON-SCHEMA: ${EXTRACTION_PARTS[part].join(', ')}. Lass alle anderen Schlüssel weg.`];
+    const lines = [`TEILAUFGABE (Teil ${partIndex} von ${partCount}: ${EXTRACTION_PART_TITLES[part]}): Liefere AUSSCHLIESSLICH diese Schlüssel des JSON-SCHEMA: ${EXTRACTION_PARTS[part].join(', ')}. Lass alle anderen Schlüssel weg. Höchstens 12 Einträge je Liste, keine Wiederholungen, jede Angabe knapp.`];
     if (known.document_type) lines.push(`Bereits bestimmt (Teil 1): Dokumenttyp ${known.document_type}, Studienfamilie ${known.study_family || 'unklar'}, Design ${known.study_design || 'unklar'}.`);
     return lines.join('\n') + '\n';
 }
@@ -50,7 +54,9 @@ async function runExtraction(doc, promptBase, promptVersionId, split) {
         // Eigene Prompts ohne Platzhalter bekommen die Teilaufgabe vorangestellt.
         const template = promptBase.includes('{{PART_INSTRUCTION}}') ? promptBase : `{{PART_INSTRUCTION}}\n${promptBase}`;
         const prompt = fillTemplate(template, { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text, PART_INSTRUCTION: instruction });
-        const meta = { agent: 'extraction', part, doc: doc.title, promptVersionId, schema: agentSchema('extraction', { part }) };
+        const configuredMax = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
+        const meta = { agent: 'extraction', part, doc: doc.title, promptVersionId, schema: agentSchema('extraction', { part }),
+            maxTokens: Math.min(configuredMax, EXTRACTION_PART_MAX_TOKENS[part]) };
         const answer = parseJSONRobust(await (part === 'classification' ? callLLM(prompt, meta) : callWithVisuals(prompt, meta, doc)));
         Object.assign(merged, answer);
     }
@@ -151,6 +157,10 @@ async function startWorkflow() {
         visionActive = vision.state === 'yes';
         log(visionActive ? 'Bildverarbeitung: Modell versteht Bilder – Tabellen/Abbildungen werden als Bild mitgeschickt.'
             : `Bildverarbeitung: ${vision.state === 'no' ? 'Modell verarbeitet keine Bilder' : 'nicht prüfbar'} – Tabellen/Abbildungen nur als Text.`, visionActive ? 'success' : 'warning');
+    }
+
+    if (['hochschule', 'endpoint'].includes(currentProvider) && maxOutTokens > 12000) {
+        log(`Hinweis: „Max. Output Tokens“ steht auf ${maxOutTokens.toLocaleString('de-DE')}. Läuft das Modell in eine Wiederholungsschleife, schreibt es bis zu dieser Grenze weiter und überschreitet das Zeitlimit des Servers (oft 5 Minuten). Empfohlen: 8.000.`, 'warning');
     }
 
     window.currentRunMetrics = [];
