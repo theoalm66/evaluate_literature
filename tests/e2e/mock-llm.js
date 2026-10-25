@@ -119,7 +119,7 @@ function answerFor(prompt, ctx) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { streamed: [], failSchema500: 0, rejectStream: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const state = { streamed: [], failSchema500: 0, rejectStream: false, sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
     const temps = [];            // Agent und Temperatur je Aufruf
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
@@ -167,9 +167,13 @@ function startMockLLM(port) {
             const index = (state.agentCalls[agentTag] = (state.agentCalls[agentTag] ?? -1) + 1);
             if (!isProbe) temps.push({ agent: agentTag, temperature: payload.temperature });
             const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt, { temperature: payload.temperature, index, domain: state.domain }));
+            if (payload.stream && state.streamAsOneJson) {   // Server ignoriert Streaming und antwortet normal
+                res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+            }
             if (payload.stream) {
                 state.streamed.push(!!payload.stream_options);
-                res.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream' });
+                res.writeHead(200, { ...cors, 'Content-Type': state.sseContentType });
                 const half = Math.floor(content.length / 2);
                 const send = obj => res.write(`data: ${JSON.stringify(obj)}\n\n`);
                 send({ model: 'mock-model', choices: [{ delta: { role: 'assistant' } }] });

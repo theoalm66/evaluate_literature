@@ -323,11 +323,12 @@ const schemaServerErrors = {};          // Provider|Modell: Anzahl 5xx-Fehler, n
 const RETRYABLE_STATUS = [429, 500, 502, 503, 504];
 const MAX_SEND_ATTEMPTS = 3;
 
-// Liest eine Chat-Antwort im SSE-Format und baut daraus das gleiche Objekt wie eine normale Antwort.
-async function readChatStream(response) {
+// Liest eine Chat-Antwort, die als Datenstrom (SSE) oder – wenn der Server Streaming ignoriert – als einzelnes
+// JSON kommt. Entschieden wird am Inhalt, nicht am Content-Type: Gateways liefern SSE auch als text/plain.
+async function readChatResponse(response) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '', content = '', model = null, usage = null, finish = null;
+    let buffer = '', content = '', model = null, usage = null, finish = null, mode = null, whole = '';
     const handleLine = raw => {
         const line = raw.trim();
         if (!line.startsWith('data:')) return;
@@ -345,14 +346,26 @@ async function readChatStream(response) {
     for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        const text = decoder.decode(value, { stream: true });
+        if (!mode) {
+            if (!text.trim()) continue;
+            mode = text.trimStart().startsWith('{') ? 'json' : 'sse';
+        }
+        if (mode === 'json') { whole += text; continue; }
+        buffer += text;
         let newline;
         while ((newline = buffer.indexOf('\n')) >= 0) {
             handleLine(buffer.slice(0, newline));
             buffer = buffer.slice(newline + 1);
         }
     }
+    if (mode === 'json') {
+        try { return JSON.parse(whole + decoder.decode()); }
+        catch (e) { throw new Error(`Die Antwort ist kein gültiges JSON (${whole.slice(0, 120).replace(/\s+/g, ' ')}…)`); }
+    }
+    if (!mode) throw new Error('Leere Antwort des Servers.');
     handleLine(buffer);
+    if (!content && !finish) throw new Error(`Der Datenstrom enthält keinen Antworttext (${buffer.slice(0, 120).replace(/\s+/g, ' ')})`);
     return { model, usage, choices: [{ message: { content }, finish_reason: finish }] };
 }
 
@@ -547,7 +560,7 @@ async function callLLM(prompt, meta = {}) {
     }
     let data;
     try {
-        data = (response.headers.get('content-type') || '').includes('text/event-stream') ? await readChatStream(response) : await response.json();
+        data = payload.stream ? await readChatResponse(response) : await response.json();
     } catch (err) {
         const elapsed = performance.now() - startTime;
         const hint = explainNetworkError(url, elapsed);

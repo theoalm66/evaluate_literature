@@ -244,6 +244,16 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(await page.evaluate(() => Object.values(streamingSupport)[0]), 'no', 'Streaming-Ablehnung nicht vermerkt');
         console.log('✓ Server lehnt Streaming ab: Rückfall auf normale Antwort');
         await page.evaluate(() => { for (const k of Object.keys(streamingSupport)) delete streamingSupport[k]; });
+        // Gateways liefern den Datenstrom oft mit falschem Content-Type (z.B. text/plain) oder ignorieren Streaming ganz
+        llm.state.sseContentType = 'text/plain';
+        assert.equal(await hsChat(), 'Testsynthese.');
+        llm.state.sseContentType = 'application/json';
+        assert.equal(await hsChat(), 'Testsynthese.');
+        llm.state.sseContentType = 'text/event-stream';
+        llm.state.streamAsOneJson = true;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        llm.state.streamAsOneJson = false;
+        console.log('✓ Datenstrom mit falschem Content-Type und Server ohne Streaming werden erkannt');
         llm.state.requireKey = null;
 
         // Eigener Endpunkt ohne Key
