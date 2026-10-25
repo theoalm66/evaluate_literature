@@ -94,6 +94,14 @@ Anfragen der App misst: Kurzaufrufe, Streaming, JSON-Modus und JSON-Schema, die 
 PDF-Text, Erzeugungstempo, den Reasoning-Parameter und gleichzeitige Anfragen, je mehrfach (Streuung). Es schreibt einen Bericht mit
 Auswertung; der API-Key wird nie ausgegeben oder gespeichert.
 
+Auf dem Spark ist Node nicht installiert; dort läuft das Programm in einem Docker-Container (das Skript fragt den API-Key unsichtbar ab):
+
+```bash
+tools/api-probe.sh --url https://<Server>/v1 --model <Modell>
+```
+
+Mit installiertem Node (ab 18) geht es auch direkt:
+
 ```bash
 LIT_PROBE_KEY='<API-Key>' node tools/api-probe.js --url https://<Server>/v1 --model <Modell>
 node tools/api-probe.js --help     # Optionen: --text datei.txt, --repeat, --timeout, --only, --quick
