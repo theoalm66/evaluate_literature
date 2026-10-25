@@ -518,7 +518,7 @@ async function callLLM(prompt, meta = {}) {
             if (rejected ? /chat_template|template_kwargs|enable_thinking|extra|unknown|unexpected|unrecognized/i.test(errText) : attempt === 1) {
                 reasoningParamSupport[reasoningKey] = 'no';
                 delete payload.chat_template_kwargs;
-                log('Der Modell-Server nimmt „Reasoning abschalten“ nicht an – weiter ohne diesen Parameter.', 'warning');
+                log(`Der Modell-Server nimmt „Reasoning abschalten“ nicht an (${response.status}: ${errText.replace(/\s+/g, ' ').slice(0, 160) || 'ohne Text'}) – weiter ohne diesen Parameter.`, 'warning');
                 continue;
             }
         }
