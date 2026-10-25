@@ -188,7 +188,8 @@ async function runProbe(args, log = console.log) {
     if (!cfg.model && !args.only) throw new Error('--model fehlt');
     const parts = loadAppParts();
     cfg.systemPrompt = parts.DEFAULT_SYSTEM_PROMPT;
-    const repeat = args.quick ? 1 : parseInt(args.repeat, 10) || 3;
+    // Ausdrücklich angegebenes --repeat gilt auch zusammen mit --quick
+    const repeat = parseInt(args.repeat, 10) || (args.quick ? 1 : 3);
     const pauseMs = (args.pause !== undefined ? parseFloat(args.pause) : 2) * 1000;
     const only = typeof args.only === 'string' ? args.only.split(',').map(s => s.trim()) : null;
     const probes = buildProbes(cfg, parts, buildDocument(args)).filter(p => !only || only.includes(p.id));
