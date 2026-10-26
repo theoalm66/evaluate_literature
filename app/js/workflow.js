@@ -41,10 +41,15 @@ function extractionPartInstruction(part, partIndex, partCount, known) {
     return lines.join('\n') + '\n';
 }
 
-async function runExtraction(doc, promptBase, promptVersionId, split) {
+// Dokument mit dem Text und den Seitenbildern nur einer Etappe
+function stageDoc(doc, stage) {
+    return { ...doc, evidence_text: stage.text, visuals: (doc.visuals || []).filter(v => stage.pages.includes(v.page)) };
+}
+
+async function runExtraction(doc, promptBase, promptVersionId, split, stage) {
     if (!split) {
         const prompt = fillTemplate(promptBase, { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text, PART_INSTRUCTION: '' });
-        return parseJSONRobust(await callWithVisuals(prompt, { agent: 'extraction', doc: doc.title, promptVersionId, schema: agentSchema('extraction') }, doc));
+        return parseJSONRobust(await callWithVisuals(prompt, { agent: 'extraction', doc: doc.title, promptVersionId, schema: agentSchema('extraction'), stage }, doc));
     }
     const parts = Object.keys(EXTRACTION_PARTS);
     const merged = {};
@@ -56,7 +61,7 @@ async function runExtraction(doc, promptBase, promptVersionId, split) {
         const template = promptBase.includes('{{PART_INSTRUCTION}}') ? promptBase : `{{PART_INSTRUCTION}}\n${promptBase}`;
         const prompt = fillTemplate(template, { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text, PART_INSTRUCTION: instruction });
         const configuredMax = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
-        const meta = { agent: 'extraction', part, doc: doc.title, promptVersionId, schema: agentSchema('extraction', { part }),
+        const meta = { agent: 'extraction', part, stage, doc: doc.title, promptVersionId, schema: agentSchema('extraction', { part }),
             maxTokens: Math.min(configuredMax, EXTRACTION_PART_MAX_TOKENS[part]) };
         const answer = parseJSONRobust(await (part === 'classification' ? callLLM(prompt, meta) : callWithVisuals(prompt, meta, doc)));
         Object.assign(merged, answer);
@@ -67,6 +72,7 @@ async function runExtraction(doc, promptBase, promptVersionId, split) {
 function sourceInfoFor(doc) {
     return {
         quality: doc.quality,
+        stages: doc.stages ? doc.stages.map(s => ({ from: s.from, to: s.to })) : null,
         text_chars: doc.full_text?.length ?? null,
         evidence_chars: doc.evidence_text?.length ?? null,
         visual_pages: (doc.visuals || []).map(v => ({ page: v.page, reason: v.reason })),
@@ -155,7 +161,7 @@ async function startWorkflow() {
     if (currentProvider === 'openai') currentModel = document.getElementById('openai-model').value || 'OpenAI Modell';
     if (currentProvider === 'gemini') currentModel = document.getElementById('gemini-model').value || 'Gemini Modell';
 
-    const maxEvChars = parseInt(document.getElementById('max-evidence-chars').value, 10) || 50000;
+    let maxEvChars = parseInt(document.getElementById('max-evidence-chars').value, 10) || 50000;
     const maxOutTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
     const llmTemp = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
 
@@ -229,6 +235,34 @@ async function startWorkflow() {
         }
         setStep(1, 'done');
 
+        // Lange Dokumente: nicht stillschweigend kürzen, sondern den Nutzer entscheiden lassen
+        const longDocs = docs.filter(d => fullEvidenceLength(d.pages) > maxEvChars);
+        if (longDocs.length) {
+            log(`${longDocs.length} Dokument(e) sind länger als das Eingabelimit (${maxEvChars.toLocaleString('de-DE')} Zeichen): ${longDocs.map(d => `${d.title} (${fullEvidenceLength(d.pages).toLocaleString('de-DE')})`).join(', ')}. Warte auf Ihre Auswahl ...`, 'warning');
+            const choice = await askLongDocumentStrategy({ longDocs, maxChars: maxEvChars, outTokens: maxOutTokens, splitExtraction, repeatRuns });
+            if (choice.action === 'cancel') { log('Analyse nach Auswahl „Abbrechen“ nicht gestartet.', 'warning'); runControl.stopped = true; throwIfStopped(); }
+            if (choice.action === 'switch') {
+                applyModelSwitch(choice.candidate, choice.limit);
+                log(`Auf ${choice.candidate.label} umgestellt (Limit ${choice.limit.toLocaleString('de-DE')} Zeichen). Bitte die Analyse jetzt erneut starten.`, 'success');
+                runControl.stopped = true; throwIfStopped();
+            }
+            if (choice.action === 'raise') {
+                maxEvChars = choice.limit;
+                document.getElementById('max-evidence-chars').value = maxEvChars;
+                saveUserKeys();
+                longDocs.forEach(d => { d.evidence_text = buildEvidenceContext(d.pages, maxEvChars); });
+                log(`Eingabelimit auf ${maxEvChars.toLocaleString('de-DE')} Zeichen erhöht.`, 'success');
+            }
+            if (choice.action === 'stages') {
+                for (const d of longDocs) {
+                    const split = splitStages(d.pages, maxEvChars);
+                    d.stages = split.stages;
+                    log(`${d.title}: wird in ${split.stages.length} Etappe(n) gelesen (${split.stages.map(s => `S. ${s.from}–${s.to}`).join(', ')})${split.truncated ? ` – mehr als ${MAX_STAGES} Etappen liest die App nicht, der Rest bleibt ungelesen` : ''}.`, 'info');
+                }
+            }
+            if (choice.action === 'truncate') log('Lange Dokumente werden gekürzt ausgewertet; die Ergebnisse tragen eine Warnung.', 'warning');
+        }
+
         // PHASE 2: Extraction – nur erfolgreich eingelesene PDFs weiterverarbeiten.
         setStep(2, 'active');
         log('PHASE 2: Extrahiere Studiendesign und belegte Methodenevidenz je Publikation...', 'info');
@@ -237,7 +271,18 @@ async function startWorkflow() {
             throwIfStopped();
             try {
                 log(`Evidence Extraction: ${doc.title}`, 'info');
-                let ext = await runExtraction(doc, extPromptBase, promptVersionIds.extraction, splitExtraction);
+                let ext;
+                if (doc.stages) {
+                    const parts = [];
+                    for (const stage of doc.stages) {
+                        throwIfStopped();
+                        log(`Extraktion – Etappe ${stage.index}/${doc.stages.length} (S. ${stage.from}–${stage.to}): ${doc.title}`, 'info');
+                        parts.push(await runExtraction(stageDoc(doc, stage), extPromptBase, promptVersionIds.extraction, splitExtraction, stage.index));
+                    }
+                    ext = mergeExtractions(parts);
+                } else {
+                    ext = await runExtraction(doc, extPromptBase, promptVersionIds.extraction, splitExtraction);
+                }
                 ext.title = doc.title;
                 ext = verifyExtractionEvidenceRefs(ext, doc.pages);
                 extractedDocs.push({ doc, ext });
@@ -281,8 +326,23 @@ async function startWorkflow() {
                     // Agent 3b: CASQ-Prüffragen in einem eigenen, kürzeren Aufruf. Ein Fehler hier kostet nur den CASQ.
                     try {
                         log(`CASQ-Prüffragen (Agent 3b)${repeatRuns > 1 ? ` – Durchlauf ${run}/${repeatRuns}` : ''}: ${doc.title} – Rubrik ${CASQ_RUBRICS[rubricKey].label}`, 'info');
-                        const casq = parseJSONRobust(await callLLM(casqPrompt, { agent: 'casq', doc: doc.title, promptVersionId: promptVersionIds.casq, schema: agentSchema('casq', { rubric: rubricKey }), ...runInfo }));
-                        if (Array.isArray(casq.casq_checklist)) casqRuns.push(casq.casq_checklist);
+                        if (doc.stages) {
+                            // Etappenmodus: alle Prüffragen je Abschnitt beantworten lassen, je Frage zählt die beste Antwort
+                            const perStage = [];
+                            for (const stage of doc.stages) {
+                                throwIfStopped();
+                                log(`CASQ-Prüffragen – Etappe ${stage.index}/${doc.stages.length} (S. ${stage.from}–${stage.to}): ${doc.title}`, 'info');
+                                const stagePrompt = fillTemplate(getCurrentPrompt('casq'), { STUDY_DATA: JSON.stringify(ext, null, 2), SOURCE_TEXT: stage.text, ...casqFields })
+                                    + `\n\nHINWEIS ZUM ABSCHNITT: Dies ist Abschnitt ${stage.index} von ${doc.stages.length} des Dokuments (Seiten ${stage.from}–${stage.to}). Beantworte jede Frage nur anhand dieses Abschnitts. Steht dazu hier nichts, antworte not_reported; die anderen Abschnitte werden separat ausgewertet.`;
+                                const answer = parseJSONRobust(await callLLM(stagePrompt, { agent: 'casq', stage: stage.index, doc: doc.title, promptVersionId: promptVersionIds.casq, schema: agentSchema('casq', { rubric: rubricKey }), ...runInfo }));
+                                perStage.push(Array.isArray(answer.casq_checklist) ? answer.casq_checklist : []);
+                            }
+                            const ids = CASQ_RUBRICS[rubricKey].dimensions.flatMap(d => d.questions.map(q => q.id));
+                            casqRuns.push(mergeChecklistStages(perStage, ids, normalizeChecklistResponse));
+                        } else {
+                            const casq = parseJSONRobust(await callLLM(casqPrompt, { agent: 'casq', doc: doc.title, promptVersionId: promptVersionIds.casq, schema: agentSchema('casq', { rubric: rubricKey }), ...runInfo }));
+                            if (Array.isArray(casq.casq_checklist)) casqRuns.push(casq.casq_checklist);
+                        }
                     } catch (err) {
                         rethrowIfStopped(err);
                         log(`CASQ-Prüffragen für ${doc.title} fehlgeschlagen: ${err?.message || err}`, 'warning');
@@ -346,7 +406,8 @@ async function startWorkflow() {
                 const prompt = fillTemplate(validationPromptBase, { VALIDATION_DATA: JSON.stringify(validationInput, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });
                 let validation = parseJSONRobust(await callLLM(prompt, { agent: 'validation', doc: doc.title, promptVersionId: promptVersionIds.validation, schema: agentSchema('validation') }));
                 // Agent 4b: CASQ-Antworten gegen den Text prüfen
-                if (Array.isArray(casqAnswers) && casqAnswers.length) {
+                if (doc.stages && Array.isArray(casqAnswers) && casqAnswers.length) log(`${doc.title}: Etappenmodus – die LLM-Validierung der Prüffragen (Agent 4b) entfällt; die Belegprüfung im PDF bleibt.`, 'info');
+                if (!doc.stages && Array.isArray(casqAnswers) && casqAnswers.length) {
                     try {
                         log(`Validiere CASQ-Prüffragen (Agent 4b): ${doc.title}`, 'info');
                         const cvPrompt = fillTemplate(getCurrentPrompt('casq_validation'), { CASQ_ANSWERS: JSON.stringify(casqAnswers, null, 2), SOURCE_TEXT: doc.evidence_text, ...casqFields });

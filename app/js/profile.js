@@ -291,6 +291,8 @@ async function applyProfileSettingsToUI(profile) {
     callTimeoutByProvider = { ...(keys.callTimeouts || {}) };
     if (!keys.callTimeouts && keys.callTimeout > 0) callTimeoutByProvider[keys.activeProvider || 'custom1'] = keys.callTimeout;
     syncCallTimeoutField();
+    Object.keys(detectedContextTokens).forEach(k => delete detectedContextTokens[k]);
+    Object.assign(detectedContextTokens, keys.contextTokens || {});
     el('opt-split-extraction').checked = keys.splitExtraction === true;
     el('opt-no-reasoning').checked = keys.disableReasoning === true;
     el('opt-medical-instruments').checked = keys.allowMedicalInstruments === true;
@@ -389,6 +391,9 @@ function queueKeyPersist(task) {
 // Zeitlimit je Aufruf in Sekunden, je Anbieter (0 = aus)
 let callTimeoutByProvider = {};
 
+// Kontextfenster der Modelle, die die App aus „Kontext automatisch erkennen“ kennt (Anbieter|Modell → Token); wird im Profil gespeichert
+const detectedContextTokens = {};
+
 function syncCallTimeoutField() {
     const input = document.getElementById('opt-call-timeout');
     if (!input) return;
@@ -457,6 +462,7 @@ async function persistUserKeys() {
     keys.compactAnswers = el('opt-compact').checked;
     keys.noSchema = el('opt-no-schema').checked;
     keys.callTimeouts = { ...callTimeoutByProvider };
+    keys.contextTokens = { ...detectedContextTokens };
     delete keys.callTimeout;
     keys.splitExtraction = el('opt-split-extraction').checked;
     keys.disableReasoning = el('opt-no-reasoning').checked;

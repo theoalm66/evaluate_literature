@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
     "admin": "node --disable-warning=ExperimentalWarning server/cli.js",
-    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 tests/scoring.test.js tests/integrity.test.js tests/pdf-extract.test.js tests/schemas.test.js tests/crypto.test.js tests/providers.test.js tests/reliability.test.js tests/api-probe.test.js tests/journals.test.js tests/server.test.js",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 tests/scoring.test.js tests/integrity.test.js tests/pdf-extract.test.js tests/schemas.test.js tests/crypto.test.js tests/providers.test.js tests/reliability.test.js tests/api-probe.test.js tests/journals.test.js tests/stages.test.js tests/server.test.js",
     "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/run.js && node --disable-warning=ExperimentalWarning tests/e2e/sync.js",
     "serve": "node tests/e2e/static-server.js"
   },

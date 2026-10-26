@@ -665,6 +665,12 @@
         </div>
     </div>
 
+    <div id="long-doc-dialog" class="long-doc-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="long-doc-title">
+        <div class="long-doc-box">
+            <h2 id="long-doc-title" style="font-size:1.2rem;margin:0 0 .6rem;">📏 Das Dokument ist länger als das Eingabelimit</h2>
+            <div id="long-doc-body"></div>
+        </div>
+    </div>
     <script src="js/prompts.js"></script>
     <script src="js/scoring.js"></script>
     <script src="js/integrity.js"></script>
@@ -676,8 +682,10 @@
     <script src="js/providers.js"></script>
     <script src="js/reliability.js"></script>
     <script src="js/reliability-ui.js"></script>
+    <script src="js/stages.js"></script>
     <script src="js/journals.js"></script>
     <script src="js/journals-ui.js"></script>
+    <script src="js/longdoc-ui.js"></script>
     <script src="js/profile.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/llm.js"></script>

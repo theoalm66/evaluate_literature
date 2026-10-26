@@ -107,6 +107,14 @@ LIT_PROBE_KEY='<API-Key>' node tools/api-probe.js --url https://<Server>/v1 --mo
 node tools/api-probe.js --help     # Optionen: --text datei.txt, --repeat, --timeout, --only, --quick
 ```
 
+### Lange Dokumente
+
+Ist ein Dokument länger als das Eingabelimit („Max. Zeichen Evidenz“), kürzt die App nicht stillschweigend, sondern fragt vor der Auswertung:
+**In Etappen auswerten** (der Text wird in Abschnitte geteilt, Extraktion und CASQ-Prüffragen lesen alles, die Antworten je Prüffrage werden zusammengeführt;
+Agent 3 und 4 sehen weiter den wichtigsten Ausschnitt, die LLM-Validierung der Prüffragen entfällt, höchstens 8 Etappen), **Limit erhöhen** (nur wenn das
+Kontextfenster des Modells bekannt ist und reicht), **anderes Modell** (eingerichtete Modelle mit ausreichend großem Fenster), **gekürzt auswerten** (mit
+Warnung im Ergebnis) oder **abbrechen**. Das Kontextfenster kennt die App aus „Kontext automatisch erkennen“ bzw. aus dem OpenAI-Modellnamen (Annahme).
+
 ### Konten und Synchronisation
 
 - **Neues Konto:** beim Registrieren den Einladungscode eingeben. Ohne Code entsteht wie bisher ein rein lokales Profil.

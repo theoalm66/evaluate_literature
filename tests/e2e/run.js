@@ -518,6 +518,80 @@ async function login(page, user, pass, action = 'login') {
         llm.state.hangAgent = null;
         console.log('✓ Stopp in der Synthese: fertig ausgewertete Studie bleibt als Teilergebnis erhalten');
 
+        // 15) Lange Dokumente: Hinweis und Auswahl statt stilles Kürzen
+        llm.state.domain = 'business';
+        const setLimit = value => page.evaluate(v => { document.getElementById('max-evidence-chars').value = v; }, value);
+        const startRun = async () => {
+            await page.click('nav button[data-tab="dashboard"]');
+            await page.setInputFiles('#file-input', pdfFile);
+            await page.click('#btn-start');
+            await page.waitForSelector('#long-doc-dialog', { state: 'visible', timeout: 30000 });
+        };
+        const finishRun = () => page.waitForFunction(() => !document.getElementById('btn-start').disabled, null, { timeout: 90000 });
+        await setLimit('300');
+
+        // a) gekürzt auswerten: Warnung im Ergebnis
+        await startRun();
+        const dialogText = await page.textContent('#long-doc-body');
+        assert.ok(dialogText.includes('länger') || dialogText.includes('Eingabelimit'), 'Dialogtext fehlt');
+        assert.ok(dialogText.includes('In Etappen auswerten') && dialogText.includes('Gekürzt auswerten') && dialogText.includes('Abbrechen'), 'Auswahl fehlt');
+        assert.ok(/Limit auf [\d.]+ Zeichen erhöhen/.test(dialogText), 'Option „Limit erhöhen“ fehlt, obwohl das Kontextfenster bekannt ist: ' + JSON.stringify(await page.evaluate(() => ({ detected: detectedContextTokens, key: currentProviderModelKey(), ctx: currentContextTokens(), out: document.getElementById('max-output-tokens').value }))));
+        llm.calls.length = 0;
+        await page.click('button[data-choice="truncate"]');
+        await finishRun();
+        await page.waitForSelector('#results-view.active');
+        assert.ok((await page.textContent('#res-studies')).includes('sah nur'), 'Warnung bei gekürzter Auswertung fehlt');
+        assert.equal(llm.calls.filter(c => c.includes('Du bist Agent 2')).length, 1);
+
+        // b) in Etappen auswerten: mehrere Extraktions- und CASQ-Aufrufe, keine Agent-4b-Validierung, Hinweis im Ergebnis
+        await startRun();
+        llm.calls.length = 0;
+        await page.click('button[data-choice="stages"]');
+        await finishRun();
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Etappen gelesen'), null, { timeout: 30000 });
+        const stageCalls = agent => llm.calls.filter(c => c.includes(`Du bist Agent ${agent}`)).length;
+        assert.ok(stageCalls('2') >= 2, 'Extraktion muss je Etappe laufen: ' + stageCalls('2'));
+        assert.equal(stageCalls('3b'), stageCalls('2'), 'CASQ-Prüffragen je Etappe');
+        assert.equal(stageCalls('4b'), 0, 'Agent 4b entfällt im Etappenmodus');
+        assert.ok(llm.calls.some(c => c.includes('HINWEIS ZUM ABSCHNITT: Dies ist Abschnitt 2 von')), 'Abschnittshinweis fehlt');
+        const stagedText = await page.textContent('#res-studies');
+        assert.ok(stagedText.includes('Befragung / SEM / PLS-SEM') && !stagedText.includes('Das Modell sah nur'), 'Etappenergebnis falsch');
+
+        // c) abbrechen: kein Modellaufruf
+        await startRun();
+        llm.calls.length = 0;
+        await page.click('button[data-choice="cancel"]');
+        await finishRun();
+        assert.equal(llm.calls.length, 0, 'nach „Abbrechen“ darf kein Modellaufruf folgen');
+        assert.ok((await page.textContent('#terminal')).includes('nicht gestartet'));
+
+        // d) Limit erhöhen: danach passt das Dokument, kein Dialog mehr, keine Warnung
+        await startRun();
+        await page.click('button[data-choice="raise"]');
+        await finishRun();
+        await page.waitForSelector('#results-view.active');
+        assert.ok(Number(await page.inputValue('#max-evidence-chars')) >= 1000, 'Limit wurde nicht erhöht');
+        assert.ok(!(await page.textContent('#res-studies')).includes('sah nur'), 'nach Erhöhung darf keine Kürzungswarnung stehen');
+
+        // e) anderes Modell: eingerichteter Anbieter mit großem Fenster wird vorgeschlagen, Wechsel stoppt die Analyse
+        await setLimit('300');
+        await page.evaluate(() => { document.getElementById('openai-key').value = 'sk-test'; });
+        await startRun();
+        assert.ok((await page.textContent('#long-doc-body')).includes('Zu OpenAI gpt-4o-mini wechseln'), 'Modellvorschlag fehlt');
+        llm.calls.length = 0;
+        await page.click('button[data-switch="0"]');
+        await finishRun();
+        assert.equal(await page.inputValue('#llm-provider'), 'openai', 'Anbieter wurde nicht umgestellt');
+        assert.ok((await page.textContent('#terminal')).includes('erneut starten'));
+        assert.equal(llm.calls.length, 0);
+        await page.evaluate(() => { document.getElementById('openai-key').value = ''; });
+        await page.click('nav button[data-tab="config"]');
+        await page.selectOption('#llm-provider', 'custom1');
+        await page.dispatchEvent('#llm-provider', 'change');
+        await page.click('nav button[data-tab="dashboard"]');
+        await setLimit('50000');
+        console.log('✓ Lange Dokumente: Hinweis mit Auswahl (kürzen, Etappen, Limit erhöhen, anderes Modell, abbrechen)');
+
         // 12) Geschwindigkeitstest und Option „JSON-Schema nicht verwenden“
         await page.click('nav button[data-tab="dashboard"]');
         llm.state.payloads.length = 0;

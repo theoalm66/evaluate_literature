@@ -53,6 +53,7 @@ async function autoDetectContext() {
         }
 
         if (ctx) {
+            detectedContextTokens[`${provider}|${modelName || ''}`] = Number(ctx);
             const outTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
             const chars = evidenceCharsForContext(ctx, outTokens);
             document.getElementById('max-evidence-chars').value = chars;
@@ -479,7 +480,7 @@ async function callLLM(prompt, meta = {}) {
 
     const stepBase = {
         agent: meta.agent || null, doc: meta.doc || null, prompt_version_id: meta.promptVersionId || null,
-        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt, run: meta.run, part: meta.part,
+        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt, run: meta.run, part: meta.part, stage: meta.stage,
         images: meta.images?.length ? meta.imagePages || meta.images.length : undefined
     };
     let response, attempt = 0, serverAttempts = 0, kwargsDropped = false, schemaFallbackUsed = false, attemptStart = performance.now();

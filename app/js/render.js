@@ -291,9 +291,12 @@ function renderSourceInfo(info) {
     const scanned = q.scanned_pages.length ? ` · <span class="warn">⚠ ohne Textschicht (gescannt?): S. ${q.scanned_pages.join(', ')}</span>` : '';
     // Sieht das Modell nur einen Teil des Textes, wird alles andere als „nicht berichtet“ gewertet – das ist ein Artefakt, kein Mangel des Papers.
     const share = info.text_chars && info.evidence_chars ? info.evidence_chars / info.text_chars : null;
-    const coverage = share !== null && share < 0.7
-        ? `<div class="warn" style="margin-top:.25rem;">⚠ Das Modell sah nur ${Math.round(share * 100)} % des PDF-Textes (${info.evidence_chars.toLocaleString('de-DE')} von ${info.text_chars.toLocaleString('de-DE')} Zeichen). Angaben außerhalb davon erscheinen als „nicht berichtet“ und senken den CASQ. Für belastbare Werte „Max. Zeichen Evidenz“ erhöhen.</div>`
-        : '';
+    const stages = Array.isArray(info.stages) && info.stages.length ? info.stages : null;
+    const coverage = stages
+        ? `<div style="margin-top:.25rem;">📚 In ${stages.length} Etappen gelesen (${stages.map(s => `S. ${s.from}–${s.to}`).join(', ')}): Extraktion und CASQ-Prüffragen beruhen auf dem ganzen Text.${share !== null && share < 0.7 ? ` <span class="warn">Instrumente und Verzerrungsbewertung (Agent 3 und 4) sahen nur ${Math.round(share * 100)} % des Textes; die LLM-Validierung der Prüffragen entfiel (die Belegprüfung im PDF lief).</span>` : ''}</div>`
+        : share !== null && share < 0.7
+            ? `<div class="warn" style="margin-top:.25rem;">⚠ Das Modell sah nur ${Math.round(share * 100)} % des PDF-Textes (${info.evidence_chars.toLocaleString('de-DE')} von ${info.text_chars.toLocaleString('de-DE')} Zeichen). Angaben außerhalb davon erscheinen als „nicht berichtet“ und senken den CASQ. Für belastbare Werte „Max. Zeichen Evidenz“ erhöhen oder die Etappen-Auswertung wählen.</div>`
+            : '';
     return `<div class="source-info">📄 ${q.pages} Seiten gelesen · Tabellen: ${pagesText(q.table_pages)} · Abbildungen: ${pagesText(q.figure_pages)}${scanned}${visionText ? ` · ${visionText}` : ''}${coverage}</div>`;
 }
 
