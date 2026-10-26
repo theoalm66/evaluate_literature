@@ -210,3 +210,121 @@ test('CASQ 2.0: Rubrikwahl, Antwort-Synonyme und Prüffragentext', () => {
         assert.ok(rubric.dimensions.every(d => d.questions.length > 0));
     }
 });
+
+test('Alle Rubriken: Gewichte ergeben 100, IDs sind eindeutig, jede Rubrik nennt ihre Grundlage', () => {
+    const allIds = new Set();
+    for (const [key, rubric] of Object.entries(s.CASQ_RUBRICS)) {
+        const sum = rubric.dimensions.reduce((a, d) => a + d.weight, 0);
+        assert.equal(sum, 100, `${key}: Gewichte ergeben ${sum}`);
+        assert.ok(rubric.reference && rubric.reference.length > 20, `${key}: Grundlage fehlt`);
+        rubric.dimensions.forEach(d => assert.ok(d.questions.length > 0, `${key}/${d.name} ohne Fragen`));
+        rubric.dimensions.flatMap(d => d.questions).forEach(q => {
+            assert.ok(!allIds.has(q.id), `ID doppelt: ${q.id}`);
+            allIds.add(q.id);
+        });
+    }
+    ['survey_sem', 'experiment', 'platform_data'].forEach(k => assert.ok(s.CASQ_RUBRICS[k], k));
+});
+
+test('Fachspezifische Rubriken: Routing nach method_class und Rückfall auf Schlüsselwörter', () => {
+    const base = { document_type: 'primary_empirical_study', study_family: 'Quantitative' };
+    assert.equal(s.selectCASQRubric({ ...base, method_class: 'survey_sem' }), 'survey_sem');
+    assert.equal(s.selectCASQRubric({ ...base, method_class: 'experiment' }), 'experiment');
+    assert.equal(s.selectCASQRubric({ ...base, method_class: 'platform_data' }), 'platform_data');
+    assert.equal(s.selectCASQRubric({ ...base, method_class: 'other_quantitative' }), 'quantitative');
+    // ältere Extraktionen ohne method_class
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Cross-sectional survey, PLS-SEM' }), 'survey_sem');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Online A/B test', methods: ['randomized field experiment'] }), 'experiment');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Observational', analysis_methods: ['Sentiment analysis of scraped tweets'] }), 'platform_data');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Observational' }), 'quantitative');
+    // klinische Studien behalten die allgemeine quantitative Rubrik
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Randomised controlled trial', clinical_context: { is_health_clinical: true } }), 'quantitative');
+    // Dokumenttyp und qualitative Familie haben Vorrang
+    assert.equal(s.selectCASQRubric({ document_type: 'systematic_review', study_family: 'Review', method_class: 'survey_sem' }), 'review');
+    assert.equal(s.selectCASQRubric({ ...base, study_family: 'Qualitative', method_class: 'survey_sem' }), 'qualitative');
+    assert.equal(s.selectCASQRubric({ document_type: 'theoretical_conceptual_paper', study_family: 'Theoretical', study_design: 'survey of the literature' }), 'theoretical');
+});
+
+test('Gesundheitsbezug und Ausblenden der medizinischen Instrumente', () => {
+    const business = { research_domain: 'Business / Marketing', clinical_context: { is_health_clinical: false } };
+    const health = { research_domain: 'Health/Clinical', clinical_context: { is_health_clinical: true } };
+    assert.equal(s.isHealthContext(business), false);
+    assert.equal(s.isHealthContext(health), true);
+    assert.equal(s.isHealthContext({ research_domain: 'Digital Health Marketing' }), true);
+
+    const pedro = () => ({ established_appraisal: { instrument: 'PEDro Scale', applicable: true, items: [{ item_id: '2', response: 'yes' }] } });
+    const a = pedro();
+    assert.equal(s.restrictMedicalInstruments(a, business, false), true);
+    assert.equal(a.established_appraisal.applicable, false);
+    assert.equal(a.established_appraisal.instrument, 'none');
+    assert.equal(s.calculateEstablishedResult({}, a, business).applicable, false);
+
+    const v = { validated_established_appraisal: pedro().established_appraisal };
+    assert.equal(s.restrictMedicalInstruments(v, business, false), true);
+    assert.equal(v.validated_established_appraisal.applicable, false);
+
+    const keep = pedro();
+    assert.equal(s.restrictMedicalInstruments(keep, health, false), false);
+    assert.equal(keep.established_appraisal.applicable, true);
+    const allowed = pedro();
+    assert.equal(s.restrictMedicalInstruments(allowed, business, true), false, 'ausdrücklich freigegeben');
+    assert.equal(allowed.established_appraisal.applicable, true);
+});
+
+test('CASQ 2.0 auf einer neuen Rubrik: Berechnung, kritische Deckelung und Grundlage', () => {
+    const rubric = s.CASQ_RUBRICS.survey_sem;
+    const list = rubric.dimensions.flatMap(d => d.questions).map(q => ({ id: q.id, response: 'yes', evidence: verifiedRef }));
+    let r = s.calculateCASQ2({}, { casq_checklist: list }, 'survey_sem');
+    assert.equal(r.score, 10);
+    assert.equal(r.rubric_reference, rubric.reference);
+    const critical = rubric.dimensions.flatMap(d => d.questions).find(q => q.critical);
+    const flawed = list.map(a => a.id === critical.id ? { ...a, response: 'no' } : a);
+    r = s.calculateCASQ2({}, { casq_checklist: flawed }, 'survey_sem');
+    assert.ok(r.score <= 5 && r.cap === 5);
+});
+
+test('Etappe 2: Routing für Fallstudie, Bibliometrie, Skalenentwicklung und Business-Review', () => {
+    const base = { document_type: 'primary_empirical_study', study_family: 'Qualitative' };
+    assert.equal(s.selectCASQRubric({ ...base, method_class: 'case_study' }), 'case_study');
+    assert.equal(s.selectCASQRubric({ ...base, study_family: 'Mixed Methods', study_design: 'Multiple case study' }), 'case_study');
+    assert.equal(s.selectCASQRubric({ ...base, method_class: 'qualitative' }), 'qualitative');
+    assert.equal(s.selectCASQRubric({ document_type: 'systematic_review', study_family: 'Review', method_class: 'bibliometric' }), 'bibliometric');
+    assert.equal(s.selectCASQRubric({ document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Bibliometric analysis with VOSviewer' }), 'bibliometric');
+    assert.equal(s.selectCASQRubric({ document_type: 'primary_empirical_study', study_family: 'Quantitative', method_class: 'scale_development' }), 'scale_development');
+    assert.equal(s.selectCASQRubric({ document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Scale development with EFA and CFA' }), 'scale_development');
+    // Reviews: Business-Rubrik nur bei Management-/Marketingbezug, sonst die allgemeine
+    assert.equal(s.selectCASQRubric({ document_type: 'systematic_review', research_domain: 'Business / Marketing' }), 'review_business');
+    assert.equal(s.selectCASQRubric({ document_type: 'systematic_review', research_domain: 'Health/Clinical', clinical_context: { is_health_clinical: true } }), 'review');
+    assert.equal(s.selectCASQRubric({ document_type: 'systematic_review' }), 'review');
+    // Methodenbeitrag über Bibliometrie bleibt Methodenbeitrag
+    assert.equal(s.selectCASQRubric({ document_type: 'methodological_paper', study_design: 'bibliometric method' }), 'methodological');
+});
+
+test('PRISMA-Berichtserfüllung wird getrennt vom CASQ ausgewiesen', () => {
+    const rubric = s.CASQ_RUBRICS.review_business;
+    assert.equal(rubric.reportingLabel, 'PRISMA-2020-Berichtserfüllung');
+    const questions = rubric.dimensions.flatMap(d => d.questions);
+    const reportingIds = questions.filter(q => q.reporting).map(q => q.id);
+    assert.ok(reportingIds.length >= 15 && reportingIds.length < questions.length, 'nicht alle Fragen sind Berichtspunkte');
+    // alle erfüllt, außer einem Berichtspunkt (nein) und einer Nicht-Berichtsfrage (nein)
+    const nonReporting = questions.find(q => !q.reporting && !q.critical);
+    const list = questions.map(q => ({ id: q.id, response: q.id === reportingIds[3] || q.id === nonReporting.id ? 'no' : 'yes', evidence: verifiedRef }));
+    const r = s.calculateCASQ2({}, { casq_checklist: list }, 'review_business');
+    assert.equal(r.reporting.label, 'PRISMA-2020-Berichtserfüllung');
+    assert.equal(r.reporting.considered, reportingIds.length);
+    assert.equal(r.reporting.fulfilled, reportingIds.length - 1);
+    assert.ok(Math.abs(r.reporting.compliance - (reportingIds.length - 1) / reportingIds.length) < 1e-9);
+    // andere Rubriken haben keinen Berichtsblock
+    assert.equal(s.calculateCASQ2({}, { casq_checklist: [{ id: 'QN-1.1', response: 'yes', evidence: verifiedRef }] }, 'quantitative').reporting, null);
+});
+
+
+test('Mixed Methods wird auch erkannt, wenn nur das Design so benannt ist', () => {
+    const base = { document_type: 'primary_empirical_study', study_family: 'Quantitative' };
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Mixed-methods study (survey and interviews)' }), 'mixed');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'mixed methods' }), 'mixed');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Observational cohort study' }), 'quantitative');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Experiment', method_class: 'experiment' }), 'experiment');
+    // Dokumenttypen haben weiter Vorrang
+    assert.equal(s.selectCASQRubric({ document_type: 'systematic_review', study_family: 'Review', study_design: 'mixed methods review' }), 'review');
+});

@@ -20,11 +20,19 @@ const quantitativeDims = [
     ['Limitations', Q.limits, 8, 'supported']
 ];
 
-const pedroItems = ['1','2','3','4','5','6','7','8','9'].map(id => ({
-    item_id: id, criterion: `PEDro ${id}`, response: ['2','3','8','9'].includes(id) || id === '1' ? 'yes' : 'no',
-    points: id !== '1' && ['2','3','8','9'].includes(id) ? 1 : 0, max_points: id === '1' ? 0 : 1,
-    evidence: id === '3' ? [{ page: 2, section: 'Methods', quote: Q.alloc }] : []
-}));
+// Bei Temperatur > 0 (Mehrfachbewertung) weicht jeder dritte Aufruf in zwei Antworten ab: Item 4 und QN-2.1
+const varies = ctx => ctx && ctx.temperature > 0 && ctx.index % 3 === 1;
+
+function pedroItemsFor(ctx) {
+    const yes = ['2', '3', '8', '9'];
+    return ['1','2','3','4','5','6','7','8','9'].map(id => {
+        const isYes = id === '1' || yes.includes(id) || (id === '4' && varies(ctx));
+        return { item_id: id, criterion: `PEDro ${id}`, response: isYes ? 'yes' : 'no',
+            points: id !== '1' && isYes ? 1 : 0, max_points: id === '1' ? 0 : 1,
+            evidence: id === '3' ? [{ page: 2, section: 'Methods', quote: Q.alloc }] : [] };
+    });
+}
+const pedroItems = pedroItemsFor(null);
 
 // Prüffragen-IDs werden aus dem Prompt gelesen (wie ein echtes Modell sie sieht).
 function checklistIds(prompt) {
@@ -40,15 +48,31 @@ const CHECKLIST_SPECIAL = {
     'QN-6.3': ['no', null]
 };
 
-function checklist(prompt, validated) {
+function checklist(prompt, validated, ctx) {
     return checklistIds(prompt).map(id => {
         let [response, quote] = CHECKLIST_SPECIAL[id] || ['yes', id.startsWith('QN-6') ? Q.alloc : id.startsWith('QN-5') ? Q.stats : id.startsWith('QN-9') ? Q.limits : Q.rq];
         if (validated && id === 'QN-1.2') response = 'partial';
+        if (!validated && id === 'QN-2.1' && varies(ctx)) response = 'partial';
         return { id, response, evidence: quote ? [{ page: 1, section: 'Methods', quote }] : [], [validated ? 'validation_note' : 'rationale']: `Test ${id}` };
     });
 }
 
-function answerFor(prompt) {
+function answerFor(prompt, ctx) {
+    if (prompt.includes('Du bist Agent 3b')) return { casq_checklist: checklist(prompt, false, ctx) };
+    if (prompt.includes('Du bist Agent 4b')) return { validated_casq_checklist: checklist(prompt, true) };
+    if (prompt.includes('Du bist Agent 2') && ctx.domain === 'review') return {
+        document_type: 'systematic_review', study_family: 'Review', study_design: 'Systematic literature review (SPAR-4-SLR)', method_class: 'not_applicable',
+        research_domain: 'Marketing / E-Commerce', clinical_context: { is_health_clinical: false },
+        evidence_locations: [{ claim: 'Fragestellung', section: 'Introduction', page: 9, quote: Q.rq }],
+        research_question: { value: 'Wie wirkt Social-Media-Werbung auf Kaufabsichten?' }, methods: ['SLR'], main_results: [{ result: 'Themenlandkarte' }]
+    };
+    if (prompt.includes('Du bist Agent 2') && ctx.domain === 'business') return {
+        document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Cross-sectional online survey', method_class: 'survey_sem',
+        research_domain: 'Business / Marketing', publication_venue: 'Journal of Marketing', clinical_context: { is_health_clinical: false, is_physiotherapy_rehabilitation: false, is_comparative: false, is_intervention_study: false },
+        evidence_locations: [{ claim: 'Fragestellung', section: 'Introduction', page: 9, quote: Q.rq }],
+        research_question: { value: 'Beeinflusst Social-Media-Werbung die Kaufabsicht?' },
+        sample: { n: '412', population: 'Online-Käufer' }, methods: ['PLS-SEM'], main_results: [{ result: 'Pfad signifikant' }]
+    };
     if (prompt.includes('Du bist Agent 2')) return {
         document_type: 'primary_empirical_study', study_family: 'Quantitative', study_design: 'Randomised controlled trial',
         clinical_context: { is_health_clinical: true, is_physiotherapy_rehabilitation: true, is_comparative: true, is_intervention_study: true },
@@ -59,7 +83,7 @@ function answerFor(prompt) {
     };
     if (prompt.includes('Du bist Agent 3')) return {
         document_type_confirmed: 'primary_empirical_study',
-        established_appraisal: { instrument: 'PEDro Scale', applicable: true, applicability_reason: 'Physiotherapie-RCT', items: pedroItems },
+        established_appraisal: { instrument: 'PEDro Scale', applicable: true, applicability_reason: 'Physiotherapie-RCT', items: pedroItemsFor(ctx) },
         framework_appraisal: { primary_framework: 'none' },
         ...(checklistIds(prompt).length ? { casq_checklist: checklist(prompt, false) }
             : { dimensions: quantitativeDims.map(([name, , score, status]) => ({ name, score, weight: 11, status: status === 'not_applicable' ? 'not_applicable' : 'applicable' })) }),
@@ -95,32 +119,110 @@ function answerFor(prompt) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { vision: true };
+    const state = { streamed: [], failSchema500: 0, rejectStream: false, hangAgent: null, kwargs500: false, emptyOnce: 0, hangFirst: 0, rejectKwargs: false, payloads: [], sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const temps = [];            // Agent und Temperatur je Aufruf
+    const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
         const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' };
         if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
         let body = '';
         req.on('data', c => { body += c; });
         req.on('end', () => {
-            if (req.url.endsWith('/models')) { res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock-model', max_model_len: 32768 }] })); }
+            // Optionaler API-Key-Zwang (Hochschul-API-Test): ohne passenden Bearer-Key 401
+            if (state.requireKey && req.headers.authorization !== `Bearer ${state.requireKey}`) {
+                res.writeHead(401, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'Invalid API key' } }));
+            }
+            if (req.url.endsWith('/models')) { res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock-model', max_model_len: 32768 }, { id: 'mock-embedding-model' }, { id: 'zweites-modell' }] })); }
+            if (state.hangFirst > 0 && !req.url.endsWith('/models')) {   // Aufruf, der nie beantwortet wird (hängender Server)
+                state.hangFirst--;
+                return void setTimeout(() => { try { res.destroy(); } catch (e) { /* schon geschlossen */ } }, 4000);
+            }
             const payload = JSON.parse(body || '{}');
             const raw = payload.messages?.find(m => m.role === 'user')?.content || '';
             const parts = Array.isArray(raw) ? raw : [{ type: 'text', text: raw }];
             const prompt = parts.filter(p => p.type === 'text').map(p => p.text).join('\n');
             const images = parts.filter(p => p.type === 'image_url').length;
+            if (state.hangAgent && prompt.includes(state.hangAgent)) {   // bestimmter Agent hängt (Abbruch-Test)
+                return void setTimeout(() => { try { res.destroy(); } catch (e) { /* schon geschlossen */ } }, 6000);
+            }
             if (images && !state.vision) {
                 res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: { message: 'This model does not support image input.' } }));
             }
+            const format = payload.response_format?.type || 'none';
+            if (format === 'json_schema' && !state.jsonSchema) {
+                res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'response_format json_schema is not supported by this server' } }));
+            }
+            if (!prompt.includes('Welche Farbe')) state.payloads.push(payload);
+            if (payload.chat_template_kwargs && state.kwargs500) {   // Gateway antwortet mit Parameter immer mit 500
+                res.writeHead(500, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ statusCode: 500, message: 'Request failed with status code 500' }));
+            }
+            if (payload.chat_template_kwargs && state.rejectKwargs) {
+                res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'Unrecognized request argument: chat_template_kwargs' } }));
+            }
+            // Datenstrom abgelehnt (manche Server kennen stream_options nicht)
+            if (payload.stream && state.rejectStream) {
+                res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: { message: 'stream_options is not supported' } }));
+            }
+            // Serverfehler 500 bei JSON-Schema (wie bei manchen Gateways), solange state.failSchema500 > 0
+            if (format === 'json_schema' && state.failSchema500 > 0) {
+                state.failSchema500--;
+                res.writeHead(500, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ statusCode: 500, message: 'Internal Server Error' }));
+            }
             const isProbe = prompt.includes('Welche Farbe');
+            if (!isProbe) formats.push(format);
             if (!isProbe) calls.push(prompt);
             if (images && !isProbe) imageCalls.push({ agent: (prompt.match(/Du bist Agent (\d)/) || [])[1], images });
-            const content = JSON.stringify(isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt));
+            const agentTag = (prompt.match(/Du bist Agent (\d+b?)/) || [])[1] || '?';
+            const index = (state.agentCalls[agentTag] = (state.agentCalls[agentTag] ?? -1) + 1);
+            if (!isProbe) temps.push({ agent: agentTag, temperature: payload.temperature });
+            let answer = isProbe ? { farbe: images ? 'rot' : 'unbekannt' } : answerFor(prompt, { temperature: payload.temperature, index, domain: state.domain });
+            // Extraktion in Teilschritten: nur die in der Teilaufgabe genannten Schlüssel liefern
+            const partMatch = prompt.match(/TEILAUFGABE \(Teil \d von \d[^)]*\): Liefere AUSSCHLIESSLICH diese Schlüssel des JSON-SCHEMA: ([^.]+)\./);
+            if (partMatch && prompt.includes('Du bist Agent 2')) {
+                const keys = partMatch[1].split(',').map(k => k.trim());
+                answer = Object.fromEntries(Object.entries(answer).filter(([k]) => keys.includes(k)));
+            }
+            const content = JSON.stringify(answer);
+            if (state.emptyOnce > 0 && !isProbe) {   // Reasoning-Modell verbraucht das Budget: leere Antwort, Abschluss "length"
+                state.emptyOnce--;
+                if (payload.stream) {
+                    res.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream' });
+                    res.write(`data: ${JSON.stringify({ model: 'mock-model', choices: [{ delta: { reasoning_content: 'ich denke nach ' } }] })}\n\n`);
+                    res.write(`data: ${JSON.stringify({ model: 'mock-model', choices: [{ delta: {}, finish_reason: 'length' }] })}\n\n`);
+                    return res.end('data: [DONE]\n\n');
+                }
+                res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content: '', reasoning_content: 'ich denke nach ' }, finish_reason: 'length' }], usage: { prompt_tokens: 1, completion_tokens: payload.max_tokens } }));
+            }
+            if (payload.stream && state.streamAsOneJson) {   // Server ignoriert Streaming und antwortet normal
+                res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+            }
+            if (payload.stream) {
+                state.streamed.push(!!payload.stream_options);
+                res.writeHead(200, { ...cors, 'Content-Type': state.sseContentType });
+                const half = Math.floor(content.length / 2);
+                const send = obj => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+                send({ model: 'mock-model', choices: [{ delta: { role: 'assistant' } }] });
+                send({ model: 'mock-model', choices: [{ delta: { reasoning_content: 'ignoriert' } }] });
+                send({ model: 'mock-model', choices: [{ delta: { content: content.slice(0, half) } }] });
+                send({ model: 'mock-model', choices: [{ delta: { content: content.slice(half) }, finish_reason: 'stop' }] });
+                send({ model: 'mock-model', choices: [], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } });
+                res.write('data: [DONE]\n\n');
+                return res.end();
+            }
             res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }], usage: { prompt_tokens: Math.round(prompt.length / 4), completion_tokens: Math.round(content.length / 4) } }));
         });
     });
-    return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls, imageCalls, state })));
+    return new Promise(resolve => server.listen(port, '127.0.0.1', () => resolve({ server, calls, imageCalls, state, formats, temps })));
 }
 
 module.exports = { startMockLLM, QUOTES: Q };

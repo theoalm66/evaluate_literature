@@ -78,6 +78,43 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
 2. `docker compose up -d --build`
 3. In der App unter *Konfiguration* den Provider **„🚀 Spark-Modell“** wählen. Nur für verknüpfte Spark-Konten.
 
+### Server mit Zeitlimit (z.B. Hochschul-API)
+
+Trennt ein Dienst die Verbindung nach etwa 5 Minuten, muss jede Antwort in dieser Zeit fertig sein. Im Dashboard unter
+„Langsame Modelle / Zeitlimit des Servers“ gibt es dafür: **Extraktion in drei Teilschritten** (Dokumenttyp und Design / Stichprobe,
+Methoden und Messung / Ergebnisse und Belege; nur Teil 2 und 3 bekommen Seitenbilder), **kurze Antworten** und **Reasoning abschalten**
+(nur für Spark, Hochschul-API und eigene Endpunkte). Zusätzlich holt die App Antworten dieser Anbieter als Datenstrom, wiederholt bei
+Serverfehlern und fällt bei Ablehnung automatisch auf einfachere Anfragen zurück. Gescannte PDFs ohne Textschicht werden erkannt und
+gemeldet; OCR gibt es bewusst nicht (eine durchsuchbare Fassung verwenden).
+
+### Modell-Server prüfen: `tools/api-probe.js`
+
+Eigenständiges Diagnoseprogramm (Node ≥ 18, keine Installation nötig), das unabhängig von der App einen OpenAI-kompatiblen Server mit den
+Anfragen der App misst: Kurzaufrufe, Streaming, JSON-Modus und JSON-Schema, die echte Extraktion (Teil 1 und 2) mit Beispieltext oder Ihrem
+PDF-Text, Erzeugungstempo, den Reasoning-Parameter und gleichzeitige Anfragen, je mehrfach (Streuung). Es schreibt einen Bericht mit
+Auswertung; der API-Key wird nie ausgegeben oder gespeichert.
+
+Auf dem Spark ist Node nicht installiert; dort läuft das Programm in einem Docker-Container (das Skript fragt den API-Key unsichtbar ab):
+
+```bash
+tools/api-probe.sh --url https://<Server>/v1 --model <Modell>
+```
+
+Mit installiertem Node (ab 18) geht es auch direkt:
+
+```bash
+LIT_PROBE_KEY='<API-Key>' node tools/api-probe.js --url https://<Server>/v1 --model <Modell>
+node tools/api-probe.js --help     # Optionen: --text datei.txt, --repeat, --timeout, --only, --quick
+```
+
+### Lange Dokumente
+
+Ist ein Dokument länger als das Eingabelimit („Max. Zeichen Evidenz“), kürzt die App nicht stillschweigend, sondern fragt vor der Auswertung:
+**In Etappen auswerten** (der Text wird in Abschnitte geteilt, Extraktion und CASQ-Prüffragen lesen alles, die Antworten je Prüffrage werden zusammengeführt;
+Agent 3 und 4 sehen weiter den wichtigsten Ausschnitt, die LLM-Validierung der Prüffragen entfällt, höchstens 8 Etappen), **Limit erhöhen** (nur wenn das
+Kontextfenster des Modells bekannt ist und reicht), **anderes Modell** (eingerichtete Modelle mit ausreichend großem Fenster), **gekürzt auswerten** (mit
+Warnung im Ergebnis) oder **abbrechen**. Das Kontextfenster kennt die App aus „Kontext automatisch erkennen“ bzw. aus dem OpenAI-Modellnamen (Annahme).
+
 ### Konten und Synchronisation
 
 - **Neues Konto:** beim Registrieren den Einladungscode eingeben. Ohne Code entsteht wie bisher ein rein lokales Profil.
@@ -119,9 +156,73 @@ leitet deshalb angemeldete Anfragen weiter (`Browser → https://…/lit/api/llm
   den CASQ bei einem Mangel auf 5, bei mehreren auf 3.
 - Angezeigt werden zusätzlich Informationsgrad, Belegquote, kritische Mängel, Spanne und die komplette
   Prüffragen-Tabelle mit Antworten und Belegen.
+
+**Zeitschriftenkontext (Zusatzinformation, nie Teil des CASQ)**
+- Zu jeder Auswertung zeigt die App die Zeitschrift (erkannt über Crossref, ISSN im PDF-Text oder den Namen aus der Extraktion) und, falls in Ihrer Liste
+  vorhanden, VHB Publication Media Rating 2024, ABDC, FT50 und SJR. Der Zeitschriftenkontext verändert den CASQ nicht.
+- Die App kennt keine Ratings und schreibt sie nicht aus dem Gedächtnis ab: Unter *Konfiguration → Zeitschriftenkontext* importieren Sie eine CSV
+  (Vorlage zum Download; Spalten zeitschrift, issn, issn_2, vhb, abdc, ft50, sjr, sjr_quartil, bemerkung), die Sie aus den offiziellen Listen befüllen.
+  Zugeordnet wird über die ISSN, sonst über den Namen. Die Liste liegt lokal im Browser und ist Teil von Export/Import (nicht des Spark-Sync).
+
+**Fachspezifische Rubriken statt medizinischer Instrumente (Marketing, Medien, Digitalisierung, E-Commerce, Handel)**
+- Leitprinzip: Das Gewicht liegt auf den methodenspezifischen Prüfkriterien (Einzelfragen mit Beleg). Der CASQ fasst sie nur zu einem
+  **intern berechneten Vergleichsindex** zusammen, er ist kein offizieller Score. Bei jedem Ergebnis steht, worauf die Rubrik beruht.
+- Agent 2 bestimmt eine Methodenklasse (`method_class`). Neue Rubriken: **Befragung / SEM / PLS-SEM** (Messmodell, Strukturmodell,
+  Stichprobe, Common Method Bias, Robustheit), **Experiment / A/B-Test** (Zuteilung, Manipulationscheck, Power, Effektgrößen, Störgrößen)
+  und **Plattform-/Social-Media-/Big-Data-Studie** (Datenherkunft, Selektion, Bots, Plattformeffekte, Leakage, kausale Aussagen,
+  Reproduzierbarkeit, Datenschutz). Klinische Studien behalten die allgemeine quantitative Rubrik.
+- Weitere Rubriken: **Fallstudie** (Fallauswahl, Datenquellen, Triangulation, Beweiskette, Within-/Cross-Case-Analyse),
+  **bibliometrische Analyse** (Datenbank, Suchstring, Bereinigung, Software und Parameter, Clusterdeutung),
+  **Skalenentwicklung** (Konstrukt, Items, EFA/CFA, Reliabilität, Validität, Kreuzvalidierung) und
+  **systematisches Review in Management/Marketing/Digital** (PRISMA 2020 und SPAR-4-SLR). Dort wird die
+  **PRISMA-Berichtserfüllung** getrennt vom CASQ als interner Erfüllungsgrad ausgewiesen, nicht als „PRISMA-Score“.
+- PEDro, MINORS, AMSTAR 2 und COSMIN werden nur bei Gesundheitsbezug angewendet (der Code entscheidet anhand der Extraktion; im
+  Dashboard unter „Fachgebiet“ lässt sich das aufheben). Der Quellcode der Instrumente bleibt erhalten.
+- Die Kriterien sind aus etablierten Methodenempfehlungen abgeleitet, aber keine offiziellen Instrumente; sie sollten fachlich
+  durchgesehen werden.
 - Die Prompts von Agent 3 und 4 wurden dafür angepasst (Platzhalter `{{CASQ_RUBRIC}}`, `{{CASQ_CHECKLIST}}`) und
   beim nächsten Login automatisch als neue aktive Version gesetzt; frühere Versionen bleiben in der Versionsauswahl.
   Mit einem älteren Prompt ohne Prüffragen rechnet die App wie bisher über die Dimensionen.
+
+**Weitere LLM-Verbindungen und sichere API-Keys**
+- **🎓 Hochschul-API** und **🔌 Eigener Endpunkt** (beide OpenAI-kompatibel, direkt aus dem Browser): Endpunkt-URL und
+  API-Key eintragen → *Modelle suchen* (`GET {url}/models`; Embedding-, Audio- und Reranker-Modelle werden
+  ausgeblendet) → Modell wählen → *Modell aktivieren*. Die Hochschul-API enthält die Hinweise zum Zugang
+  (portal.rh-koeln.de/chatai-access-token) und zur Modellauswahl (Modellübersicht der GWDG). Der Dienst muss
+  Browser-Zugriffe (CORS) erlauben; sonst nennt die App den Grund bei der Modellsuche bzw. im Terminal.
+- **API-Keys mit AES-256-GCM** (WebCrypto) statt XOR: Schlüssel per PBKDF2-SHA-256 (310.000 Runden, eigenes Salz je
+  Profil) aus dem Passwort, jeder Key mit eigenem IV, der Feldname ist gebunden. Auch die lokale Passwortprüfung
+  nutzt jetzt diese Ableitung statt des alten djb2-Hashs (mit dem sich das Passwort offline in Sekunden hätte raten
+  lassen). Profile der alten Version werden beim nächsten Login automatisch umgestellt. WebCrypto gibt es nur über
+  https oder localhost – über eine reine http-Adresse bleibt es beim alten Verfahren (die App zeigt das an), und ein
+  bereits umgestelltes Profil lässt sich dort nicht öffnen.
+
+**Zuverlässigkeit messen** (`app/js/reliability.js`, `reliability-ui.js`, Tab „Zuverlässigkeit“)
+- **Mehrfachbewertung:** Auf dem Dashboard „Durchläufe je PDF“ auf 3 oder 5 stellen. Agent 3 und 3b laufen dann mehrfach
+  (mit eigener Temperatur, Standard 0,4 – bei 0 wären alle Durchläufe gleich); je Frage und je Instrument-Item entscheidet
+  die Mehrheit (bei Gleichstand die vorsichtigere Antwort), Agent 4/4b validieren das Ergebnis einmal. Je PDF steht dort:
+  CASQ je Durchlauf mit Median, Spanne und SD, Übereinstimmung der Prüffragen (Anteil, Fleiss-κ), das Instrument-Ergebnis
+  je Durchlauf und die **unsicheren Fragen**, bei denen sich die Durchläufe nicht einig waren. Kosten: 2 Modellaufrufe je
+  zusätzlichem Durchlauf und PDF.
+- **Abgleich mit Expertenbewertungen:** Im Tab Referenzen eintragen (PEDro-Gesamtwert, AMSTAR 2, CASQ) oder per CSV
+  importieren (*Vorlage laden* liefert die Spalten und Ihre Dokumente; zusätzlich PEDro-Items 2–11 als ja/nein; Zuordnung
+  über Dateiname oder DOI), z.B. aus der PEDro-Datenbank (pedro.org.au) oder aus einer eigenen Doppelbewertung.
+  Ausgewertet wird **je Modell** (jeweils der letzte Lauf je Dokument), damit sich Modelle vergleichen lassen:
+  PEDro-Summe und CASQ: mittlere Abweichung, systematische Verschiebung, Korrelation, ICC(2,1), Übereinstimmungsgrenzen;
+  PEDro-Items und AMSTAR 2: Übereinstimmung, Cohens κ (AMSTAR 2 linear gewichtet), PABAK; Intervalle per Bootstrap.
+  Unter 5 Dokumenten warnt die App; für eine belastbare Aussage werden 30–50 doppelt bewertete Dokumente empfohlen.
+  Referenzen bleiben auf dem Gerät (nicht synchronisiert), sind aber Teil von Export/Import.
+
+**Strukturierte JSON-Ausgabe, ein Instrument je Aufruf** (`app/js/schemas.js`)
+- Jeder Agent schickt ein JSON-Schema als `response_format: json_schema` mit (strikter Modus: alle Felder Pflicht,
+  feste Werte für Entscheidungsfelder, bei den CASQ-Prüffragen nur die IDs der gewählten Rubrik). vLLM, OpenAI und
+  LM Studio erzwingen damit Aufbau und erlaubte Werte – keine abgeschnittenen oder kaputten Antworten mehr durch
+  Formatfehler. Lehnt ein Server Schemata ab, nutzt die App automatisch den bisherigen JSON-Modus und merkt sich das
+  (Tooltip der Status-Lampe). Im Thinking-Modus wird kein Schema erzwungen.
+- Agent 3 bewertet nur noch Instrumente (JARS, PEDro/MINORS/AMSTAR 2/COSMIN, MMAT/CASP, Bias); die CASQ-Prüffragen
+  beantwortet **Agent 3b** in einem eigenen Aufruf, validiert von **Agent 4b**. Kürzere Antworten je Aufruf, dafür
+  zwei Aufrufe mehr pro PDF. Beide haben eigene, versionierte Prompts; die Prompts von Agent 3 und 4 werden beim
+  nächsten Login automatisch auf die verkleinerte Fassung umgestellt (alte Versionen bleiben auswählbar).
 
 **PDF-Einlesen: Layout, Tabellen, Abbildungen** (`app/js/pdf-extract.js`)
 - Der Text wird aus den Positionen der Textstücke zeilenweise rekonstruiert; Tabellenspalten werden durch

@@ -5,7 +5,7 @@ async function autoDetectContext() {
     const provider = document.getElementById('llm-provider').value;
     let url, key, modelName;
     
-    if (provider.startsWith('custom')) {
+    if (isUrlProvider(provider)) {
         let baseUrl = document.getElementById(provider + '-url').value.replace(/\/$/, '');
         url = baseUrl + '/models';
         key = document.getElementById(provider + '-key').value || 'lm-studio';
@@ -27,15 +27,12 @@ async function autoDetectContext() {
     try {
         if (provider === 'openai') {
             if(!key) { alert("Bitte zuerst einen OpenAI API-Key eingeben."); return; }
-            let ctx = 8192; 
-            const m = modelName.toLowerCase();
-            if (m.includes('gpt-4o') || m.includes('gpt-4-turbo')) ctx = 128000;
-            
+            const ctx = openaiContextTokens(modelName);
             const outTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
-            const chars = Math.floor((ctx - outTokens) * 3.5);
+            const chars = evidenceCharsForContext(ctx, outTokens);
             document.getElementById('max-evidence-chars').value = chars;
             saveUserKeys();
-            alert(`OpenAI Modell erkannt (${ctx} Tokens).\nLimit wurde automatisch auf ${chars.toLocaleString()} Zeichen gesetzt.`);
+            alert(`OpenAI-Modell „${modelName}“: Annahme ${ctx.toLocaleString('de-DE')} Token Kontextfenster (aus dem Modellnamen).\nLimit auf ${chars.toLocaleString('de-DE')} Zeichen gesetzt = (Fenster − ${outTokens.toLocaleString('de-DE')} Token Antwort − ${PROMPT_OVERHEAD_TOKENS.toLocaleString('de-DE')} Token für Anweisungen) × ${CHARS_PER_TOKEN} Zeichen je Token, höchstens ${MAX_AUTO_EVIDENCE_CHARS.toLocaleString('de-DE')}.`);
             log(`Auto-Detect: OpenAI ${ctx} Tokens -> ${chars} Zeichen`, 'success');
             return;
         }
@@ -56,11 +53,12 @@ async function autoDetectContext() {
         }
 
         if (ctx) {
+            detectedContextTokens[`${provider}|${modelName || ''}`] = Number(ctx);
             const outTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
-            const chars = Math.floor((ctx - outTokens) * 3.5);
+            const chars = evidenceCharsForContext(ctx, outTokens);
             document.getElementById('max-evidence-chars').value = chars;
             saveUserKeys();
-            alert(`Lokales Modell erkannt (${ctx} Tokens).\nLimit wurde automatisch auf ${chars.toLocaleString()} Zeichen gesetzt.`);
+            alert(`Modell erkannt: ${Number(ctx).toLocaleString('de-DE')} Token Kontextfenster.\nLimit auf ${chars.toLocaleString('de-DE')} Zeichen gesetzt = (Fenster − ${outTokens.toLocaleString('de-DE')} Token Antwort − ${PROMPT_OVERHEAD_TOKENS.toLocaleString('de-DE')} Token für Anweisungen) × ${CHARS_PER_TOKEN} Zeichen je Token, höchstens ${MAX_AUTO_EVIDENCE_CHARS.toLocaleString('de-DE')}.`);
             log(`Auto-Detect: Lokal ${ctx} Tokens -> ${chars} Zeichen`, 'success');
         } else {
             alert("Der lokale Server verheimlicht das Kontext-Limit leider in der API-Antwort.\n\nBitte prüfe den n_ctx Wert in deinem Studio und trage ihn manuell anhand der Faustregel ein.");
@@ -87,7 +85,7 @@ function recordStep(step) {
 // ==========================================
 // STATUS-LAMPE: Ist das gewählte Modell erreichbar?
 // ==========================================
-const PROVIDER_LABELS = { custom1: 'Lokales Profil 1', custom2: 'Lokales Profil 2', custom3: 'Lokales Profil 3', openai: 'OpenAI', gemini: 'Gemini', spark: 'Spark-Modell' };
+const PROVIDER_LABELS = { custom1: 'Lokales Profil 1', custom2: 'Lokales Profil 2', custom3: 'Lokales Profil 3', hochschule: 'Hochschul-API', endpoint: 'Eigener Endpunkt', openai: 'OpenAI', gemini: 'Gemini', spark: 'Spark-Modell' };
 const LLM_STATUS_INTERVAL_MS = 2 * 60 * 1000;
 let llmStatusSeq = 0;
 let llmStatusDebounce = null;
@@ -107,11 +105,14 @@ function setLlmStatus(state, text, title = '') {
 function currentLlmConfig() {
     const provider = document.getElementById('llm-provider').value;
     const label = PROVIDER_LABELS[provider] || provider;
-    if (provider.startsWith('custom')) {
+    if (isUrlProvider(provider)) {
         const base = document.getElementById(provider + '-url').value.trim().replace(/\/$/, '');
         const key = document.getElementById(provider + '-key').value;
-        if (!base) return { provider, label, error: 'keine Base-URL eingetragen' };
-        return { provider, label, url: base + '/models', headers: key && key !== 'lm-studio' ? { Authorization: `Bearer ${key}` } : {}, model: document.getElementById(provider + '-model').value.trim(), checkModel: true };
+        const model = document.getElementById(provider + '-model').value.trim();
+        if (!base) return { provider, label, error: 'keine Endpunkt-URL eingetragen' };
+        if (KEY_REQUIRED_PROVIDERS.includes(provider) && !key) return { provider, label, error: 'API-Key fehlt' };
+        if (MODEL_PROVIDERS.includes(provider) && !model) return { provider, label, error: 'kein Modell aktiviert (erst „Modelle suchen“)' };
+        return { provider, label, url: base + '/models', headers: key && key !== 'lm-studio' ? { Authorization: `Bearer ${key}` } : {}, model, checkModel: true };
     }
     if (provider === 'openai') {
         const key = document.getElementById('openai-key').value;
@@ -206,6 +207,8 @@ function buildUserContent(prompt, images) {
 
 // Ergebnis der Bildprüfung je Provider und Modell (für diese Sitzung): yes | no | unknown
 const visionSupport = {};
+// Unterstützt der Server response_format "json_schema"? je Provider|Modell: yes | no
+const structuredOutputSupport = {};
 
 function visionKey(cfg = currentLlmConfig()) {
     return `${cfg.provider}|${cfg.model || ''}`;
@@ -217,8 +220,14 @@ function visionSuffix(cfg) {
 }
 
 function visionTooltip(cfg) {
+    const structured = structuredOutputSupport[visionKey(cfg)];
+    const structuredText = structured === 'yes' ? ' Strukturierte JSON-Ausgabe (Schema): ja.' : structured === 'no' ? ' Strukturierte JSON-Ausgabe (Schema): nicht unterstützt, einfacher JSON-Modus.' : '';
     const v = visionSupport[visionKey(cfg)];
-    if (!v) return '';
+    if (!v) return structuredText;
+    return structuredText + visionTooltipText(v);
+}
+
+function visionTooltipText(v) {
     return v.state === 'yes' ? ' Das Modell verarbeitet Bilder (Tabellen/Abbildungen werden als Bild mitgeschickt).'
         : v.state === 'no' ? ' Das Modell verarbeitet keine Bilder – Tabellen und Abbildungen nur als Text.' : '';
 }
@@ -246,6 +255,7 @@ async function probeVisionSupport(force = false) {
             ? { state: 'yes', detail: 'Testbild erkannt.' }
             : { state: 'no', detail: 'Das Modell hat das Testbild nicht erkannt.' };
     } catch (err) {
+        rethrowIfStopped(err);
         const msg = err?.message || String(err);
         // HTTP-Fehler 4xx bei Bildern heißt fast immer: Modell/Server ohne Bildverarbeitung
         result = /API Fehler \(4\d\d\)/.test(msg)
@@ -276,7 +286,7 @@ function updateVisionHint(phase) {
 
 // Der Browser verrät bei abgelehnten Verbindungen keinen Grund ("NetworkError" / "Failed to fetch").
 // Aus Seiten- und Ziel-Adresse lässt sich die wahrscheinliche Ursache aber eingrenzen.
-function explainNetworkError(url) {
+function explainNetworkError(url, elapsedMs = 0) {
     let target;
     try { target = new URL(url, location.href); } catch (e) { return 'Die Base-URL ist ungültig.'; }
     if (target.origin === location.origin) return 'Der Spark-Server ist nicht erreichbar (offline?).';
@@ -290,18 +300,94 @@ function explainNetworkError(url) {
             + 'LM Studio: Server starten und unter Developer → Settings „Enable CORS“ einschalten. „localhost“ meint immer das Gerät, auf dem der Browser läuft.';
     }
     if (!navigator.onLine) return 'Das Gerät ist offline.';
-    return `Der Server ${target.host} ist nicht erreichbar oder erlaubt keine Browser-Zugriffe (CORS).`;
+    // Nach langer Wartezeit ist es fast immer ein Zeitlimit (Gateway/Proxy, z.B. 5 Minuten), kein CORS-Problem.
+    if (elapsedMs > 60000) {
+        return `Die Verbindung zu ${target.host} wurde nach ${(elapsedMs / 60000).toFixed(1).replace('.', ',')} Minuten getrennt. Das ist meist ein Zeitlimit des Servers oder Gateways (z.B. 5 Minuten für eine Antwort; auch Streaming umgeht es manchmal nicht), kein CORS-Problem. `
+            + 'Abhilfe: im Dashboard „Kurze Antworten“ und „Reasoning abschalten“ wählen, Seitenbilder abschalten, Max. Output Tokens und Max. Zeichen Evidenz senken oder ein schnelleres Modell wählen.';
+    }
+    return `Der Server ${target.host} ist nicht erreichbar, oder er erlaubt keine Aufrufe aus dem Browser (CORS: Der Anbieter muss „Access-Control-Allow-Origin“ senden). Bitte URL, Netzwerk und – bei Hochschul-Netzen – VPN prüfen.`;
+}
+
+// Abbruch durch den Nutzer („Stopp“): Ein laufender Aufruf wird abgebrochen, es folgen keine weiteren Aufrufe.
+class RunStopped extends Error {
+    constructor() { super('Vom Nutzer abgebrochen.'); this.name = 'RunStopped'; }
+}
+let runControl = null;   // { controller, stopped } solange eine Analyse läuft
+function throwIfStopped() { if (runControl?.stopped) throw new RunStopped(); }
+function rethrowIfStopped(err) { if (err instanceof RunStopped) throw err; }
+const sleepMs = async ms => { await new Promise(resolve => setTimeout(resolve, ms)); throwIfStopped(); };
+
+// Anbieter, bei denen die Antwort als Datenstrom (SSE) geholt wird: Ein einzelner langer Aufruf läuft sonst in
+// Zeitlimits von Gateways (z.B. 5 Minuten ohne Antwort) und endet als scheinbarer Netzwerkfehler.
+const STREAM_PROVIDERS = ['hochschule', 'endpoint'];
+const streamingSupport = {};            // Provider|Modell: 'no', wenn der Server Streaming ablehnt
+const reasoningParamSupport = {};        // Provider|Modell: 'no', wenn der Server chat_template_kwargs ablehnt
+const reasoningServerErrors = {};
+const schemaServerErrors = {};          // Provider|Modell: Anzahl 5xx-Fehler, nach denen ohne Schema gelang
+const RETRYABLE_STATUS = [429, 500, 502, 503, 504];
+const MAX_SEND_ATTEMPTS = 3;           // bei Verbindungsfehlern und Zeitüberschreitung
+const MAX_SERVER_ATTEMPTS = 6;         // bei 5xx/429 (schlagen oft sofort fehl)
+
+// Liest eine Chat-Antwort, die als Datenstrom (SSE) oder – wenn der Server Streaming ignoriert – als einzelnes
+// JSON kommt. Entschieden wird am Inhalt, nicht am Content-Type: Gateways liefern SSE auch als text/plain.
+async function readChatResponse(response) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', content = '', model = null, usage = null, finish = null, mode = null, whole = '', reasoning = 0;
+    const handleLine = raw => {
+        const line = raw.trim();
+        if (!line.startsWith('data:')) return;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') return;
+        let chunk;
+        try { chunk = JSON.parse(payload); } catch (e) { return; }
+        if (chunk.error) throw new Error(`API Fehler (Datenstrom): ${typeof chunk.error === 'string' ? chunk.error : chunk.error.message || JSON.stringify(chunk.error)}`);
+        if (chunk.model) model = chunk.model;
+        if (chunk.usage) usage = chunk.usage;
+        const choice = chunk.choices?.[0];
+        if (choice?.delta?.content) content += choice.delta.content;
+        reasoning += String(choice?.delta?.reasoning_content ?? choice?.delta?.reasoning ?? '').length;
+        if (choice?.finish_reason) finish = choice.finish_reason;
+    };
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        if (!mode) {
+            if (!text.trim()) continue;
+            mode = text.trimStart().startsWith('{') ? 'json' : 'sse';
+        }
+        if (mode === 'json') { whole += text; continue; }
+        buffer += text;
+        let newline;
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+            handleLine(buffer.slice(0, newline));
+            buffer = buffer.slice(newline + 1);
+        }
+    }
+    if (mode === 'json') {
+        try { return JSON.parse(whole + decoder.decode()); }
+        catch (e) { throw new Error(`Die Antwort ist kein gültiges JSON (${whole.slice(0, 120).replace(/\s+/g, ' ')}…)`); }
+    }
+    if (!mode) throw new Error('Leere Antwort des Servers.');
+    handleLine(buffer);
+    if (!content && !finish) throw new Error(`Der Datenstrom enthält keinen Antworttext (${buffer.slice(0, 120).replace(/\s+/g, ' ')})`);
+    return { model, usage, reasoning_chars: reasoning, choices: [{ message: { content }, finish_reason: finish }] };
 }
 
 async function callLLM(prompt, meta = {}) {
+    throwIfStopped();
     const provider = document.getElementById('llm-provider').value;
     let url, key, model;
     
-    if (provider.startsWith('custom')) {
-        let baseUrl = document.getElementById(provider + '-url').value.replace(/\/$/, '');
+    if (isUrlProvider(provider)) {
+        let baseUrl = document.getElementById(provider + '-url').value.trim().replace(/\/$/, '');
+        if (!baseUrl) throw new Error(`${PROVIDER_LABELS[provider]}: Endpunkt-URL fehlt in der Konfiguration!`);
         url = baseUrl + '/chat/completions';
         model = document.getElementById(provider + '-model').value || 'local-model';
         key = document.getElementById(provider + '-key').value || 'lm-studio';
+        if (KEY_REQUIRED_PROVIDERS.includes(provider) && key === 'lm-studio') throw new Error(`${PROVIDER_LABELS[provider]}: API-Key fehlt in der Konfiguration!`);
+        if (MODEL_PROVIDERS.includes(provider) && model === 'local-model') throw new Error(`${PROVIDER_LABELS[provider]}: Kein Modell aktiviert – bitte unter Konfiguration „Modelle suchen“ und ein Modell aktivieren.`);
     } else if (provider === 'openai') {
         url = 'https://api.openai.com/v1/chat/completions';
         key = document.getElementById('openai-key').value;
@@ -320,13 +406,18 @@ async function callLLM(prompt, meta = {}) {
         key = null;
     }
 
-    const maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
-    const temperature = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
+    const maxTokens = Number.isFinite(meta.maxTokens) ? meta.maxTokens : (parseInt(document.getElementById('max-output-tokens').value, 10) || 8192);
+    const temperature = Number.isFinite(meta.temperature) ? meta.temperature : (parseFloat(document.getElementById('llm-temperature').value) || 0.0);
     let systemPrompt = document.getElementById('llm-system-prompt').value || DEFAULT_SYSTEM_PROMPT;
 
     let isThinkingAllowed = false;
-    if (provider.startsWith('custom') || provider === 'spark') {
+    if (isUrlProvider(provider) || provider === 'spark') {
         isThinkingAllowed = document.getElementById(provider + '-thinking').checked;
+    }
+
+    // Langsame Server mit Zeitlimit: kürzere Antworten, damit sie rechtzeitig fertig werden.
+    if (document.getElementById('opt-compact')?.checked) {
+        systemPrompt += '\n\nFASSE DICH KURZ: Zitate höchstens 25 Wörter, Begründungen und Notizen höchstens ein Satz, höchstens 12 Belegstellen in evidence_locations, leere Felder knapp als "not_reported". Keine Wiederholungen.';
     }
 
     if (isThinkingAllowed) {
@@ -349,12 +440,36 @@ async function callLLM(prompt, meta = {}) {
     }
 
     const vllmLike = provider === 'spark' || (provider.startsWith('custom') && url.includes('8000'));
-    if (vllmLike && !isThinkingAllowed) {
-        const m = (model || '').toLowerCase();
-        // Ohne Modellnamen (Spark-Standardmodell) wird JSON-Modus ebenfalls angefordert; vLLM unterstützt ihn generell.
-        if (!m || m.includes('qwen') || m.includes('nvidia') || m.includes('deepseek')) {
-            payload.response_format = { type: "json_object" };
+    const applyJsonObjectMode = () => {
+        delete payload.response_format;
+        if (vllmLike && !isThinkingAllowed) {
+            const m = (model || '').toLowerCase();
+            // Ohne Modellnamen (Spark-Standardmodell) wird JSON-Modus ebenfalls angefordert; vLLM unterstützt ihn generell.
+            if (!m || m.includes('qwen') || m.includes('nvidia') || m.includes('deepseek')) {
+                payload.response_format = { type: "json_object" };
+            }
         }
+    };
+    // Strukturierte Ausgabe nach JSON-Schema, solange der Server sie nicht abgelehnt hat. Im Thinking-Modus
+    // nicht: Das Modell soll vor dem JSON frei nachdenken dürfen.
+    const schemaKey = `${provider}|${model || ''}`;
+    // Manche Server hängen bei strengen JSON-Schemata oder brauchen dafür sehr lange: per Option abschaltbar.
+    const schemaWanted = meta.forceSchema || (!meta.noSchema && !document.getElementById('opt-no-schema')?.checked && structuredOutputSupport[schemaKey] !== 'no');
+    const useSchema = !!meta.schema && !isThinkingAllowed && schemaWanted;
+    if (useSchema) {
+        payload.response_format = { type: 'json_schema', json_schema: { name: meta.schema.name, schema: meta.schema.schema, strict: true } };
+    } else {
+        applyJsonObjectMode();
+    }
+
+    const reasoningKey = `${provider}|${model || ''}`;
+    if (document.getElementById('opt-no-reasoning')?.checked && (isUrlProvider(provider) || provider === 'spark') && !isThinkingAllowed && reasoningParamSupport[reasoningKey] !== 'no') {
+        payload.chat_template_kwargs = { enable_thinking: false };
+    }
+    const streamKey = `${provider}|${model || ''}`;
+    if (STREAM_PROVIDERS.includes(provider) && streamingSupport[streamKey] !== 'no') {
+        payload.stream = true;
+        payload.stream_options = { include_usage: true };
     }
 
     const fetchHeaders = { 'Content-Type': 'application/json' };
@@ -365,38 +480,208 @@ async function callLLM(prompt, meta = {}) {
 
     const stepBase = {
         agent: meta.agent || null, doc: meta.doc || null, prompt_version_id: meta.promptVersionId || null,
-        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt,
+        provider, model, url, temperature, max_tokens: maxTokens, system_prompt: systemPrompt, prompt, run: meta.run, part: meta.part, stage: meta.stage,
         images: meta.images?.length ? meta.imagePages || meta.images.length : undefined
     };
-    let response;
-    const send = () => fetch(url, { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) });
-    try {
-        response = await send();
-        // Abgelaufene Spark-Sitzung: einmal still neu anmelden und wiederholen.
-        if (provider === 'spark' && response.status === 401 && await serverLogin(currentUser, currentPassKey)) {
+    let response, attempt = 0, serverAttempts = 0, kwargsDropped = false, schemaFallbackUsed = false, attemptStart = performance.now();
+    const rec = step => { if (!meta.quiet) recordStep(step); };
+    let schemaTimeoutRetried = false;
+    // Eigenes Zeitlimit je Versuch (Dashboard): Hängt ein Aufruf, wird früh abgebrochen und neu gestartet, statt 5 Minuten zu warten.
+    const clientTimeoutMs = Math.max(0, callTimeoutByProvider[provider] || 0) * 1000;
+    // Ob der Abbruch von diesem Zeitlimit stammt, wird über ein eigenes Kennzeichen erkannt (nicht über den Fehlernamen,
+    // der je nach Browser TimeoutError oder AbortError lautet). Das Limit gilt bis zum Eintreffen der Antwort.
+    let ownTimeoutFired = false;
+    const send = async () => {
+        const init = { method: 'POST', headers: fetchHeaders, body: JSON.stringify(payload) };
+        const limit = meta.timeoutMs || clientTimeoutMs;
+        let timer = null;
+        ownTimeoutFired = false;
+        const ctrl = new AbortController();
+        init.signal = ctrl.signal;
+        if (limit) timer = setTimeout(() => { ownTimeoutFired = true; ctrl.abort(); }, limit);
+        const onStop = () => ctrl.abort();
+        runControl?.controller.signal.addEventListener('abort', onStop, { once: true });
+        try { return await fetch(url, init); } finally { clearTimeout(timer); runControl?.controller.signal.removeEventListener('abort', onStop); }
+    };
+    for (;;) {
+        attempt++;
+        attemptStart = performance.now();
+        try {
             response = await send();
+            // Abgelaufene Spark-Sitzung: einmal still neu anmelden und wiederholen.
+            if (provider === 'spark' && response.status === 401 && await serverLogin(currentUser, currentPassKey)) {
+                response = await send();
+            }
+        } catch (err) {
+            throwIfStopped();
+            const elapsed = performance.now() - attemptStart;
+            const timedOut = ownTimeoutFired && !meta.timeoutMs;
+            if (timedOut && attempt < MAX_SEND_ATTEMPTS) {
+                log(`Keine Antwort nach ${Math.round(elapsed / 1000)} s (eigenes Zeitlimit je Aufruf) – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}...`, 'warning');
+                continue;
+            }
+            if (timedOut) {
+                const message = `Keine Antwort innerhalb von ${Math.round(clientTimeoutMs / 1000)} s (Ihr eigenes „Zeitlimit je Aufruf“) nach ${attempt} Versuchen. Bitte das Zeitlimit erhöhen (Richtwert 120 bis 180 s) oder auf 0 stellen.`;
+                rec({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: message });
+                markLlmCall(false, provider, message);
+                throw new Error(message);
+            }
+            // Verbindungsaufbau gescheitert (schnell): wiederholen. Nach langer Wartezeit ist es ein Zeitlimit – dann nicht erneut warten.
+            if (attempt < MAX_SEND_ATTEMPTS && elapsed < 30000 && navigator.onLine !== false) {
+                log(`Keine Verbindung zu ${new URL(url, location.href).host} – neuer Versuch ${attempt + 1}/${MAX_SEND_ATTEMPTS}...`, 'warning');
+                await sleepMs(2000 * attempt);
+                continue;
+            }
+            // Lange Wartezeit mit JSON-Schema: Das Schema kann den Server aufhalten – einmal ohne Schema wiederholen und es merken.
+            if (elapsed >= 60000 && !meta.quiet && !schemaTimeoutRetried && payload.response_format?.type === 'json_schema' && !meta.timeoutMs) {
+                schemaTimeoutRetried = true;
+                structuredOutputSupport[schemaKey] = 'no';
+                applyJsonObjectMode();
+                stepBase.structured_output = 'Zeitlimit-Rückfall';
+                log(`Keine Antwort nach ${(elapsed / 60000).toFixed(1).replace('.', ',')} Minuten – neuer Versuch ohne JSON-Schema (strenge Schemata können Server aufhalten). Das Schema bleibt für dieses Modell aus.`, 'warning');
+                continue;
+            }
+            const hint = explainNetworkError(url, elapsed);
+            rec({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
+            markLlmCall(false, provider, hint);
+            throw new Error(`Keine Verbindung zu ${url}. ${hint}`);
         }
-    } catch (err) {
-        const hint = explainNetworkError(url);
-        recordStep({ ...stepBase, duration_ms: Math.round(performance.now() - startTime), error: `${err?.message || err} – ${hint}` });
-        markLlmCall(false, provider, hint);
-        throw new Error(`Keine Verbindung zu ${url}. ${hint}`);
+        if (response.ok) break;
+
+        const rejected = response.status === 400 || response.status === 422;
+        // Server kennt kein Streaming: merken und ohne Datenstrom wiederholen.
+        if (rejected && payload.stream) {
+            const errText = await response.clone().text();
+            if (/stream/i.test(errText)) {
+                streamingSupport[streamKey] = 'no';
+                delete payload.stream; delete payload.stream_options;
+                log('Der Modell-Server lehnt Streaming ab – weiter ohne Datenstrom.', 'warning');
+                continue;
+            }
+        }
+        // Server kennt chat_template_kwargs nicht (ausdrückliche Ablehnung 400/422): merken und ohne wiederholen.
+        if (rejected && payload.chat_template_kwargs) {
+            const errText = await response.clone().text();
+            if (/chat_template|template_kwargs|enable_thinking|extra|unknown|unexpected|unrecognized/i.test(errText)) {
+                reasoningParamSupport[reasoningKey] = 'no';
+                delete payload.chat_template_kwargs;
+                log(`Der Modell-Server nimmt „Reasoning abschalten“ nicht an (${response.status}: ${errText.replace(/\s+/g, ' ').slice(0, 160) || 'ohne Text'}) – weiter ohne diesen Parameter.`, 'warning');
+                continue;
+            }
+        }
+        // Server kennt kein json_schema: merken und mit dem bisherigen JSON-Modus wiederholen.
+        if (rejected && payload.response_format?.type === 'json_schema') {
+            const errText = await response.clone().text();
+            if (/schema|response_format|structured|guided|json/i.test(errText)) {
+                structuredOutputSupport[schemaKey] = 'no';
+                log(`Strukturierte JSON-Ausgabe wird vom Modell-Server nicht unterstützt – weiter mit einfachem JSON-Modus.`, 'warning');
+                applyJsonObjectMode();
+                stepBase.structured_output = 'abgelehnt';
+                continue;
+            }
+        }
+        // Serverfehler (500/502/503/504) oder Überlastung (429). Sofort-Fehler kosten fast nichts, deshalb mehrere Versuche:
+        // 1 unverändert (zufälliger Fehler eines Knotens), 2 ohne Reasoning-Parameter, 2/3 ohne JSON-Schema, danach unverändert mit Wartezeit.
+        if (RETRYABLE_STATUS.includes(response.status) && serverAttempts < MAX_SERVER_ATTEMPTS - 1) {
+            serverAttempts++;
+            const errText = (await response.clone().text()).replace(/\s+/g, ' ').slice(0, 160);
+            const what = `Modell-Server meldet ${response.status} (${errText || 'ohne Text'})`;
+            const progress = `${serverAttempts + 1}/${MAX_SERVER_ATTEMPTS}`;
+            if (serverAttempts === 2 && payload.chat_template_kwargs) {
+                delete payload.chat_template_kwargs;
+                kwargsDropped = true;
+                log(`${what} – neuer Versuch ohne „Reasoning abschalten“ (${progress}).`, 'warning');
+                continue;
+            }
+            if (serverAttempts >= 2 && payload.response_format?.type === 'json_schema' && !schemaFallbackUsed) {
+                schemaFallbackUsed = true;
+                applyJsonObjectMode();
+                stepBase.structured_output = 'Serverfehler-Rückfall';
+                log(`${what} – neuer Versuch ohne JSON-Schema (${progress}).`, 'warning');
+                continue;
+            }
+            const retryAfter = Number(response.headers.get('retry-after'));
+            const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 60) * 1000 : Math.min(1000 * 2 ** (serverAttempts - 1), 12000);
+            log(`${what} – neuer Versuch ${progress} in ${Math.round(wait / 1000)} s...`, 'warning');
+            await sleepMs(wait);
+            continue;
+        }
+        break;
+    }
+    // Der Server hat das JSON-Schema akzeptiert: für dieses Modell merken und im Protokoll festhalten.
+    if (response.ok && payload.response_format?.type === 'json_schema') {
+        structuredOutputSupport[schemaKey] = 'yes';
+        stepBase.structured_output = stepBase.structured_output || 'json_schema';
+    }
+    // Ohne Reasoning-Parameter gelang, was mit ihm an Serverfehlern scheiterte: nach wiederholtem Auftreten für dieses Modell abschalten.
+    if (response.ok && kwargsDropped) {
+        reasoningServerErrors[reasoningKey] = (reasoningServerErrors[reasoningKey] || 0) + 1;
+        if (reasoningServerErrors[reasoningKey] >= 2 && reasoningParamSupport[reasoningKey] !== 'no') {
+            reasoningParamSupport[reasoningKey] = 'no';
+            log('Der Modell-Server scheitert wiederholt mit „Reasoning abschalten“ – ab jetzt ohne diesen Parameter.', 'warning');
+        }
+    }
+    // Ohne Schema gelang, was mit Schema am Serverfehler scheiterte: nach wiederholtem Auftreten das Schema für dieses Modell abschalten.
+    if (response.ok && schemaFallbackUsed) {
+        schemaServerErrors[schemaKey] = (schemaServerErrors[schemaKey] || 0) + 1;
+        if (schemaServerErrors[schemaKey] >= 2 && structuredOutputSupport[schemaKey] !== 'no') {
+            structuredOutputSupport[schemaKey] = 'no';
+            log('Der Modell-Server scheitert wiederholt an strukturierter JSON-Ausgabe – ab jetzt einfacher JSON-Modus.', 'warning');
+        }
     }
 
-    const endTime = performance.now(); // Endzeit messen
-    const durationSec = (endTime - startTime) / 1000;
+    let endTime = performance.now(); // Endzeit messen
+    let durationSec = (endTime - startTime) / 1000;
 
     if (!response.ok) {
         const err = await response.text();
-        recordStep({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: err });
+        rec({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: err });
         let message = err;
         try { message = JSON.parse(err).error?.message || JSON.parse(err).error || err; } catch (e) { /* kein JSON */ }
-        const errorText = `API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}`;
+        const authHint = (response.status === 401 || response.status === 403) && provider !== 'spark' ? ' – API-Key ungültig, abgelaufen oder für dieses Modell nicht berechtigt.' : '';
+        // Manche Gateways melden ein zu kleines Kontextfenster nur als allgemeinen 500er – die Größe der Anfrage dazusetzen.
+        const promptTokens = Math.round(JSON.stringify(payload.messages).length / 3.5);
+        const sizeHint = (response.status >= 500 || response.status === 413) && promptTokens + maxTokens > 24000
+            ? ` – Anfrage: ca. ${promptTokens.toLocaleString('de-DE')} Token Prompt + bis zu ${maxTokens.toLocaleString('de-DE')} Token Antwort. Hat das Modell ein kleineres Kontextfenster (z.B. 32.000), hilft es, „Max. Zeichen Evidenz“ oder „Max. Output Tokens“ zu senken.`
+            : '';
+        const errorText = `API Fehler (${response.status}): ${typeof message === 'string' ? message : JSON.stringify(message)}${authHint}${sizeHint}`;
         markLlmCall(false, provider, errorText);
         throw new Error(errorText);
     }
-    const data = await response.json();
-    
+    let data;
+    try {
+        data = payload.stream ? await readChatResponse(response) : await response.json();
+    } catch (err) {
+        throwIfStopped();
+        const elapsed = performance.now() - startTime;
+        const hint = explainNetworkError(url, elapsed);
+        rec({ ...stepBase, duration_ms: Math.round(elapsed), error: `Antwort abgebrochen: ${err?.message || err} – ${hint}` });
+        markLlmCall(false, provider, hint);
+        throw new Error(`Antwort von ${url} wurde unterbrochen: ${err?.message || err}. ${hint}`);
+    }
+
+    endTime = performance.now();   // bei Datenströmen erst nach dem letzten Teil
+    durationSec = (endTime - startTime) / 1000;
+
+    // Leere Antwort: Reasoning-Modelle verbrauchen ihr Token-Budget manchmal vollständig zum Nachdenken (Abschluss „length“).
+    // Das darf nicht still zu einer leeren Auswertung führen: einmal mit doppeltem Budget wiederholen, sonst klar melden.
+    const answerMessage = data.choices?.[0]?.message || {};
+    const finishReason = data.choices?.[0]?.finish_reason || null;
+    const reasoningChars = data.reasoning_chars ?? String(answerMessage.reasoning_content ?? answerMessage.reasoning ?? '').length;
+    if (!String(answerMessage.content ?? '').trim()) {
+        const detail = `Abschluss: ${finishReason || 'unbekannt'}${reasoningChars ? `, ${reasoningChars} Zeichen Reasoning` : ''}`;
+        rec({ ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status, error: `Leere Antwort (${detail})`, tokens_out: data.usage?.completion_tokens ?? null });
+        if (finishReason === 'length' && !meta.boosted && maxTokens < 16384 && !meta.quiet) {
+            const boosted = Math.min(maxTokens * 2, 16384);
+            log(`Das Modell hat sein Token-Budget (${maxTokens.toLocaleString('de-DE')}) zum Nachdenken verbraucht und keine Antwort geliefert – neuer Versuch mit ${boosted.toLocaleString('de-DE')} Token.`, 'warning');
+            return callLLM(prompt, { ...meta, maxTokens: boosted, boosted: true });
+        }
+        const message = `Das Modell hat keine Antwort geliefert (${detail}). ${finishReason === 'length' ? 'Das Token-Budget reichte nicht, weil das Modell zuerst nachdenkt (Reasoning). „Max. Output Tokens“ erhöhen oder Reasoning abschalten.' : 'Der Server hat eine leere Antwort geschickt.'}`;
+        markLlmCall(false, provider, message);
+        throw new Error(message);
+    }
+    if (finishReason === 'length') log(`Die Antwort wurde an der Token-Grenze abgeschnitten (${(data.usage?.completion_tokens ?? maxTokens).toLocaleString('de-DE')} Token) – das JSON kann unvollständig sein. „Max. Output Tokens“ erhöhen.`, 'warning');
+
     // Token/s Metrik aus den OpenAI-Usage-Daten extrahieren (falls vorhanden) oder schätzen
     const completionTokens = data.usage?.completion_tokens || Math.round(data.choices[0].message.content.length / 4);
     const tokensPerSec = durationSec > 0 ? Math.round(completionTokens / durationSec) : 0;
@@ -407,7 +692,7 @@ async function callLLM(prompt, meta = {}) {
 
     markLlmCall(true, provider, data.model || model);
 
-    recordStep({
+    rec({
         ...stepBase, duration_ms: Math.round(endTime - startTime), status: response.status,
         response: data.choices?.[0]?.message?.content ?? null,
         tokens_in: data.usage?.prompt_tokens ?? null, tokens_out: data.usage?.completion_tokens ?? null,
@@ -415,4 +700,48 @@ async function callLLM(prompt, meta = {}) {
     });
 
     return data.choices[0].message.content;
+}
+
+
+// ==========================================
+// GESCHWINDIGKEITSTEST (zeigt, ob Schema, Wartezeit oder Erzeugungstempo bremsen)
+// ==========================================
+async function runSpeedTest() {
+    const out = document.getElementById('speed-test-result');
+    const button = document.getElementById('speed-test-btn');
+    const provider = document.getElementById('llm-provider').value;
+    out.innerHTML = '';
+    button.disabled = true;
+    const line = (text, cls = '') => { const div = document.createElement('div'); div.textContent = text; if (cls) div.className = cls; out.appendChild(div); return div; };
+    const numbers = Array.from({ length: 150 }, (_, i) => i + 1).join(', ');
+    const tests = [
+        { label: 'Kurzer Aufruf ohne Schema', prompt: 'Antworte nur mit {"ok": true}', opts: { noSchema: true, maxTokens: 30 } },
+        { label: 'Kurzer Aufruf mit kleinem JSON-Schema', prompt: 'Antworte nur mit {"ok": true}',
+            opts: { forceSchema: true, maxTokens: 30, schema: { name: 'speedtest', schema: S.obj({ ok: S.bool() }) } } },
+        { label: 'Aufruf mit dem Schema der Extraktion (Teil 1)', prompt: 'Titel: Test. Es handelt sich um eine Online-Befragung mit 200 Teilnehmenden im Marketing. Fülle das JSON aus.',
+            opts: { forceSchema: true, maxTokens: 1500, schema: agentSchema('extraction', { part: 'classification' }) } },
+        { label: 'Erzeugungstempo (ca. 450 Token Ausgabe ohne Schema)', prompt: `Antworte nur mit JSON: {"zahlen": [${numbers}]} – gib genau diese Zahlen aus.`, opts: { noSchema: true, maxTokens: 900 }, rate: true }
+    ];
+    try {
+        for (const t of tests) {
+            const row = line(`${t.label}: läuft…`);
+            const before = (window.currentRunMetrics || []).length;
+            const started = performance.now();
+            try {
+                await callLLM(t.prompt, { quiet: true, timeoutMs: 150000, agent: 'speedtest', ...t.opts });
+                const sec = (performance.now() - started) / 1000;
+                const tps = (window.currentRunMetrics || []).slice(before).pop();
+                row.textContent = `${t.label}: ${sec.toFixed(1).replace('.', ',')} s${t.rate && tps ? `, ca. ${tps} Token/s` : ''}`;
+                row.className = sec > 60 ? 'warn' : 'ok';
+            } catch (err) {
+                const sec = (performance.now() - started) / 1000;
+                const timeout = err?.name === 'TimeoutError' || /timeout|aborted|getrennt|Zeitlimit/i.test(String(err?.message));
+                row.textContent = `${t.label}: ${timeout ? `keine Antwort nach ${sec.toFixed(0)} s` : 'Fehler'} – ${String(err?.message || err).slice(0, 200)}`;
+                row.className = 'err';
+            }
+        }
+        line('Einordnung: Ist der Aufruf mit Schema viel langsamer als ohne, hilft „JSON-Schema nicht verwenden“. Dauert schon der Kurzaufruf lange, ist der Dienst ausgelastet oder wartet in einer Warteschlange. Ist nur das Erzeugungstempo niedrig, sind lange Antworten das Problem.');
+    } finally {
+        button.disabled = false;
+    }
 }

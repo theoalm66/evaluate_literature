@@ -12,6 +12,7 @@ function switchTab(tabId) {
     // Über data-tab statt event.target, damit der Aufruf auch aus Code (z.B. Historie) funktioniert.
     const navButton = document.querySelector(`nav button[data-tab="${tabId}"]`);
     if (navButton) navButton.classList.add('active');
+    if (tabId === 'config' && typeof refreshJournalStatus === 'function') refreshJournalStatus();
 }
 
 function toggleProviderSettings() {
@@ -22,6 +23,9 @@ function toggleProviderSettings() {
     document.getElementById('settings-openai').style.display = provider === 'openai' ? 'block' : 'none';
     document.getElementById('settings-gemini').style.display = provider === 'gemini' ? 'block' : 'none';
     document.getElementById('settings-spark').style.display = provider === 'spark' ? 'block' : 'none';
+    document.getElementById('settings-hochschule').style.display = provider === 'hochschule' ? 'block' : 'none';
+    document.getElementById('settings-endpoint').style.display = provider === 'endpoint' ? 'block' : 'none';
+    if (typeof syncCallTimeoutField === 'function') syncCallTimeoutField();
 }
 
 function isPdfFile(f) {

@@ -8,7 +8,7 @@
 const SYNC_INTERVAL_MS = 60 * 1000;
 const PUSH_BATCH_BYTES = 8 * 1024 * 1024;
 const PUSH_BATCH_COUNT = 200;
-const SECRET_KEY_FIELDS = ['custom1Key', 'custom2Key', 'custom3Key', 'openaiKey', 'geminiKey'];
+const SECRET_KEY_FIELDS = SECRET_FIELDS.map(f => f.field);   // aus crypto.js; werden nie übertragen
 
 let serverStatus = 'unknown';   // unknown | available | absent | unreachable
 let serverInfo = null;          // Antwort von api/health (u.a. ob ein Spark-Modell eingerichtet ist)
@@ -221,7 +221,7 @@ async function pullChanges(user, deviceId) {
     }
     if (ctx.promptsChanged || ctx.settingsChanged) saveUserDB(ctx.db);
     if (user === currentUser) {
-        if (ctx.settingsChanged) applyProfileSettingsToUI(ctx.db[user]);
+        if (ctx.settingsChanged) await applyProfileSettingsToUI(ctx.db[user]);
         if (ctx.promptsChanged) refreshPromptsAfterSync(ctx.previousHeads);
         if (ctx.runsChanged && document.getElementById('tab-history')?.classList.contains('active')) loadHistory();
     }
@@ -366,7 +366,7 @@ async function linkAccount() {
         msg.textContent = invite ? 'Das Konto gibt es schon, aber das Passwort passt nicht.' : 'Anmeldung fehlgeschlagen. Für ein neues Konto bitte den Einladungscode eingeben.';
         return;
     }
-    if (newPass && newPass !== currentPassKey) changeLocalPassword(newPass);
+    if (newPass && newPass !== currentPassKey) await changeLocalPassword(newPass);
     const db = getUserDB();
     db[currentUser].sync.linked = true;
     // Die bisherigen lokalen Einstellungen sollen auf dem Spark ankommen.

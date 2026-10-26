@@ -343,7 +343,7 @@ Diese Flags fließen nicht in den CASQ ein, sondern werden separat und gut sicht
 | 1 ✅ | Gewichte im Code fixieren, Coverage selbst berechnen (nur verifizierte Belege zählen), CASQ-Spanne | klein |
 | 2 ✅ | AMSTAR-2-/COSMIN-/MINORS-/PEDro-Korrekturen (2.5) | klein |
 | 3 ✅ | CASQ 2.0 mit Prüffragen + Deckel + Spannweite (2.4); kritische Frage zählt bei „nein“ und „nicht berichtet“ als Mangel | mittel |
-| 4 | JSON-Schema-Ausgabe, ein Instrument pro Aufruf | mittel |
+| 4 ✅ | JSON-Schema-Ausgabe (mit automatischem Rückfall), CASQ-Prüffragen in eigenen Aufrufen (Agent 3b/4b) | mittel |
 | 5 | RoB 2, ROBINS-I, NOS, JBI, QUADAS-2 ergänzen | mittel–groß |
 | 6 ✅ | Deterministische Signale (statcheck, GRIM, Stichproben, Registrierung, DOI/Retractions über Crossref) – zusätzlich per LLM (Agent 6) zum Vergleich, per Häkchen wählbar | mittel |
-| 7 | Mehrfachbewertung + Kalibrierung gegen PEDro-/Cochrane-Daten | groß, aber entscheidend |
+| 7 ✅ | Mehrfachbewertung (Mehrheitsentscheid, Fleiss-κ, Streuung) und Werkzeug zum Abgleich mit Expertenbewertungen (CSV-Import, ICC/κ/Bland-Altman je Modell). Offen: ein ausreichend großer Referenzdatensatz (30–50 Dokumente) – die eigentliche Kalibrierung | groß, aber entscheidend |

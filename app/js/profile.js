@@ -4,24 +4,37 @@
 let currentUser = null;
 let currentPassKey = null;
 
-function hashString(str) {
-    let hash = 5381;
-    for (let i = 0; i < str.length; i++) { hash = ((hash << 5) + hash) + str.charCodeAt(i); }
-    return hash.toString();
+// Abgeleiteter AES-Schlüssel der angemeldeten Sitzung (nur im Arbeitsspeicher), null ohne WebCrypto
+let currentSession = null;
+
+// Neue Zugangsdaten für ein lokales Profil: PBKDF2-Prüfwert (profile.auth) oder, ohne WebCrypto, der alte Hash.
+async function newProfileAuth(pass) {
+    if (cryptoAvailable()) return { auth: (await createAuth(pass)).auth };
+    return { passHash: legacyHash(pass) };
 }
 
-function encryptKey(text, password) {
-    if (!text) return "";
-    const encrypted = Array.from(text, (c, i) => String.fromCharCode(c.charCodeAt(0) ^ password.charCodeAt(i % password.length))).join('');
-    return btoa(encrypted);
+async function localPasswordOk(profile, pass) {
+    if (!profile) return false;
+    if (profile.auth) return (await checkAuth(pass, profile.auth)).ok;
+    return profile.passHash === legacyHash(pass);
 }
 
-function decryptKey(base64, password) {
-    if (!base64) return "";
-    try {
-        const decoded = atob(base64);
-        return Array.from(decoded, (c, i) => String.fromCharCode(c.charCodeAt(0) ^ password.charCodeAt(i % password.length))).join('');
-    } catch(e) { return ""; }
+// Nach erfolgreicher Anmeldung: AES-Schlüssel bereitstellen. Ältere Profile (djb2-Hash) bekommen dabei ihren
+// PBKDF2-Prüfwert; der alte Hash wird entfernt.
+async function unlockProfile(user, pass) {
+    currentSession = null;
+    if (!cryptoAvailable()) return;
+    const db = getUserDB();
+    const profile = db[user];
+    if (profile.auth) {
+        const checked = await checkAuth(pass, profile.auth);
+        if (checked.ok) { currentSession = checked.session; return; }
+    }
+    const { auth, session } = await createAuth(pass);
+    profile.auth = auth;
+    delete profile.passHash;
+    currentSession = session;
+    saveUserDB(db);
 }
 
 // getUserDB()/saveUserDB() liegen in storage.js (IndexedDB statt localStorage).
@@ -53,20 +66,24 @@ function ensureProfileStructure(db, user) {
     // ESTABLISHED-SCORES-MIGRATION: stellt sicher, dass bestehende Profile die
     // aktuelle PEDro/MINORS/AMSTAR2/COSMIN/GRADE-Logik erhalten.
     const frameworkDate = new Date().toLocaleString();
-    if (!String(db[user].prompts.extraction?.[0]?.text || '').includes('TIE-BREAKER methodological_paper vs. multiple_study_report')) {
+    if (!String(db[user].prompts.extraction?.[0]?.text || '').includes('TIE-BREAKER methodological_paper vs. multiple_study_report')
+        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('method_class')
+        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('{{PART_INSTRUCTION}}')
+        || !String(db[user].prompts.extraction?.[0]?.text || '').includes('publication_venue')) {
         db[user].prompts.extraction.unshift(promptVersion(DEFAULT_PROMPTS.extraction, frameworkDate));
         db[user].sync.promptHeads.extraction = new Date().toISOString();
         db[user].prompts.extraction = db[user].prompts.extraction.slice(0, PROMPT_HISTORY_LIMIT);
     }
-    // CASQ 2.0: Prüffragen statt freier Punkte – ältere Agent-3/4-Prompts kennen den Platzhalter noch nicht.
+    // CASQ-Prüffragen laufen in eigenen Aufrufen (Agent 3b/4b) – ältere Agent-3/4-Prompts enthalten sie noch.
     if (!String(db[user].prompts.analysis?.[0]?.text || '').includes('Bestätige ausdrücklich den Tie-Breaker')
-        || !String(db[user].prompts.analysis?.[0]?.text || '').includes('{{CASQ_CHECKLIST}}')) {
+        || !String(db[user].prompts.analysis?.[0]?.text || '').includes('eigenen Aufruf (Agent 3b)')
+        || !String(db[user].prompts.analysis?.[0]?.text || '').includes('Gesundheitsbezug laut Extraktion')) {
         db[user].prompts.analysis.unshift(promptVersion(DEFAULT_PROMPTS.analysis, frameworkDate));
         db[user].sync.promptHeads.analysis = new Date().toISOString();
         db[user].prompts.analysis = db[user].prompts.analysis.slice(0, PROMPT_HISTORY_LIMIT);
     }
     if (!String(db[user].prompts.validation?.[0]?.text || '').includes('validiere jars_quant separat')
-        || !String(db[user].prompts.validation?.[0]?.text || '').includes('{{CASQ_CHECKLIST}}')) {
+        || !String(db[user].prompts.validation?.[0]?.text || '').includes('eigenen Aufruf (Agent 4b)')) {
         db[user].prompts.validation.unshift(promptVersion(DEFAULT_PROMPTS.validation, frameworkDate));
         db[user].sync.promptHeads.validation = new Date().toISOString();
         db[user].prompts.validation = db[user].prompts.validation.slice(0, PROMPT_HISTORY_LIMIT);
@@ -104,6 +121,14 @@ function ensureProfileStructure(db, user) {
         db[user].keys.custom3Model = "";
     }
     
+    // Hochschul-API und Eigener Endpunkt (später ergänzt): leere Voreinstellungen für ältere Profile
+    MODEL_PROVIDERS.forEach(id => {
+        const k = db[user].keys;
+        if (k[`${id}Url`] === undefined) k[`${id}Url`] = '';
+        if (k[`${id}Key`] === undefined) k[`${id}Key`] = '';
+        if (k[`${id}Model`] === undefined) k[`${id}Model`] = '';
+        if (!Array.isArray(k[`${id}Models`])) k[`${id}Models`] = [];
+    });
     if (db[user].keys.custom1Thinking === undefined) db[user].keys.custom1Thinking = false;
     if (db[user].keys.custom2Thinking === undefined) db[user].keys.custom2Thinking = false;
     if (db[user].keys.custom3Thinking === undefined) db[user].keys.custom3Thinking = false;
@@ -118,7 +143,7 @@ function ensureProfileStructure(db, user) {
 }
 
 function defaultKeys() {
-    return { custom1Url: "http://localhost:8888/v1", custom1Key: "", custom1Model: "", custom2Url: "http://10.189.26.81:8000/v1", custom2Key: "", custom2Model: "", custom3Url: "http://localhost:11434/v1", custom3Key: "", custom3Model: "", openaiKey: "", geminiKey: "", maxEvidence: 50000, maxTokens: 8192, temperature: 0.0, systemPrompt: DEFAULT_SYSTEM_PROMPT, activeProvider: 'custom1' };
+    return { hochschuleUrl: "", hochschuleKey: "", hochschuleModel: "", hochschuleModels: [], endpointUrl: "", endpointKey: "", endpointModel: "", endpointModels: [], custom1Url: "http://localhost:8888/v1", custom1Key: "", custom1Model: "", custom2Url: "http://10.189.26.81:8000/v1", custom2Key: "", custom2Model: "", custom3Url: "http://localhost:11434/v1", custom3Key: "", custom3Model: "", openaiKey: "", geminiKey: "", maxEvidence: 50000, maxTokens: 8192, temperature: 0.0, systemPrompt: DEFAULT_SYSTEM_PROMPT, activeProvider: 'custom1' };
 }
 
 function showLoginError(text) {
@@ -143,7 +168,6 @@ async function handleAuth(action) {
     try {
         await detectServer();
         let db = getUserDB();
-        const hashedPass = hashString(pass);
         let notice = '';
         let linkedNow = false;
 
@@ -159,13 +183,17 @@ async function handleAuth(action) {
                 if (res.status !== 201) { showLoginError(res.data?.error || `Registrierung auf dem Spark fehlgeschlagen (${res.status}).`); return; }
                 linked = true;
             }
-            db[user] = { passHash: hashedPass, keys: defaultKeys(), history: [] };
+            db[user] = { ...(await newProfileAuth(pass)), keys: defaultKeys(), history: [] };
             db = ensureProfileStructure(db, user);
             db[user].sync.linked = linked;
             if (linked) db[user].sync.settingsUpdatedAt = new Date().toISOString();
         } else {
             const local = db[user];
-            const localOk = !!local && local.passHash === hashedPass;
+            if (local?.auth && !cryptoAvailable()) {
+                showLoginError('Dieses Profil ist mit moderner Verschlüsselung geschützt und lässt sich nur über eine sichere Verbindung (https) öffnen – bitte die https-Adresse verwenden.');
+                return;
+            }
+            const localOk = await localPasswordOk(local, pass);
             let serverOk = false;
             if (serverStatus === 'available') {
                 const res = await api('auth/login', { method: 'POST', body: { login: user, password: pass } });
@@ -174,7 +202,7 @@ async function handleAuth(action) {
             }
             if (serverOk && !local) {
                 // Neues Gerät: leeres Profil, das beim ersten Abgleich mit den Spark-Daten gefüllt wird.
-                db[user] = { passHash: hashedPass, keys: defaultKeys(), history: [] };
+                db[user] = { ...(await newProfileAuth(pass)), keys: defaultKeys(), history: [] };
                 db = ensureProfileStructure(db, user);
                 db[user].sync.settingsUpdatedAt = '';
                 PROMPT_TYPES.forEach(t => { db[user].sync.promptHeads[t] = ''; });
@@ -182,7 +210,9 @@ async function handleAuth(action) {
             } else if (serverOk && !localOk) {
                 // Passwort wurde auf dem Spark geändert: lokale Prüfung angleichen. Lokal verschlüsselte
                 // API-Keys lassen sich mit dem neuen Passwort nicht entschlüsseln und werden verworfen.
-                local.passHash = hashedPass;
+                delete local.auth;
+                delete local.passHash;
+                Object.assign(local, await newProfileAuth(pass));
                 SECRET_KEY_FIELDS.forEach(k => { local.keys[k] = ''; });
                 db = ensureProfileStructure(db, user);
                 notice = 'Das Passwort weicht vom lokal gespeicherten ab. Bitte die API-Keys neu eingeben.';
@@ -219,60 +249,88 @@ async function handleAuth(action) {
         saveUserDB(db);
         // Erstmals verknüpft: den gesamten lokalen Bestand zum Hochladen einreihen.
         if (linkedNow) await enqueueAllRuns(user);
-        openAppForUser(user, pass);
+        await openAppForUser(user, pass);
         if (notice) alert(notice);
     } finally {
         document.querySelectorAll('.auth-btn').forEach(btn => { btn.disabled = false; });
     }
 }
 
-function applyProfileSettingsToUI(profile) {
+// Füllt die Einstellungsfelder aus dem Profil und entschlüsselt dabei die API-Keys.
+// Liefert true, wenn noch Keys im alten Format vorliegen, die auf AES umgestellt werden sollen.
+async function applyProfileSettingsToUI(profile) {
     const keys = profile.keys;
-    const pass = currentPassKey;
-    document.getElementById('llm-provider').value = keys.activeProvider || 'custom1';
+    const el = id => document.getElementById(id);
+    el('llm-provider').value = keys.activeProvider || 'custom1';
 
-    document.getElementById('custom1-url').value = keys.custom1Url;
-    document.getElementById('custom1-key').value = decryptKey(keys.custom1Key, pass);
-    document.getElementById('custom1-model').value = keys.custom1Model;
-    document.getElementById('custom1-thinking').checked = keys.custom1Thinking || false;
+    let needsMigration = false;
+    for (const { field, el: elId } of SECRET_FIELDS) {
+        const stored = keys[field] || '';
+        if (stored && !isAesSecret(stored) && currentSession) needsMigration = true;
+        el(elId).value = await decryptSecret(stored, currentSession, currentPassKey, field);
+    }
 
-    document.getElementById('custom2-url').value = keys.custom2Url;
-    document.getElementById('custom2-key').value = decryptKey(keys.custom2Key, pass);
-    document.getElementById('custom2-model').value = keys.custom2Model;
-    document.getElementById('custom2-thinking').checked = keys.custom2Thinking || false;
+    for (const id of URL_PROVIDERS) {
+        el(`${id}-url`).value = keys[`${id}Url`] || '';
+        el(`${id}-thinking`).checked = keys[`${id}Thinking`] || false;
+        if (MODEL_PROVIDERS.includes(id)) renderModelSelect(id, keys[`${id}Models`] || [], keys[`${id}Model`] || '');
+        else el(`${id}-model`).value = keys[`${id}Model`] || '';
+    }
 
-    document.getElementById('custom3-url').value = keys.custom3Url;
-    document.getElementById('custom3-key').value = decryptKey(keys.custom3Key, pass);
-    document.getElementById('custom3-model').value = keys.custom3Model;
-    document.getElementById('custom3-thinking').checked = keys.custom3Thinking || false;
+    el('openai-model').value = keys.openaiModel || 'gpt-4o-mini';
+    el('gemini-model').value = keys.geminiModel || 'gemini-2.5-flash';
 
-    document.getElementById('openai-key').value = decryptKey(keys.openaiKey, pass);
-    document.getElementById('openai-model').value = keys.openaiModel || 'gpt-4o-mini';
-
-    document.getElementById('gemini-key').value = decryptKey(keys.geminiKey, pass);
-    document.getElementById('gemini-model').value = keys.geminiModel || 'gemini-2.5-flash';
-
-    document.getElementById('spark-model').value = keys.sparkModel || '';
-    document.getElementById('opt-integrity-computed').checked = keys.integrityComputed !== false;
-    document.getElementById('opt-integrity-online').checked = keys.integrityOnline !== false;
-    document.getElementById('opt-integrity-llm').checked = keys.integrityLLM !== false;
-    document.getElementById('opt-vision').checked = keys.visionEnabled !== false;
+    el('spark-model').value = keys.sparkModel || '';
+    el('opt-integrity-computed').checked = keys.integrityComputed !== false;
+    el('opt-integrity-online').checked = keys.integrityOnline !== false;
+    el('opt-integrity-llm').checked = keys.integrityLLM !== false;
+    el('opt-vision').checked = keys.visionEnabled !== false;
+    el('opt-compact').checked = keys.compactAnswers === true;
+    el('opt-no-schema').checked = keys.noSchema === true;
+    // Zeitlimit je Aufruf wird pro Anbieter gespeichert (ältere Profile: der eine Wert gilt für den aktiven Anbieter)
+    callTimeoutByProvider = { ...(keys.callTimeouts || {}) };
+    if (!keys.callTimeouts && keys.callTimeout > 0) callTimeoutByProvider[keys.activeProvider || 'custom1'] = keys.callTimeout;
+    syncCallTimeoutField();
+    Object.keys(detectedContextTokens).forEach(k => delete detectedContextTokens[k]);
+    Object.assign(detectedContextTokens, keys.contextTokens || {});
+    el('opt-split-extraction').checked = keys.splitExtraction === true;
+    el('opt-no-reasoning').checked = keys.disableReasoning === true;
+    el('opt-medical-instruments').checked = keys.allowMedicalInstruments === true;
+    el('opt-repeat-runs').value = String(keys.repeatRuns || 1);
+    el('opt-repeat-temperature').value = keys.repeatTemperature ?? 0.4;
     updateVisionHint();
-    document.getElementById('spark-thinking').checked = keys.sparkThinking || false;
+    el('spark-thinking').checked = keys.sparkThinking || false;
 
-    document.getElementById('max-evidence-chars').value = keys.maxEvidence || 50000;
-    document.getElementById('max-output-tokens').value = keys.maxTokens || 8192;
-    document.getElementById('llm-temperature').value = keys.temperature;
-    document.getElementById('llm-system-prompt').value = keys.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    el('max-evidence-chars').value = keys.maxEvidence || 50000;
+    el('max-output-tokens').value = keys.maxTokens || 8192;
+    el('llm-temperature').value = keys.temperature;
+    el('llm-system-prompt').value = keys.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
     toggleProviderSettings();
+    updateProviderActiveHints();
+    updateEncryptionNote();
+    return needsMigration;
 }
 
-function openAppForUser(user, pass) {
+// Hinweis in den Einstellungen, wie die API-Keys gespeichert werden
+function updateEncryptionNote() {
+    const note = document.getElementById('encryption-note');
+    if (!note) return;
+    if (currentSession) {
+        note.textContent = '🔒 API-Keys werden in diesem Browser mit AES-256 verschlüsselt gespeichert (Schlüssel aus Ihrem Passwort) und nie an den Spark übertragen.';
+        note.className = 'encryption-note ok';
+    } else {
+        note.textContent = '⚠ Keine sichere Verbindung (https): API-Keys werden nur schwach verschleiert gespeichert. Bitte die App über die https-Adresse öffnen.';
+        note.className = 'encryption-note warn';
+    }
+}
+
+async function openAppForUser(user, pass) {
     currentUser = user;
     currentPassKey = pass;
+    await unlockProfile(user, pass);
     document.getElementById('display-username').textContent = user;
-    applyProfileSettingsToUI(getUserDB()[user]);
+    const needsMigration = await applyProfileSettingsToUI(getUserDB()[user]);
 
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app-screen').style.display = 'flex';
@@ -281,6 +339,8 @@ function openAppForUser(user, pass) {
 
     loadPromptsToUI();
     startLlmStatusMonitor();
+    // Keys im alten XOR-Format einmalig auf AES umstellen
+    if (needsMigration) queueKeyPersist(persistSecretsOnly);
     if (isLinked(user)) {
         enqueueProfileState(user).then(startSyncLoop);
     } else {
@@ -288,78 +348,141 @@ function openAppForUser(user, pass) {
     }
 }
 
-// Ändert das lokale Passwort; die lokal verschlüsselten API-Keys werden mit dem neuen Passwort neu verschlüsselt.
-function changeLocalPassword(newPass) {
+// Ändert das lokale Passwort: neues Salz, neuer Schlüssel; die API-Keys (stehen im Klartext in den Eingabefeldern)
+// werden damit neu verschlüsselt.
+async function changeLocalPassword(newPass) {
+    const user = currentUser;
     const db = getUserDB();
-    const keys = db[currentUser].keys;
-    SECRET_KEY_FIELDS.forEach(k => { keys[k] = encryptKey(decryptKey(keys[k], currentPassKey), newPass); });
-    db[currentUser].passHash = hashString(newPass);
+    const profile = db[user];
+    delete profile.auth;
+    delete profile.passHash;
+    if (cryptoAvailable()) {
+        const { auth, session } = await createAuth(newPass);
+        profile.auth = auth;
+        currentSession = session;
+    } else {
+        profile.passHash = legacyHash(newPass);
+    }
     currentPassKey = newPass;
     saveUserDB(db);
+    await persistSecretsOnly();
 }
 
 function logout() {
     if (isLinked()) api('auth/logout', { method: 'POST' });
     stopSyncLoop();
     stopLlmStatusMonitor();
-    currentUser = null; currentPassKey = null;
+    currentUser = null; currentPassKey = null; currentSession = null;
     updateSyncStatus();
-    document.getElementById('custom1-key').value = '';
-    document.getElementById('custom2-key').value = '';
-    document.getElementById('custom3-key').value = '';
-    document.getElementById('openai-key').value = '';
-    document.getElementById('gemini-key').value = '';
+    SECRET_FIELDS.forEach(f => { document.getElementById(f.el).value = ''; });
     document.getElementById('app-screen').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
     document.getElementById('login-error').style.display = 'none';
 }
 
+// Speichern läuft hintereinander (Warteschlange), damit schnelle Änderungen sich nicht überholen.
+let saveKeysChain = Promise.resolve();
+
+function queueKeyPersist(task) {
+    saveKeysChain = saveKeysChain.then(task).catch(err => console.error('Einstellungen konnten nicht gespeichert werden:', err));
+    return saveKeysChain;
+}
+
+// Zeitlimit je Aufruf in Sekunden, je Anbieter (0 = aus)
+let callTimeoutByProvider = {};
+
+// Kontextfenster der Modelle, die die App aus „Kontext automatisch erkennen“ kennt (Anbieter|Modell → Token); wird im Profil gespeichert
+const detectedContextTokens = {};
+
+function syncCallTimeoutField() {
+    const input = document.getElementById('opt-call-timeout');
+    if (!input) return;
+    const provider = document.getElementById('llm-provider').value;
+    input.value = String(callTimeoutByProvider[provider] || 0);
+    const name = document.getElementById('call-timeout-provider');
+    if (name) name.textContent = typeof PROVIDER_LABELS !== 'undefined' ? (PROVIDER_LABELS[provider] || provider) : provider;
+}
+
+function onCallTimeoutChanged() {
+    const provider = document.getElementById('llm-provider').value;
+    callTimeoutByProvider[provider] = Math.max(0, parseInt(document.getElementById('opt-call-timeout').value, 10) || 0);
+    return saveUserKeys();
+}
+
 function saveUserKeys() {
-    if (!currentUser) return;
-    let db = getUserDB();
-    
-    db[currentUser].keys.activeProvider = document.getElementById('llm-provider').value;
-    
-    db[currentUser].keys.custom1Url = document.getElementById('custom1-url').value;
-    db[currentUser].keys.custom1Key = encryptKey(document.getElementById('custom1-key').value, currentPassKey);
-    db[currentUser].keys.custom1Model = document.getElementById('custom1-model').value;
-    db[currentUser].keys.custom1Thinking = document.getElementById('custom1-thinking').checked;
+    return queueKeyPersist(persistUserKeys);
+}
 
-    db[currentUser].keys.custom2Url = document.getElementById('custom2-url').value;
-    db[currentUser].keys.custom2Key = encryptKey(document.getElementById('custom2-key').value, currentPassKey);
-    db[currentUser].keys.custom2Model = document.getElementById('custom2-model').value;
-    db[currentUser].keys.custom2Thinking = document.getElementById('custom2-thinking').checked;
+// Verschlüsselt die API-Keys aus den Eingabefeldern (AES, ohne WebCrypto das alte Verfahren).
+async function encryptSecretsFromUI() {
+    const out = {};
+    for (const { field, el } of SECRET_FIELDS) {
+        const value = document.getElementById(el).value;
+        out[field] = currentSession ? await encryptSecret(value, currentSession, field) : legacyEncrypt(value, currentPassKey);
+    }
+    return out;
+}
 
-    db[currentUser].keys.custom3Url = document.getElementById('custom3-url').value;
-    db[currentUser].keys.custom3Key = encryptKey(document.getElementById('custom3-key').value, currentPassKey);
-    db[currentUser].keys.custom3Model = document.getElementById('custom3-model').value;
-    db[currentUser].keys.custom3Thinking = document.getElementById('custom3-thinking').checked;
-    
-    db[currentUser].keys.openaiKey = encryptKey(document.getElementById('openai-key').value, currentPassKey);
-    db[currentUser].keys.openaiModel = document.getElementById('openai-model').value;
-    
-    db[currentUser].keys.geminiKey = encryptKey(document.getElementById('gemini-key').value, currentPassKey);
-    db[currentUser].keys.geminiModel = document.getElementById('gemini-model').value;
+async function persistSecretsOnly() {
+    const user = currentUser;
+    if (!user) return;
+    const secrets = await encryptSecretsFromUI();
+    if (currentUser !== user) return;
+    const db = getUserDB();
+    Object.assign(db[user].keys, secrets);
+    saveUserDB(db);
+}
 
-    db[currentUser].keys.sparkModel = document.getElementById('spark-model').value.trim();
-    db[currentUser].keys.sparkThinking = document.getElementById('spark-thinking').checked;
-    db[currentUser].keys.integrityComputed = document.getElementById('opt-integrity-computed').checked;
-    db[currentUser].keys.integrityOnline = document.getElementById('opt-integrity-online').checked;
-    db[currentUser].keys.integrityLLM = document.getElementById('opt-integrity-llm').checked;
-    db[currentUser].keys.visionEnabled = document.getElementById('opt-vision').checked;
-    
-    db[currentUser].keys.maxEvidence = parseInt(document.getElementById('max-evidence-chars').value, 10) || 50000;
-    db[currentUser].keys.maxTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
-    db[currentUser].keys.temperature = parseFloat(document.getElementById('llm-temperature').value) || 0.0;
-    db[currentUser].keys.systemPrompt = document.getElementById('llm-system-prompt').value;
-    db[currentUser].sync.settingsUpdatedAt = new Date().toISOString();
+async function persistUserKeys() {
+    const user = currentUser;
+    if (!user) return;
+    const secrets = await encryptSecretsFromUI();
+    if (currentUser !== user) return;   // zwischenzeitlich abgemeldet
+    const db = getUserDB();
+    const keys = db[user].keys;
+    const el = id => document.getElementById(id);
+
+    keys.activeProvider = el('llm-provider').value;
+    Object.assign(keys, secrets);
+
+    for (const id of URL_PROVIDERS) {
+        keys[`${id}Url`] = el(`${id}-url`).value.trim();
+        keys[`${id}Model`] = el(`${id}-model`).value;
+        keys[`${id}Thinking`] = el(`${id}-thinking`).checked;
+    }
+    keys.openaiModel = el('openai-model').value;
+    keys.geminiModel = el('gemini-model').value;
+
+    keys.sparkModel = el('spark-model').value.trim();
+    keys.sparkThinking = el('spark-thinking').checked;
+    keys.integrityComputed = el('opt-integrity-computed').checked;
+    keys.integrityOnline = el('opt-integrity-online').checked;
+    keys.integrityLLM = el('opt-integrity-llm').checked;
+    keys.visionEnabled = el('opt-vision').checked;
+    keys.compactAnswers = el('opt-compact').checked;
+    keys.noSchema = el('opt-no-schema').checked;
+    keys.callTimeouts = { ...callTimeoutByProvider };
+    keys.contextTokens = { ...detectedContextTokens };
+    delete keys.callTimeout;
+    keys.splitExtraction = el('opt-split-extraction').checked;
+    keys.disableReasoning = el('opt-no-reasoning').checked;
+    keys.allowMedicalInstruments = el('opt-medical-instruments').checked;
+    keys.repeatRuns = parseInt(el('opt-repeat-runs').value, 10) || 1;
+    keys.repeatTemperature = Number.isFinite(parseFloat(el('opt-repeat-temperature').value)) ? parseFloat(el('opt-repeat-temperature').value) : 0.4;
+
+    keys.maxEvidence = parseInt(el('max-evidence-chars').value, 10) || 50000;
+    keys.maxTokens = parseInt(el('max-output-tokens').value, 10) || 8192;
+    keys.temperature = parseFloat(el('llm-temperature').value) || 0.0;
+    keys.systemPrompt = el('llm-system-prompt').value;
+    db[user].sync.settingsUpdatedAt = new Date().toISOString();
 
     saveUserDB(db);
-    enqueueChanges(currentUser, [['settings', 'settings']]);
+    enqueueChanges(user, [['settings', 'settings']]);
     scheduleLlmStatusCheck();
     updateVisionHint();
-    
-    const provider = document.getElementById('llm-provider').value;
+    updateProviderActiveHints();
+
+    const provider = el('llm-provider').value;
     const note = document.getElementById(`save-note-${provider}`);
     if (note) {
         note.style.display = 'block';

@@ -19,10 +19,15 @@ function legacyHash(str) {
     return hash.toString();
 }
 
+// Altes "Verschlüsselungs"-Verfahren der Einzeldatei (XOR mit dem Passwort, Base64)
+function legacyXor(text, password) {
+    return Buffer.from(Array.from(text, (c, i) => String.fromCharCode(c.charCodeAt(0) ^ password.charCodeAt(i % password.length))).join(''), 'latin1').toString('base64');
+}
+
 const legacyProfile = {
     alt: {
         passHash: legacyHash('pw'),
-        keys: { activeProvider: 'custom1', custom1Url: 'http://localhost:1/v1', custom1Key: '', custom1Model: '', maxEvidence: 50000, maxTokens: 8192, temperature: 0 },
+        keys: { activeProvider: 'custom1', custom1Url: 'http://localhost:1/v1', custom1Key: legacyXor('alt-geheim', 'pw'), custom1Model: '', maxEvidence: 50000, maxTokens: 8192, temperature: 0 },
         prompts: { extraction: [{ text: 'alter Prompt', date: '1.1.2026, 10:00:00' }] },
         history: [{ date: '1.1.2026, 10:05:00', model: 'altes-modell', provider: 'custom2', extractions: [{ title: 'alt.pdf' }], validation: { casq_score: 6.1, overall_quality: 'MITTEL' }, study_results: [] }]
     }
@@ -90,6 +95,13 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(promptInfo.length >= 2 && promptInfo.every(p => p.id && p.createdAt), 'Prompt-Versionen ohne ID');
         console.log(`✓ Login mit migriertem Profil, ${promptInfo.length} Extraction-Prompt-Versionen mit ID`);
 
+        // Alter Key (XOR) wird gelesen und beim Login auf AES umgestellt; djb2-Hash wird durch PBKDF2-Prüfwert ersetzt
+        assert.equal(await page.inputValue('#custom1-key'), 'alt-geheim', 'alter Key nicht entschlüsselt');
+        await page.waitForFunction(() => getUserDB().alt.keys.custom1Key.startsWith('aes1:'));
+        const migrated = await page.evaluate(() => { const p = getUserDB().alt; return { auth: p.auth?.v, passHash: p.passHash, iter: p.auth?.iter, hasPlain: JSON.stringify(p).includes('alt-geheim') }; });
+        assert.deepEqual(migrated, { auth: 2, passHash: undefined, iter: 310000, hasPlain: false }, 'Umstellung auf AES unvollständig');
+        console.log('✓ Alter Key entschlüsselt und auf AES-256 umgestellt, Passwortprüfung auf PBKDF2 (310.000 Runden)');
+
         // Status-Lampe: altes Profil zeigt auf einen nicht erreichbaren Server → rot
         await page.waitForFunction(() => document.getElementById('llm-lamp').classList.contains('err'));
         console.log('✓ Status-Lampe rot bei unerreichbarem Modell:', await page.textContent('#llm-status-text'));
@@ -119,7 +131,11 @@ async function login(page, user, pass, action = 'login') {
         console.log('✓ Drag & Drop: PDF angenommen, andere Datei ignoriert');
         await page.click('#btn-start');
         await page.waitForSelector('#results-view.active', { timeout: 60000 });
-        assert.equal(llm.calls.length, 5, 'erwartet 5 LLM-Aufrufe (inkl. Agent 6)');
+        assert.equal(llm.calls.length, 7, 'erwartet 7 LLM-Aufrufe (Agenten 2, 3, 3b, 4, 4b, 6, 5)');
+        assert.ok(llm.formats.every(f => f === 'json_schema'), 'nicht alle Aufrufe mit JSON-Schema: ' + llm.formats.join(','));
+        assert.ok(!llm.calls.find(c => c.includes('Du bist Agent 3,')).includes('QN-1.1'), 'Agent 3 darf keine CASQ-Prüffragen mehr bekommen');
+        assert.ok(llm.calls.find(c => c.includes('Du bist Agent 3b')).includes('QN-2.2 [Design appropriateness]'), 'Agent 3b ohne Prüffragen');
+        console.log('✓ Ein Instrument je Aufruf (Agent 3/3b, 4/4b), alle 7 Aufrufe mit JSON-Schema');
         // Layout-Extraktion: Tabellenzeile kommt mit getrennten Zellen beim Modell an
         assert.match(llm.calls[0], /Age\t54\.2\t55\.1/, 'Tabellenzeile nicht in Zellen getrennt');
         // Seite mit Tabelle ging als Bild an Agent 2 und Agent 6
@@ -145,10 +161,13 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(study.includes('CASQ intern: 8.7 / 10 (Spanne 8.7–9.2)'), 'CASQ/Spanne falsch: ' + (study.match(/CASQ intern: [^|]*/) || [''])[0]);
         assert.ok(study.includes('Informationsgrad: 96 %'), 'Informationsgrad falsch');
         assert.ok(study.includes('Belege verifiziert: 96 %'), 'Belegquote falsch');
-        assert.ok(study.includes('CASQ INTERN · Quantitativ'), 'Rubrik fehlt');
+        assert.ok(study.includes('CASQ (INTERNER INDEX) · Quantitativ'), 'Rubrik fehlt');
+        assert.ok(study.includes('Methodische Grundlage der Prüffragen') && study.includes('kein offizieller Score'), 'Grundlage/Kennzeichnung als interner Index fehlt');
         assert.ok(study.includes('kein Zitat im PDF gefunden'), 'Herabstufung ohne Beleg nicht angezeigt');
+        assert.ok(!study.includes('sah nur'), 'Abdeckungswarnung darf bei vollständigem Text nicht erscheinen');
+        assert.ok(study.includes('Warum dieser Wert?') && study.includes('Schwächste Dimensionen'), 'Erklärung zum CASQ-Wert fehlt');
         assert.ok(study.includes('Prüffragen (27)'), 'Prüffragen-Tabelle fehlt');
-        const analysisPrompt = llm.calls.find(c => c.includes('Du bist Agent 3'));
+        const analysisPrompt = llm.calls.find(c => c.includes('Du bist Agent 3b'));
         assert.ok(analysisPrompt.includes('QN-2.2 [Design appropriateness]') && !analysisPrompt.includes('{{CASQ_CHECKLIST}}'), 'Prüffragen nicht im Prompt');
         assert.ok(study.includes('Testvalidierung $& mit Sonderzeichen.'), 'Sonderzeichen verfälscht');
         console.log('✓ Analyse-Lauf: PEDro 4/10 (unvollständig), CASQ 2.0 = 8.7 (Spanne 8.7–9.2), Informationsgrad 96 %, Belege 96 %');
@@ -162,24 +181,171 @@ async function login(page, user, pass, action = 'login') {
         llm.state.vision = true;
         console.log('✓ Modell ohne Bildverarbeitung erkannt:', await page.textContent('#vision-hint'));
 
+        // Server ohne JSON-Schema: Rückfall auf einfachen JSON-Modus, Ergebnis kommt trotzdem
+        llm.state.jsonSchema = false;
+        const fallback = await page.evaluate(async () => {
+            const answer = parseJSONRobust(await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }));
+            return { support: Object.values(structuredOutputSupport), summary: answer.narrative_summary };
+        });
+        llm.state.jsonSchema = true;
+        assert.ok(fallback.support.includes('no'), 'Ablehnung des Schemas nicht vermerkt');
+        assert.equal(fallback.summary, 'Testsynthese.');
+        console.log('✓ Server ohne JSON-Schema: automatischer Rückfall auf einfachen JSON-Modus');
+
+        // Hochschul-API: URL und Key eintragen, Modelle suchen, Modell wählen und aktivieren
+        llm.state.requireKey = 'sk-hs-123';
+        await page.click('nav button[data-tab="config"]');
+        await page.selectOption('#llm-provider', 'hochschule');
+        await page.fill('#hochschule-url', `http://localhost:${LLM_PORT}/v1`);
+        await page.dispatchEvent('#hochschule-url', 'change');
+        await page.click('#settings-hochschule >> text=Modelle suchen');
+        await page.waitForFunction(() => document.getElementById('hochschule-search-status').textContent.includes('API-Key'));
+        assert.match(await page.textContent('#hochschule-search-status'), /Bitte zuerst den API-Key/, 'ohne Key muss gewarnt werden');
+        await page.fill('#hochschule-key', 'falscher-key');
+        await page.click('#settings-hochschule >> text=Modelle suchen');
+        await page.waitForFunction(() => document.getElementById('hochschule-search-status').classList.contains('err') && document.getElementById('hochschule-search-status').textContent.includes('ungültig'));
+        await page.fill('#hochschule-key', 'sk-hs-123');
+        await page.dispatchEvent('#hochschule-key', 'change');
+        await page.click('#settings-hochschule >> text=Modelle suchen');
+        await page.waitForFunction(() => document.getElementById('hochschule-search-status').classList.contains('ok'));
+        const hsOptions = await page.$$eval('#hochschule-model option', o => o.map(x => x.value));
+        assert.deepEqual(hsOptions, ['mock-model', 'zweites-modell'], 'Embedding-Modell muss ausgeblendet sein');
+        assert.match(await page.textContent('#hochschule-search-status'), /2 Modell\(e\) gefunden \(1 Embedding/);
+        await page.selectOption('#hochschule-model', 'zweites-modell');
+        await page.click('#settings-hochschule >> text=Modell aktivieren');
+        await page.waitForFunction(() => document.getElementById('llm-status-text').textContent === 'Hochschul-API · zweites-modell');
+        assert.equal(await page.inputValue('#llm-provider'), 'hochschule');
+        assert.match(await page.textContent('#hochschule-active'), /Aktiv: Hochschul-API · zweites-modell/);
+        const hsCall = await page.evaluate(async () => parseJSONRobust(await callLLM('Du bist Agent 5 – Test', {})).narrative_summary);
+        assert.equal(hsCall, 'Testsynthese.', 'Aufruf mit Key über die Hochschul-API fehlgeschlagen');
+        const hsStored = await page.evaluate(() => { const k = getUserDB().alt.keys; return { key: k.hochschuleKey, models: k.hochschuleModels, model: k.hochschuleModel }; });
+        assert.ok(hsStored.key.startsWith('aes1:') && !hsStored.key.includes('sk-hs'), 'Hochschul-Key nicht verschlüsselt');
+        assert.deepEqual(hsStored.models, ['mock-model', 'zweites-modell']);
+        assert.equal(hsStored.model, 'zweites-modell');
+        console.log('✓ Hochschul-API: Modelle gesucht (Embedding ausgeblendet), Modell aktiviert, Aufruf mit Key, Key verschlüsselt');
+
+        // Hochschul-API: Antwort als Datenstrom, bei 500 mit Schema Rückfall ohne Schema, Streaming-Ablehnung wird umgangen
+        await page.selectOption('#llm-provider', 'hochschule');
+        await page.dispatchEvent('#llm-provider', 'change');
+        const hsChat = () => page.evaluate(async () => {
+            const answer = parseJSONRobust(await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }));
+            return answer.narrative_summary;
+        });
+        const beforeStream = llm.state.streamed.length;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.equal(llm.state.streamed.length, beforeStream + 1, 'Antwort kam nicht als Datenstrom');
+        console.log('✓ Hochschul-API: Antwort als Datenstrom gelesen (reasoning-Teile ignoriert)');
+        llm.state.failSchema500 = 2;   // erster Versuch und identische Wiederholung scheitern, erst dann ohne Schema
+        const formatsBefore = llm.formats.length;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.deepEqual(llm.formats.slice(formatsBefore), ['none'], 'Wiederholung ohne Schema fehlt');
+        console.log('✓ Serverfehler 500 mit JSON-Schema: automatischer neuer Versuch ohne Schema');
+        llm.state.failSchema500 = 1;   // ein zufälliger Sofort-500er: derselbe Aufruf wird einfach wiederholt, das Schema bleibt
+        const formatsBefore2 = llm.formats.length;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.deepEqual(llm.formats.slice(formatsBefore2), ['json_schema'], 'erste Wiederholung muss unverändert sein');
+        console.log('✓ Einzelner Sofort-500er: unveränderte Wiederholung gelingt, Schema bleibt erhalten');
+        // Reasoning-Modell verbraucht das Budget: leere Antwort -> Wiederholung mit doppeltem Budget; sonst klare Fehlermeldung
+        llm.state.emptyOnce = 1;
+        llm.state.payloads.length = 0;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.deepEqual(llm.state.payloads.map(pl => pl.max_tokens), [8192, 16384], 'Wiederholung mit doppeltem Budget');
+        llm.state.emptyOnce = 2;
+        const emptyError = await page.evaluate(async () => { try { await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }); return null; } catch (e) { return e.message; } });
+        assert.match(emptyError || '', /keine Antwort geliefert.*Reasoning/s, 'leere Antwort muss als Fehler gemeldet werden, nicht still weiterlaufen');
+        llm.state.emptyOnce = 0;
+        console.log('✓ Leere Antwort eines Reasoning-Modells: Wiederholung mit doppeltem Token-Budget, danach klare Fehlermeldung');
+        llm.state.rejectStream = true;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        llm.state.rejectStream = false;
+        assert.equal(await page.evaluate(() => Object.values(streamingSupport)[0]), 'no', 'Streaming-Ablehnung nicht vermerkt');
+        console.log('✓ Server lehnt Streaming ab: Rückfall auf normale Antwort');
+        await page.evaluate(() => { for (const k of Object.keys(streamingSupport)) delete streamingSupport[k]; });
+        // Gateways liefern den Datenstrom oft mit falschem Content-Type (z.B. text/plain) oder ignorieren Streaming ganz
+        llm.state.sseContentType = 'text/plain';
+        assert.equal(await hsChat(), 'Testsynthese.');
+        llm.state.sseContentType = 'application/json';
+        assert.equal(await hsChat(), 'Testsynthese.');
+        llm.state.sseContentType = 'text/event-stream';
+        llm.state.streamAsOneJson = true;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        llm.state.streamAsOneJson = false;
+        console.log('✓ Datenstrom mit falschem Content-Type und Server ohne Streaming werden erkannt');
+        // Kurze Antworten und Reasoning abschalten (für Server mit Zeitlimit)
+        await page.evaluate(() => { document.querySelector('#opt-compact').checked = true; });
+        await page.evaluate(() => { document.querySelector('#opt-no-reasoning').checked = true; });
+        llm.state.payloads.length = 0;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        const p1 = llm.state.payloads[0];
+        assert.deepEqual(p1.chat_template_kwargs, { enable_thinking: false }, 'chat_template_kwargs fehlt');
+        assert.ok(p1.messages[0].content.includes('FASSE DICH KURZ'), 'Kurzhinweis fehlt');
+        llm.state.rejectKwargs = true;
+        llm.state.payloads.length = 0;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.equal(llm.state.payloads.length, 2, 'nach Ablehnung muss ohne den Parameter wiederholt werden');
+        assert.ok(llm.state.payloads[0].chat_template_kwargs && llm.state.payloads[1].chat_template_kwargs === undefined);
+        llm.state.rejectKwargs = false;
+        // Parameter führt zu 500er: erst unveränderte Wiederholung, dann ohne Parameter; nach zweimal wird er für das Modell abgeschaltet
+        await page.evaluate(() => { for (const k of Object.keys(reasoningParamSupport)) delete reasoningParamSupport[k]; for (const k of Object.keys(reasoningServerErrors)) delete reasoningServerErrors[k]; });
+        llm.state.kwargs500 = true;
+        for (let round = 1; round <= 2; round++) {
+            llm.state.payloads.length = 0;
+            assert.equal(await hsChat(), 'Testsynthese.');
+            assert.deepEqual(llm.state.payloads.map(pl => pl.chat_template_kwargs ? 'mit' : 'ohne'), ['mit', 'mit', 'ohne'], 'Wiederholungsfolge Runde ' + round);
+        }
+        llm.state.payloads.length = 0;
+        assert.equal(await hsChat(), 'Testsynthese.');
+        assert.deepEqual(llm.state.payloads.map(pl => pl.chat_template_kwargs ? 'mit' : 'ohne'), ['ohne'], 'nach zweimal wird der Parameter abgeschaltet');
+        llm.state.kwargs500 = false;
+        console.log('✓ Parameter verursacht 500er: unveränderte Wiederholung, dann ohne Parameter, danach dauerhaft ohne');
+        await page.evaluate(() => { document.querySelector('#opt-compact').checked = false; });
+        await page.evaluate(() => { document.querySelector('#opt-no-reasoning').checked = false; });
+        await page.evaluate(() => { for (const k of Object.keys(reasoningParamSupport)) delete reasoningParamSupport[k]; });
+        console.log('✓ Kurze Antworten und „Reasoning abschalten“: Parameter gesendet, bei Ablehnung automatisch ohne');
+        llm.state.requireKey = null;
+
+        // Eigener Endpunkt ohne Key
+        llm.state.requireKey = null;
+        await page.selectOption('#llm-provider', 'endpoint');
+        await page.fill('#endpoint-url', `http://localhost:${LLM_PORT}/v1/`);
+        await page.dispatchEvent('#endpoint-url', 'change');
+        await page.click('#settings-endpoint >> text=Modelle suchen');
+        await page.waitForFunction(() => document.getElementById('endpoint-search-status').classList.contains('ok'));
+        await page.click('#settings-endpoint >> text=Modell aktivieren');
+        await page.waitForFunction(() => document.getElementById('llm-status-text').textContent === 'Eigener Endpunkt · mock-model');
+        console.log('✓ Eigener Endpunkt: Modelle gesucht und aktiviert:', await page.textContent('#llm-status-text'));
+
+        // zurück auf Lokales Profil 1 für die weiteren Prüfungen
+        await page.selectOption('#llm-provider', 'custom1');
+        await page.dispatchEvent('#llm-provider', 'change');
+        await page.waitForFunction(() => document.getElementById('llm-status-text').textContent.startsWith('Lokales Profil 1'));
+
+        // Kontext automatisch erkennen: Fenster des Test-Modells 32.768 Token, Antwort 8.192, 12.000 für Anweisungen → 40.000 Zeichen
+        await page.click('nav button[data-tab="config"]');
+        page.once('dialog', d => d.accept());
+        await page.evaluate(() => autoDetectContext());
+        assert.equal(await page.inputValue('#max-evidence-chars'), '40000', 'Kontext-Erkennung rechnet falsch oder bricht ab');
+        await page.evaluate(() => { document.getElementById('max-evidence-chars').value = 50000; saveUserKeys(); });
+        console.log('✓ Kontext automatisch erkennen: 32.768 Token Fenster → 40.000 Zeichen');
+
         // 4) Lauf + Agent-Protokoll in IndexedDB
         const stored = await page.evaluate(async () => {
             const runs = await listRuns('alt');
             const steps = await getRunSteps(runs[0].id);
             return { runs: runs.length, legacy: runs.filter(r => r.legacy).length, steps: steps.map(s => s.agent), hasPrompt: steps.every(s => s.prompt && s.response && s.prompt_version_id) };
         });
-        assert.deepEqual(stored.steps, ['extraction', 'analysis', 'validation', 'integrity', 'synthesis']);
+        assert.deepEqual(stored.steps, ['extraction', 'analysis', 'casq', 'validation', 'casq_validation', 'integrity', 'synthesis']);
         assert.equal(stored.runs, 2);
         assert.equal(stored.legacy, 1);
         assert.ok(stored.hasPrompt, 'Protokoll unvollständig');
-        console.log('✓ IndexedDB: 2 Läufe (1 übernommen), Protokoll mit 5 Schritten inkl. Prompt-Version');
+        console.log('✓ IndexedDB: 2 Läufe (1 übernommen), Protokoll mit 7 Schritten inkl. Prompt-Version');
 
         // 5) Historie, Export, Agent-Protokoll-Download
         await page.click('nav button[data-tab="history"]');
         await page.waitForSelector('.history-item >> nth=1');
         let download = await Promise.all([page.waitForEvent('download'), page.click('text=Agent-Protokoll (JSON)')]).then(([d]) => d);
         const protocol = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
-        assert.equal(protocol.steps.length, 5);
+        assert.equal(protocol.steps.length, 7);
         download = await Promise.all([page.waitForEvent('download'), page.click('text=Export (JSON)')]).then(([d]) => d);
         const exported = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
         assert.equal(exported.format, 'lit-agent-export');
@@ -219,7 +385,264 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(offlineRuns, 2);
         const pdfjsOk = await page.evaluate(() => typeof pdfjsLib !== 'undefined');
         assert.ok(pdfjsOk, 'pdf.js offline nicht geladen');
+        assert.equal(await page.inputValue('#hochschule-key'), 'sk-hs-123', 'AES-Key nach erneutem Login nicht lesbar');
+        assert.equal(await page.inputValue('#custom1-key'), 'alt-geheim');
         console.log('✓ Offline-Start: App, pdf.js und Historie verfügbar');
+
+        // 9) Marketing-Studie (Befragung/PLS-SEM): fachspezifische Rubrik, medizinische Instrumente werden nicht angewendet
+        await context.setOffline(false);
+        llm.state.domain = 'business';
+        llm.calls.length = 0;
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#results-view.active', { timeout: 60000 });
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Befragung / SEM / PLS-SEM'), null, { timeout: 30000 });
+        const bStudy = await page.textContent('#res-studies');
+        assert.ok(bStudy.includes('CASQ (INTERNER INDEX) · Befragung / SEM / PLS-SEM'), 'fachspezifische Rubrik fehlt');
+        assert.ok(bStudy.includes('Hair, Risher, Sarstedt'), 'Methodische Grundlage der Rubrik fehlt');
+        assert.ok(bStudy.includes('Zeitschriftenkontext') && bStudy.includes('Journal of Marketing') && bStudy.includes('noch keine Zeitschriftenliste'), 'Zeitschriftenkontext ohne Liste fehlt');
+        assert.ok(!bStudy.includes('/ 10 (unvollständig)') && !bStudy.includes('PEDro Scale'), 'PEDro darf ohne Gesundheitsbezug nicht erscheinen');
+        const bAnalysis = llm.calls.find(c => c.includes('Du bist Agent 3,'));
+        assert.ok(bAnalysis.includes('Gesundheitsbezug laut Extraktion: nein'), 'Gesundheitsbezug nicht im Prompt');
+        assert.ok(llm.calls.find(c => c.includes('Du bist Agent 3b')).includes('SM-2.1 [Sampling & response quality]'), 'SEM-Prüffragen fehlen');
+        console.log('✓ Marketing-Studie: Rubrik „Befragung / SEM / PLS-SEM“ mit Grundlage, PEDro ausgeblendet');
+
+        // 10) Systematisches Review im Marketing: Business-Rubrik mit PRISMA-Berichtserfüllung
+        llm.state.domain = 'review';
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#results-view.active', { timeout: 60000 });
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Management / Marketing / Digital'), null, { timeout: 30000 });
+        const rStudy = await page.textContent('#res-studies');
+        assert.ok(rStudy.includes('PRISMA-2020-BERICHTSERFÜLLUNG') && rStudy.includes('kein offizieller Score'), 'PRISMA-Berichtserfüllung fehlt');
+        assert.ok(/\d+ % \(\d+ von \d+ Berichtspunkten erfüllt\)/.test(rStudy), 'Erfüllungsgrad fehlt');
+        console.log('✓ Marketing-Review: Business-Rubrik, PRISMA-Berichtserfüllung getrennt ausgewiesen');
+
+        // 11) Extraktion in drei Teilschritten
+        llm.state.domain = 'business';
+        await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = true; });
+        llm.calls.length = 0; llm.state.payloads.length = 0;
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#results-view.active', { timeout: 60000 });
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Befragung / SEM / PLS-SEM'), null, { timeout: 30000 });
+        const extractionCalls = llm.calls.filter(c => c.includes('Du bist Agent 2'));
+        assert.equal(extractionCalls.length, 3, 'Extraktion muss in 3 Aufrufen laufen');
+        assert.ok(extractionCalls[0].includes('Teil 1 von 3') && extractionCalls[1].includes('Teil 2 von 3') && extractionCalls[2].includes('Teil 3 von 3'));
+        assert.ok(extractionCalls[1].includes('Bereits bestimmt (Teil 1): Dokumenttyp primary_empirical_study'), 'Ergebnis aus Teil 1 fehlt in Teil 2');
+        const extractionPayloads = llm.state.payloads.filter(pl => pl.messages[1].content && JSON.stringify(pl.messages[1].content).includes('Du bist Agent 2'));
+        const schemaKeys = extractionPayloads.map(pl => Object.keys(pl.response_format.json_schema.schema.properties).length);
+        assert.deepEqual(schemaKeys, [14, 7, 6], 'Schema je Teil: ' + schemaKeys);
+        assert.deepEqual(extractionPayloads.map(pl => pl.max_tokens), [6000, 8000, 8192], 'Ausgabegrenze je Teil (begrenzt durch die Einstellung)');
+        await page.evaluate(() => { document.querySelector('#opt-split-extraction').checked = false; });
+        console.log('✓ Extraktion in 3 Teilschritten: je Teil eigenes Schema, Ergebnis wird zusammengesetzt (Marketing-Studie korrekt erkannt)');
+
+        // Abdeckungswarnung: sieht das Modell nur einen Teil des Textes, steht das im Ergebnis
+        const coverageHtml = await page.evaluate(() => renderSourceInfo({ quality: { pages: 13, table_pages: [], figure_pages: [], scanned_pages: [] }, text_chars: 68671, evidence_chars: 15703, visual_pages: [], vision_status: 'off' }));
+        assert.ok(coverageHtml.includes('nur 23 % des PDF-Textes') && coverageHtml.includes('68.671'), 'Abdeckungswarnung fehlt: ' + coverageHtml);
+        const fullHtml = await page.evaluate(() => renderSourceInfo({ quality: { pages: 2, table_pages: [], figure_pages: [], scanned_pages: [] }, text_chars: 1000, evidence_chars: 1000, visual_pages: [], vision_status: 'off' }));
+        assert.ok(!fullHtml.includes('sah nur'));
+        console.log('✓ Warnung, wenn das Modell nur einen Teil des PDF-Textes sieht');
+
+        // 13) Zeitschriftenliste importieren: Zuordnung, Anzeige, CASQ unverändert
+        const casqBefore = await page.evaluate(() => document.querySelector('#res-studies')?.textContent.match(/CASQ intern: ([0-9.]+)/)?.[1]);
+        await page.click('nav button[data-tab="config"]');
+        // Vorlage enthält die bereits erkannten Zeitschriften (Name und ISSN), Ratings leer
+        const tplDownload = await Promise.all([page.waitForEvent('download'), page.click('text=Vorlage mit erkannten Zeitschriften')]).then(([d]) => d);
+        const tplText = fs.readFileSync(await tplDownload.path(), 'utf8');
+        assert.ok(tplText.startsWith('zeitschrift;issn;issn_2;vhb;abdc;ft50;sjr;sjr_quartil;bemerkung') && tplText.includes('Journal of Marketing;'), 'Vorlage ohne erkannte Zeitschrift: ' + tplText);
+        assert.equal((tplText.match(/Journal of Marketing/g) || []).length, 1, 'Zeitschrift darf nur einmal vorkommen');
+        assert.match(await page.textContent('#journal-message'), /Vorlage mit 1 Zeitschrift\(en\)/);
+        const journalCsv = path.join(tmp, 'zeitschriften.csv');
+        fs.writeFileSync(journalCsv, 'zeitschrift;issn;vhb;abdc;ft50;sjr;sjr_quartil;bemerkung\nJournal of Marketing;0022-2429;A+;A*;ja;11,2;Q1;Testeintrag\nAndere Zeitschrift;1234-5679;C;B;nein;0,5;Q3;\n');
+        await page.setInputFiles('#journal-csv-input', journalCsv);
+        await page.waitForFunction(() => document.getElementById('journal-status').textContent.includes('2 Zeitschrift'));
+        llm.state.domain = 'business';
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#results-view.active', { timeout: 60000 });
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Testeintrag'), null, { timeout: 30000 });
+        const jStudy = await page.textContent('#res-studies');
+        assert.ok(jStudy.includes('A+') && jStudy.includes('A*') && jStudy.includes('11,2 · Q1') && jStudy.includes('geht nicht in den CASQ ein'), 'Zeitschriftenwerte fehlen');
+        assert.ok(jStudy.includes('über Name'), 'Zuordnung über Namen nicht vermerkt');
+        const casqAfter = jStudy.match(/CASQ intern: ([0-9.]+)/)?.[1];
+        assert.ok(casqAfter, 'CASQ fehlt');
+        // Liste ist Teil des Exports
+        const exportedJournals = await page.evaluate(async () => (await exportUserData(currentUser)).journals.length);
+        assert.equal(exportedJournals, 2);
+        console.log('✓ Zeitschriftenkontext: Liste importiert, Zeitschrift zugeordnet (VHB A+, ABDC A*, FT50, SJR), Export enthält die Liste');
+
+        // 14) Stopp: laufender Aufruf wird abgebrochen, es folgen keine weiteren Aufrufe, der Knopf verschwindet wieder
+        llm.state.domain = 'business';
+        llm.state.hangFirst = 1;   // der nächste Aufruf hängt 4 s
+        llm.calls.length = 0;
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#btn-stop', { state: 'visible' });
+        await page.waitForTimeout(800);
+        const stopClickedAt = Date.now();
+        await page.click('#btn-stop');
+        await page.waitForFunction(() => !document.getElementById('btn-start').disabled, null, { timeout: 3000 });
+        assert.ok(Date.now() - stopClickedAt < 3000, 'Stopp muss sofort greifen und nicht den hängenden Aufruf abwarten');
+        assert.ok(!(await page.isVisible('#btn-stop')), 'Stopp-Knopf muss nach dem Abbruch verschwinden');
+        const stopLog = await page.textContent('#terminal');
+        assert.ok(stopLog.includes('Stopp angefordert') && stopLog.includes('vom Nutzer abgebrochen'), 'Abbruch nicht protokolliert: ' + stopLog.slice(-300));
+        assert.ok(!stopLog.includes('KRITISCHER') && !stopLog.includes('ÜBERSPRUNGEN'), 'Abbruch darf kein Fehler sein');
+        const callsAtStop = llm.calls.length;
+        await page.waitForTimeout(1500);
+        assert.equal(llm.calls.length, callsAtStop, 'nach dem Stopp dürfen keine weiteren Modellaufrufe folgen');
+        llm.state.hangFirst = 0;
+        console.log('✓ Stopp-Knopf: laufender Aufruf abgebrochen, keine weiteren Aufrufe, Start wieder möglich');
+
+        // Stopp in der Synthese: die fertig ausgewertete Studie bleibt als Teilergebnis erhalten
+        llm.state.hangAgent = 'Du bist Agent 5';
+        const runsBefore = await page.evaluate(async () => (await listRuns(currentUser)).length);
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForFunction(() => document.getElementById('terminal').textContent.includes('PHASE 5'), null, { timeout: 60000 });
+        await page.waitForTimeout(500);
+        await page.click('#btn-stop');
+        await page.waitForFunction(() => !document.getElementById('btn-start').disabled, null, { timeout: 4000 });
+        await page.waitForSelector('#results-view.active', { timeout: 10000 });
+        const partialText = await page.textContent('#res-studies');
+        assert.ok(partialText.includes('Befragung / SEM / PLS-SEM'), 'fertige Studie fehlt im Teilergebnis');
+        const runsAfter = await page.evaluate(async () => (await listRuns(currentUser)).length);
+        assert.equal(runsAfter, runsBefore + 1, 'Teilergebnis muss in der Historie gespeichert sein');
+        assert.ok((await page.textContent('#terminal')).includes('Teilergebnis erhalten'));
+        llm.state.hangAgent = null;
+        console.log('✓ Stopp in der Synthese: fertig ausgewertete Studie bleibt als Teilergebnis erhalten');
+
+        // 15) Lange Dokumente: Hinweis und Auswahl statt stilles Kürzen
+        llm.state.domain = 'business';
+        const setLimit = value => page.evaluate(v => { document.getElementById('max-evidence-chars').value = v; }, value);
+        const startRun = async () => {
+            await page.click('nav button[data-tab="dashboard"]');
+            await page.setInputFiles('#file-input', pdfFile);
+            await page.click('#btn-start');
+            await page.waitForSelector('#long-doc-dialog', { state: 'visible', timeout: 30000 });
+        };
+        const finishRun = () => page.waitForFunction(() => !document.getElementById('btn-start').disabled, null, { timeout: 90000 });
+        await setLimit('300');
+
+        // a) gekürzt auswerten: Warnung im Ergebnis
+        await startRun();
+        const dialogText = await page.textContent('#long-doc-body');
+        assert.ok(dialogText.includes('länger') || dialogText.includes('Eingabelimit'), 'Dialogtext fehlt');
+        assert.ok(dialogText.includes('In Etappen auswerten') && dialogText.includes('Gekürzt auswerten') && dialogText.includes('Abbrechen'), 'Auswahl fehlt');
+        assert.ok(/Limit auf [\d.]+ Zeichen erhöhen/.test(dialogText), 'Option „Limit erhöhen“ fehlt, obwohl das Kontextfenster bekannt ist: ' + JSON.stringify(await page.evaluate(() => ({ detected: detectedContextTokens, key: currentProviderModelKey(), ctx: currentContextTokens(), out: document.getElementById('max-output-tokens').value }))));
+        llm.calls.length = 0;
+        await page.click('button[data-choice="truncate"]');
+        await finishRun();
+        await page.waitForSelector('#results-view.active');
+        assert.ok((await page.textContent('#res-studies')).includes('sah nur'), 'Warnung bei gekürzter Auswertung fehlt');
+        assert.equal(llm.calls.filter(c => c.includes('Du bist Agent 2')).length, 1);
+
+        // b) in Etappen auswerten: mehrere Extraktions- und CASQ-Aufrufe, keine Agent-4b-Validierung, Hinweis im Ergebnis
+        await startRun();
+        llm.calls.length = 0;
+        await page.click('button[data-choice="stages"]');
+        await finishRun();
+        await page.waitForFunction(() => document.getElementById('res-studies').textContent.includes('Etappen gelesen'), null, { timeout: 30000 });
+        const stageCalls = agent => llm.calls.filter(c => c.includes(`Du bist Agent ${agent}`)).length;
+        assert.ok(stageCalls('2') >= 2, 'Extraktion muss je Etappe laufen: ' + stageCalls('2'));
+        assert.equal(stageCalls('3b'), stageCalls('2'), 'CASQ-Prüffragen je Etappe');
+        assert.equal(stageCalls('4b'), 0, 'Agent 4b entfällt im Etappenmodus');
+        assert.ok(llm.calls.some(c => c.includes('HINWEIS ZUM ABSCHNITT: Dies ist Abschnitt 2 von')), 'Abschnittshinweis fehlt');
+        const stagedText = await page.textContent('#res-studies');
+        assert.ok(stagedText.includes('Befragung / SEM / PLS-SEM') && !stagedText.includes('Das Modell sah nur'), 'Etappenergebnis falsch');
+
+        // c) abbrechen: kein Modellaufruf
+        await startRun();
+        llm.calls.length = 0;
+        await page.click('button[data-choice="cancel"]');
+        await finishRun();
+        assert.equal(llm.calls.length, 0, 'nach „Abbrechen“ darf kein Modellaufruf folgen');
+        assert.ok((await page.textContent('#terminal')).includes('nicht gestartet'));
+
+        // d) Limit erhöhen: danach passt das Dokument, kein Dialog mehr, keine Warnung
+        await startRun();
+        await page.click('button[data-choice="raise"]');
+        await finishRun();
+        await page.waitForSelector('#results-view.active');
+        assert.ok(Number(await page.inputValue('#max-evidence-chars')) >= 1000, 'Limit wurde nicht erhöht');
+        assert.ok(!(await page.textContent('#res-studies')).includes('sah nur'), 'nach Erhöhung darf keine Kürzungswarnung stehen');
+
+        // e) anderes Modell: eingerichteter Anbieter mit großem Fenster wird vorgeschlagen, Wechsel stoppt die Analyse
+        await setLimit('300');
+        await page.evaluate(() => { document.getElementById('openai-key').value = 'sk-test'; });
+        await startRun();
+        assert.ok((await page.textContent('#long-doc-body')).includes('Zu OpenAI gpt-4o-mini wechseln'), 'Modellvorschlag fehlt');
+        llm.calls.length = 0;
+        await page.click('button[data-switch="0"]');
+        await finishRun();
+        assert.equal(await page.inputValue('#llm-provider'), 'openai', 'Anbieter wurde nicht umgestellt');
+        assert.ok((await page.textContent('#terminal')).includes('erneut starten'));
+        assert.equal(llm.calls.length, 0);
+        await page.evaluate(() => { document.getElementById('openai-key').value = ''; });
+        await page.click('nav button[data-tab="config"]');
+        await page.selectOption('#llm-provider', 'custom1');
+        await page.dispatchEvent('#llm-provider', 'change');
+        await page.click('nav button[data-tab="dashboard"]');
+        await setLimit('50000');
+        console.log('✓ Lange Dokumente: Hinweis mit Auswahl (kürzen, Etappen, Limit erhöhen, anderes Modell, abbrechen)');
+
+        // 12) Geschwindigkeitstest und Option „JSON-Schema nicht verwenden“
+        await page.click('nav button[data-tab="dashboard"]');
+        llm.state.payloads.length = 0;
+        await page.click('#speed-test-btn');
+        await page.waitForFunction(() => !document.getElementById('speed-test-btn').disabled, null, { timeout: 60000 });
+        const speedLines = await page.$$eval('#speed-test-result div', els => els.map(e => e.textContent));
+        assert.equal(speedLines.length, 5, 'Geschwindigkeitstest: 4 Messungen plus Einordnung: ' + speedLines.join(' | '));
+        assert.ok(speedLines.slice(0, 4).every(l => /\d+,\d s/.test(l)), 'Messzeiten fehlen: ' + speedLines.join(' | '));
+        const speedFormats = llm.state.payloads.map(pl => pl.response_format?.type || 'none');
+        assert.deepEqual(speedFormats, ['none', 'json_schema', 'json_schema', 'none'], 'Schema-Nutzung im Test: ' + speedFormats);
+        // Option: kein JSON-Schema
+        await page.evaluate(() => { document.querySelector('#opt-no-schema').checked = true; });
+        llm.state.payloads.length = 0;
+        await page.evaluate(async () => { await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }); });
+        assert.notEqual(llm.state.payloads[0].response_format?.type, 'json_schema', 'Schema trotz Option gesendet');
+        await page.evaluate(() => { document.querySelector('#opt-no-schema').checked = false; });
+        // Eigenes Zeitlimit: hängender Aufruf wird nach 1 s abgebrochen und neu gestartet
+        await page.evaluate(() => { callTimeoutByProvider[document.getElementById('llm-provider').value] = 1; });
+        llm.state.hangFirst = 1;
+        const hung = await page.evaluate(async () => parseJSONRobust(await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') })).narrative_summary);
+        assert.equal(hung, 'Testsynthese.');
+        assert.equal(llm.state.hangFirst, 0);
+        // Alle Versuche laufen ins eigene Zeitlimit: klare Meldung statt „Keine Verbindung / CORS“
+        llm.state.hangFirst = 3;
+        const timeoutError = await page.evaluate(async () => { try { await callLLM('Du bist Agent 5 – Test', { schema: agentSchema('synthesis') }); return null; } catch (e) { return e.message; } });
+        assert.match(timeoutError || '', /Keine Antwort innerhalb von 1 s.*eigenes.*Zeitlimit/s, 'Meldung beim eigenen Zeitlimit: ' + timeoutError);
+        assert.ok(!/CORS/.test(timeoutError), 'darf nicht als CORS-Problem gemeldet werden');
+        llm.state.hangFirst = 0;
+        // Zeitlimit wird je Anbieter gespeichert: Feld folgt dem gewählten Anbieter, Wert überlebt Wechsel und Neuladen
+        await page.evaluate(() => { callTimeoutByProvider = {}; });
+        await page.click('nav button[data-tab="config"]');
+        await page.selectOption('#llm-provider', 'hochschule');
+        await page.dispatchEvent('#llm-provider', 'change');
+        await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '150'; document.querySelector('#opt-call-timeout').dispatchEvent(new Event('change')); });
+        await page.selectOption('#llm-provider', 'custom1');
+        await page.dispatchEvent('#llm-provider', 'change');
+        assert.equal(await page.inputValue('#opt-call-timeout'), '0', 'anderer Anbieter muss sein eigenes Zeitlimit zeigen');
+        assert.match(await page.textContent('#call-timeout-provider'), /Lokales Profil 1/);
+        await page.evaluate(() => { document.querySelector('#opt-call-timeout').value = '45'; document.querySelector('#opt-call-timeout').dispatchEvent(new Event('change')); });
+        await page.selectOption('#llm-provider', 'hochschule');
+        await page.dispatchEvent('#llm-provider', 'change');
+        assert.equal(await page.inputValue('#opt-call-timeout'), '150', 'Hochschul-API behält ihr Zeitlimit');
+        await page.waitForTimeout(600);
+        const savedTimeouts = await page.evaluate(async () => { const db = await getUserDB(); return db[currentUser].keys.callTimeouts; });
+        assert.deepEqual(savedTimeouts, { hochschule: 150, custom1: 45 }, 'Zeitlimits je Anbieter gespeichert');
+        await page.evaluate(() => { callTimeoutByProvider['hochschule'] = 0; callTimeoutByProvider['custom1'] = 0; syncCallTimeoutField(); });
+        await page.selectOption('#llm-provider', 'custom1');
+        await page.dispatchEvent('#llm-provider', 'change');
+        await page.click('nav button[data-tab="dashboard"]');
+        console.log('✓ Eigenes Zeitlimit je Aufruf: hängender Aufruf wird abgebrochen und erfolgreich wiederholt');
+        console.log('✓ Geschwindigkeitstest (4 Messungen) und Option „JSON-Schema nicht verwenden“');
 
         const relevantErrors = errors.filter(e => !e.includes('net::ERR_INTERNET_DISCONNECTED'));
         assert.deepEqual(relevantErrors, [], 'Fehler in der Browser-Konsole');

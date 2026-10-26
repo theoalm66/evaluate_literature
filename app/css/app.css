@@ -160,7 +160,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .run-options { margin-top: 1rem; padding: .75rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--bg); }
 .run-options-title { font-size: .8rem; font-weight: 700; color: var(--text-light); margin-bottom: .35rem; }
 .run-options label { display: flex; align-items: center; gap: .5rem; font-weight: normal; font-size: .85rem; margin: .25rem 0; cursor: pointer; }
-.run-options input { width: auto; margin: 0; }
+.run-options input { width: auto; margin: 0; flex: none; }
+.run-options label > span { flex: 1; min-width: 0; }
+.run-options code { font-size: .78rem; word-break: break-all; }
 
 /* Integritätsprüfung */
 .integ-box { margin: .9rem 0; padding: 1rem; background: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid var(--primary); border-radius: .55rem; }
@@ -189,3 +191,27 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .vision-hint.checking { color: #1e40af; }
 .source-info { font-size: .8rem; color: var(--text-light); margin: -.3rem 0 .7rem; }
 .source-info .warn { color: #b45309; font-weight: 600; }
+
+/* Provider mit Modellsuche, Hinweise */
+.provider-info { font-size: .8rem; color: var(--text-light); margin: 0 0 .75rem; }
+.provider-info a { color: var(--primary); }
+.model-search-status { font-size: .8rem; margin: .35rem 0 .25rem; min-height: 1.1rem; color: var(--text-light); }
+.model-search-status.ok { color: #047857; }
+.model-search-status.err { color: #b91c1c; }
+.model-search-status.busy { color: #1e40af; }
+.model-active { font-size: .8rem; margin-top: .5rem; color: var(--text-light); }
+.model-active.on { color: #047857; font-weight: 600; }
+.encryption-note { font-size: .78rem; margin-top: .6rem; }
+.encryption-note.ok { color: #047857; }
+.encryption-note.warn { color: #b45309; }
+#speed-test-result .ok { color: #047857; }
+#speed-test-result .warn { color: #b45309; }
+#speed-test-result .err { color: #b91c1c; }
+
+/* Dialog für lange Dokumente */
+.long-doc-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); z-index: 1000; align-items: center; justify-content: center; padding: 1rem; }
+.long-doc-box { background: white; border-radius: .75rem; max-width: 640px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 1.25rem; font-size: .9rem; }
+.long-doc-box ul { margin: .4rem 0 .8rem 1.2rem; }
+.long-doc-option { border: 1px solid var(--border); border-radius: .5rem; padding: .6rem .75rem; margin: .5rem 0; }
+.long-doc-option .btn { margin-bottom: .3rem; }
+.long-doc-detail { font-size: .8rem; color: var(--text-light); margin-bottom: .3rem; }

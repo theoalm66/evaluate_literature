@@ -204,7 +204,7 @@ function renderResults(res) {
                 <h4 style="margin-bottom:.4rem;color:#0f172a;">${escapeHTML(r.title)}</h4>
                 ${renderSourceInfo(r.source_info)}
                 <div style="font-size:.9rem;margin-bottom:.35rem;"><strong>Dokumenttyp:</strong> ${escapeHTML(ex.document_type || ap.document_type_confirmed || 'unclear')}</div>
-                <div style="font-size:.9rem;margin-bottom:.7rem;"><strong>${escapeHTML(ex.study_family || 'Unclear')} / ${escapeHTML(ex.study_design || 'Unclear')}</strong> &nbsp; | &nbsp; Etabliert: <strong>${escapeHTML(jq?.applicable ? ('APA JARS-Quant (Reporting)' + (established.applicable ? ' + ' + established.display : '')) : established.display)}</strong> &nbsp; | &nbsp; CASQ intern: <strong>${scoreTxt}</strong> &nbsp; | &nbsp; ${va.casq_details?.version === 'casq2' ? `Informationsgrad: <strong>${Math.round(Number(va.information_grade)||0)} %</strong> &nbsp; | &nbsp; Belege verifiziert` : va.casq_details ? 'Evidenz (verifiziert)' : 'Evidenz'}: <strong>${Math.round(Number(r.evidence_coverage)||0)} %</strong></div>
+                <div style="font-size:.9rem;margin-bottom:.7rem;"><strong>${escapeHTML(ex.study_family || 'Unclear')} / ${escapeHTML(ex.study_design || 'Unclear')}</strong> &nbsp; | &nbsp; Etabliert: <strong>${escapeHTML(jq?.applicable ? ('APA JARS-Quant (Reporting)' + (established.applicable ? ' + ' + established.display : '')) : established.display)}</strong> &nbsp; | &nbsp; CASQ intern: <strong>${scoreTxt}</strong>${casqDetails?.cap ? ` <span style="color:#b91c1c;">(gedeckelt auf ${casqDetails.cap.toFixed(1)}: ${casqDetails.critical_flaws.length} kritische Mängel, Details unten)</span>` : ''} &nbsp; | &nbsp; ${va.casq_details?.version === 'casq2' ? `Informationsgrad: <strong>${Math.round(Number(va.information_grade)||0)} %</strong> &nbsp; | &nbsp; Belege verifiziert` : va.casq_details ? 'Evidenz (verifiziert)' : 'Evidenz'}: <strong>${Math.round(Number(r.evidence_coverage)||0)} %</strong></div>
                 <div style="font-size:.9rem;color:var(--text-light);margin-bottom:.7rem;">
                     <strong>Methoden:</strong> ${escapeHTML((ex.methods || []).join(', ') || '-')}<br>
                     <strong>Forschungsfrage:</strong> ${escapeHTML(ex.research_question?.value || '-')}<br>
@@ -217,7 +217,9 @@ function renderResults(res) {
                 ${frameworkHtml}
                 ${casqDetails?.version === 'casq2' ? renderCASQ2(casqDetails, r.title)
                     : dims ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">CASQ-Dimension</th><th>Score</th><th>Gewicht</th><th>Status</th><th style="text-align:left;">Begründung / Validation</th></tr></thead><tbody>${dims}</tbody></table></div>${casqNote}` : ''}
+                ${renderJournalContext(r.journal_context)}
                 ${r.integrity ? renderIntegrity(r.integrity, r.title) : ''}
+                ${r.reliability ? renderReliability(r.reliability, r) : ''}
                 ${strengths ? `<div style="margin-top:.7rem;"><strong>Stärken</strong><ul style="margin-left:1.2rem;">${strengths}</ul></div>` : ''}
                 ${limits ? `<div style="margin-top:.5rem;"><strong>Kritische Limitationen</strong><ul style="margin-left:1.2rem;">${limits}</ul></div>` : ''}
                 ${va.validation_summary ? `<div style="margin-top:.5rem;"><strong>Validierung:</strong> ${escapeHTML(va.validation_summary)}</div>` : ''}
@@ -249,14 +251,24 @@ function renderCASQ2(d, title) {
         return head + qs;
     }).join('');
     const capNote = d.cap ? `<div style="color:#b91c1c;font-size:.8rem;margin-top:.35rem;"><strong>Gedeckelt auf ${d.cap.toFixed(1)}</strong> wegen kritischer Mängel (${escapeHTML(d.critical_flaws.join(', '))}); ohne Deckel ${d.score_uncapped.toFixed(1)}.</div>` : '';
+    // „Warum dieser Wert?“: kritische Mängel mit Fragetext und Antwort, dazu die schwächsten Dimensionen
+    const flawed = new Set(d.critical_flaws || []);
+    const flawList = d.dimensions.flatMap(dim => dim.questions).filter(q => flawed.has(q.id))
+        .map(q => `<li><strong>${escapeHTML(q.id)}</strong> ${escapeHTML(q.text)} <span style="color:#b91c1c;">(Antwort: ${escapeHTML(CASQ_RESPONSE_LABEL[q.effective] || q.effective)}${q.downgraded ? ', herabgestuft' : ''})</span></li>`).join('');
+    const weakest = d.dimensions.filter(dim => dim.score !== null).sort((a, b) => a.score - b.score).slice(0, 3)
+        .map(dim => `${escapeHTML(dim.name)} (${dim.score.toFixed(1)})`).join(', ');
+    const whyBox = `<div style="font-size:.8rem;margin:.4rem 0;padding:.55rem .7rem;background:#fff;border:1px solid var(--border);border-radius:.4rem;"><strong>Warum dieser Wert?</strong>${flawList ? `<div style="margin-top:.25rem;">Kritische Fragen mit „nein“ oder „nicht berichtet“ (sie begrenzen den CASQ):</div><ul style="margin:.2rem 0 0 1.2rem;">${flawList}</ul>` : '<div style="margin-top:.25rem;">Keine kritischen Mängel; der Wert ergibt sich aus den Antworten je Dimension.</div>'}${weakest ? `<div style="margin-top:.35rem;">Schwächste Dimensionen: ${weakest}.</div>` : ''}</div>`;
     return `<div style="margin:.9rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.55rem;">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin-bottom:.6rem;">
-            <div style="background:white;border:1px solid var(--border);border-left:4px solid #64748b;padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">CASQ INTERN · ${escapeHTML(d.rubric_label)}</div><div style="font-weight:700;font-size:1.1rem;">${formatCASQ(d.score)}</div><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(formatCASQRange(d.score_min, d.score_max)) || 'keine Spanne'}</div></div>
+            <div style="background:white;border:1px solid var(--border);border-left:4px solid #64748b;padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">CASQ (INTERNER INDEX) · ${escapeHTML(d.rubric_label)}</div><div style="font-weight:700;font-size:1.1rem;">${formatCASQ(d.score)}</div><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(formatCASQRange(d.score_min, d.score_max)) || 'keine Spanne'}</div></div>
             <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--warning);padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">INFORMATIONSGRAD</div><div style="font-weight:700;font-size:1.1rem;">${pct(d.information_grade)}</div><div style="font-size:.72rem;color:var(--text-light);">Prüffragen mit Angaben im Text</div></div>
             <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--success);padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">BELEGE VERIFIZIERT</div><div style="font-weight:700;font-size:1.1rem;">${pct(d.evidence_rate)}</div><div style="font-size:.72rem;color:var(--text-light);">„ja/teilweise“ mit Zitat im PDF</div></div>
             <div style="background:white;border:1px solid var(--border);border-left:4px solid ${d.critical_flaws.length ? 'var(--danger)' : 'var(--success)'};padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">KRITISCHE MÄNGEL</div><div style="font-weight:700;font-size:1.1rem;">${d.critical_flaws.length}</div><div style="font-size:.72rem;color:var(--text-light);">${d.critical_flaws.length ? escapeHTML(d.critical_flaws.join(', ')) : 'keine'}</div></div>
         </div>
         ${capNote}
+        ${whyBox}
+        ${d.reporting ? `<div style="background:white;border:1px solid var(--border);border-left:4px solid var(--primary);padding:.6rem;border-radius:.4rem;margin:.4rem 0;"><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(d.reporting.label.toUpperCase())}</div><div style="font-weight:700;font-size:1.1rem;">${Math.round(d.reporting.compliance * 100)} % (${d.reporting.fulfilled} von ${d.reporting.considered} Berichtspunkten erfüllt)</div><div style="font-size:.72rem;color:var(--text-light);">interner Erfüllungsgrad der Berichtspunkte – kein offizieller Score; getrennt vom CASQ</div></div>` : ''}
+        <div style="font-size:.78rem;color:var(--text-light);margin:.2rem 0 .4rem;"><strong>Methodische Grundlage der Prüffragen:</strong> ${escapeHTML(d.rubric_reference || RUBRIC_REFERENCES[d.rubric] || 'intern abgeleitet')}. Der CASQ ist ein intern berechneter Vergleichsindex, kein offizieller Score.</div>
         <details style="margin-top:.5rem;"><summary style="cursor:pointer;font-weight:600;">CASQ-Prüffragen (${d.dimensions.reduce((a, x) => a + x.questions.length, 0)})</summary>
             <div style="overflow-x:auto;margin-top:.4rem;"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:.8rem;table-layout:fixed;"><colgroup><col style="width:4.5rem;"><col style="width:40%;"><col style="width:8.5rem;"><col></colgroup><thead><tr><th style="text-align:left;">ID</th><th style="text-align:left;">Prüffrage</th><th style="text-align:left;">Antwort</th><th style="text-align:left;">Begründung / Beleg</th></tr></thead><tbody>${rows}</tbody></table></div>
         </details>
@@ -277,7 +289,15 @@ function renderSourceInfo(info) {
         off: '🖼️ Bildauswertung ausgeschaltet – Tabellen/Abbildungen nur als Text'
     }[info.vision_status] || '';
     const scanned = q.scanned_pages.length ? ` · <span class="warn">⚠ ohne Textschicht (gescannt?): S. ${q.scanned_pages.join(', ')}</span>` : '';
-    return `<div class="source-info">📄 ${q.pages} Seiten gelesen · Tabellen: ${pagesText(q.table_pages)} · Abbildungen: ${pagesText(q.figure_pages)}${scanned}${visionText ? ` · ${visionText}` : ''}</div>`;
+    // Sieht das Modell nur einen Teil des Textes, wird alles andere als „nicht berichtet“ gewertet – das ist ein Artefakt, kein Mangel des Papers.
+    const share = info.text_chars && info.evidence_chars ? info.evidence_chars / info.text_chars : null;
+    const stages = Array.isArray(info.stages) && info.stages.length ? info.stages : null;
+    const coverage = stages
+        ? `<div style="margin-top:.25rem;">📚 In ${stages.length} Etappen gelesen (${stages.map(s => `S. ${s.from}–${s.to}`).join(', ')}): Extraktion und CASQ-Prüffragen beruhen auf dem ganzen Text.${share !== null && share < 0.7 ? ` <span class="warn">Instrumente und Verzerrungsbewertung (Agent 3 und 4) sahen nur ${Math.round(share * 100)} % des Textes; die LLM-Validierung der Prüffragen entfiel (die Belegprüfung im PDF lief).</span>` : ''}</div>`
+        : share !== null && share < 0.7
+            ? `<div class="warn" style="margin-top:.25rem;">⚠ Das Modell sah nur ${Math.round(share * 100)} % des PDF-Textes (${info.evidence_chars.toLocaleString('de-DE')} von ${info.text_chars.toLocaleString('de-DE')} Zeichen). Angaben außerhalb davon erscheinen als „nicht berichtet“ und senken den CASQ. Für belastbare Werte „Max. Zeichen Evidenz“ erhöhen oder die Etappen-Auswertung wählen.</div>`
+            : '';
+    return `<div class="source-info">📄 ${q.pages} Seiten gelesen · Tabellen: ${pagesText(q.table_pages)} · Abbildungen: ${pagesText(q.figure_pages)}${scanned}${visionText ? ` · ${visionText}` : ''}${coverage}</div>`;
 }
 
 // ---------- Integritätsprüfung: rechnerisch und per LLM nebeneinander ----------
@@ -478,7 +498,7 @@ async function importHistory(fileList) {
     try {
         const result = await importUserData(currentUser, JSON.parse(await file.text()));
         loadPromptsToUI();
-        alert(`Import abgeschlossen: ${result.runs} Lauf/Läufe und ${result.prompts} Prompt-Version(en) übernommen.`);
+        alert(`Import abgeschlossen: ${result.runs} Lauf/Läufe, ${result.prompts} Prompt-Version(en) und ${result.references} Referenzbewertung(en) übernommen.`);
         loadHistory();
     } catch (err) {
         alert(`Import fehlgeschlagen: ${err?.message || err}`);
