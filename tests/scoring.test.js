@@ -317,3 +317,14 @@ test('PRISMA-Berichtserfüllung wird getrennt vom CASQ ausgewiesen', () => {
     // andere Rubriken haben keinen Berichtsblock
     assert.equal(s.calculateCASQ2({}, { casq_checklist: [{ id: 'QN-1.1', response: 'yes', evidence: verifiedRef }] }, 'quantitative').reporting, null);
 });
+
+
+test('Mixed Methods wird auch erkannt, wenn nur das Design so benannt ist', () => {
+    const base = { document_type: 'primary_empirical_study', study_family: 'Quantitative' };
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Mixed-methods study (survey and interviews)' }), 'mixed');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'mixed methods' }), 'mixed');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Observational cohort study' }), 'quantitative');
+    assert.equal(s.selectCASQRubric({ ...base, study_design: 'Experiment', method_class: 'experiment' }), 'experiment');
+    // Dokumenttypen haben weiter Vorrang
+    assert.equal(s.selectCASQRubric({ document_type: 'systematic_review', study_family: 'Review', study_design: 'mixed methods review' }), 'review');
+});

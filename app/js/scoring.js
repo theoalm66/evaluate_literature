@@ -984,7 +984,8 @@ function preferredRubricKey(extraction, appraisal) {
     if (docType === 'theoretical_conceptual_paper') return 'theoretical';
     if (docType === 'multiple_study_report') return 'multiple';
     if (methodClass === 'case_study' && !family.includes('review')) return 'case_study';
-    if (family.includes('mixed')) return 'mixed';
+    // Mixed Methods auch dann, wenn nur das Design so benannt ist (die Studienfamilie lautet bei solchen Arbeiten oft „Quantitative“)
+    if (family.includes('mixed') || /mixed[- ]?methods?/i.test(String(extraction?.study_design || ''))) return 'mixed';
     if (family.includes('qualitative')) return 'qualitative';
     // Fachspezifische Rubrik nach Methodenklasse (Befragung/SEM, Experiment, Plattform-/Big-Data, Skalenentwicklung)
     if (family.includes('quantitative') || !family) {
