@@ -42,7 +42,7 @@ async function importJournalCsv(fileList) {
     await saveJournals(rows);
     msg.className = `model-search-status ${errors.length ? 'warn' : 'ok'}`;
     msg.innerHTML = `${rows.length} Zeitschrift(en) übernommen; die bisherige Liste wurde ersetzt.`
-        + (errors.length ? `<br><span style="color:#b45309;">${errors.length} Hinweis(e): ${escapeHTML(errors.slice(0, 5).join(' · '))}${errors.length > 5 ? ' …' : ''}</span>` : '');
+        + (errors.length ? `<br><span style="color:var(--on-amber);">${errors.length} Hinweis(e): ${escapeHTML(errors.slice(0, 5).join(' · '))}${errors.length > 5 ? ' …' : ''}</span>` : '');
     await refreshJournalStatus();
 }
 
@@ -85,7 +85,7 @@ function renderJournalContext(ctx) {
     if (!ctx) return '';
     const note = 'Zusatzinformation zur Publikation – geht nicht in den CASQ ein. Die Werte stammen aus Ihrer importierten Liste und werden von der App nicht geprüft.';
     const head = `<div style="font-weight:600;margin-bottom:.25rem;">Zeitschriftenkontext</div>`;
-    const wrap = body => `<div style="margin:.8rem 0;padding:.75rem;background:#f8fafc;border:1px solid var(--border);border-radius:.5rem;font-size:.85rem;">${head}${body}<div style="font-size:.72rem;color:var(--text-light);margin-top:.35rem;">${escapeHTML(note)}</div></div>`;
+    const wrap = body => `<div style="margin:.8rem 0;padding:.75rem;background:var(--surface-2);border:1px solid var(--border);border-radius:.5rem;font-size:.85rem;">${head}${body}<div style="font-size:.72rem;color:var(--text-light);margin-top:.35rem;">${escapeHTML(note)}</div></div>`;
     const venue = ctx.venue_name ? `<strong>${escapeHTML(ctx.venue_name)}</strong>${ctx.issns.length ? ` · ISSN ${escapeHTML(ctx.issns.join(', '))}` : ''} <span style="color:var(--text-light);">(erkannt über ${escapeHTML(ctx.source || 'unbekannt')})</span>` : '';
     if (ctx.status === 'unknown_venue') return wrap('Die Zeitschrift konnte aus dem PDF nicht bestimmt werden.');
     if (ctx.status === 'no_list') return wrap(`${venue}<br>Es ist noch keine Zeitschriftenliste hinterlegt (Konfiguration → Zeitschriftenkontext).`);
@@ -94,7 +94,7 @@ function renderJournalContext(ctx) {
     const cells = [
         ['VHB Publication Media Rating 2024', m.vhb], ['ABDC', m.abdc], ['FT50', m.ft50 === 'ja' ? 'ja' : m.ft50 === 'nein' ? 'nein' : ''],
         ['SJR', [m.sjr, m.sjr_quartil].filter(Boolean).join(' · ')]
-    ].map(([label, value]) => `<div style="background:white;border:1px solid var(--border);border-radius:.4rem;padding:.45rem .6rem;"><div style="font-size:.7rem;color:var(--text-light);">${escapeHTML(label)}</div><div style="font-weight:700;">${escapeHTML(value || '–')}</div></div>`).join('');
+    ].map(([label, value]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:.4rem;padding:.45rem .6rem;"><div style="font-size:.7rem;color:var(--text-light);">${escapeHTML(label)}</div><div style="font-weight:700;">${escapeHTML(value || '–')}</div></div>`).join('');
     return wrap(`${venue}<br><span style="color:var(--text-light);font-size:.78rem;">in Ihrer Liste gefunden über ${escapeHTML(m.by)}${m.name && m.name !== ctx.venue_name ? ` als „${escapeHTML(m.name)}“` : ''}</span>`
         + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.5rem;margin-top:.5rem;">${cells}</div>${m.note ? `<div style="margin-top:.4rem;font-size:.78rem;">Bemerkung: ${escapeHTML(m.note)}</div>` : ''}`);
 }

@@ -31,10 +31,10 @@ function renderReliability(rel, study) {
     const uncertainRows = (casq?.uncertain || []).map(u => `<tr><td style="white-space:nowrap;">${escapeHTML(u.id)}</td><td>${escapeHTML(questionText(u.id))}</td><td>${escapeHTML(votesText(u.votes))}</td><td>${escapeHTML(CASQ_RESPONSE_LABEL[u.chosen] || u.chosen)}</td></tr>`).join('');
     const uncertainItems = (est?.uncertain || []).map(u => `<tr><td>Item ${escapeHTML(u.item_id)}</td><td colspan="2">${escapeHTML(votesText(u.votes))}</td><td>${escapeHTML(u.chosen.split('|')[0])}</td></tr>`).join('');
     const failed = rel.runs_requested - Math.min(rel.analysis_runs, rel.casq_runs || rel.analysis_runs);
-    return `<div class="integ-box" style="background:#faf5ff;border-color:#e9d5ff;border-left-color:#9333ea;">
-        <div style="font-size:.72rem;color:#6b21a8;font-weight:700;">MEHRFACHBEWERTUNG · ${rel.runs_requested} Durchläufe (Agent 3 und 3b), Temperatur ${fmt(rel.temperature, 1)}</div>
+    return `<div class="integ-box" style="background:var(--tint-purple);border-color:var(--line-purple);border-left-color:var(--on-purple);">
+        <div style="font-size:.72rem;color:var(--on-purple);font-weight:700;">MEHRFACHBEWERTUNG · ${rel.runs_requested} Durchläufe (Agent 3 und 3b), Temperatur ${fmt(rel.temperature, 1)}</div>
         <div class="integ-chips">${chips.join('')}</div>
-        ${failed > 0 ? `<div style="font-size:.8rem;color:#92400e;">${failed} Durchlauf/Durchläufe fehlgeschlagen – ausgewertet wurden ${rel.analysis_runs} (Agent 3) bzw. ${rel.casq_runs} (Agent 3b).</div>` : ''}
+        ${failed > 0 ? `<div style="font-size:.8rem;color:var(--on-amber);">${failed} Durchlauf/Durchläufe fehlgeschlagen – ausgewertet wurden ${rel.analysis_runs} (Agent 3) bzw. ${rel.casq_runs} (Agent 3b).</div>` : ''}
         ${uncertainRows || uncertainItems ? `<details style="margin-top:.4rem;"><summary style="cursor:pointer;font-weight:600;">Unsichere Antworten (${(casq?.uncertain?.length || 0) + (est?.uncertain?.length || 0)}) – die Durchläufe waren sich nicht einig</summary>
             <div style="overflow-x:auto;"><table class="integ-table"><thead><tr><th>ID</th><th>Prüffrage</th><th>Stimmen</th><th>Gewertet</th></tr></thead><tbody>${uncertainRows}${uncertainItems}</tbody></table></div></details>` : '<div style="font-size:.85rem;margin-top:.3rem;">Alle Durchläufe stimmen bei allen Fragen überein.</div>'}
         <div style="font-size:.72rem;color:var(--text-light);margin-top:.5rem;">Je Frage entscheidet die Mehrheit der Durchläufe (bei Gleichstand die vorsichtigere Antwort); der angezeigte CASQ stammt aus diesem Mehrheitsergebnis nach der Validierung durch Agent 4/4b. Die Übereinstimmung zeigt, wie stabil die Bewertung bei Wiederholung ist – nicht, ob sie richtig ist. Dafür dient der Abgleich mit Expertenbewertungen im Tab „Zuverlässigkeit“.</div>
@@ -153,7 +153,7 @@ async function importReferenceCsv(fileList) {
     const matched = resolveReferences(reliabilityData.studies, rows).size;
     msg.className = `model-search-status ${errors.length && !saved ? 'err' : 'ok'}`;
     msg.innerHTML = `${saved} Referenz(en) übernommen, davon ${matched} zu bereits analysierten Dokumenten passend.`
-        + (errors.length ? `<br><span style="color:#b45309;">${errors.length} Hinweis(e): ${escapeHTML(errors.slice(0, 5).join(' · '))}${errors.length > 5 ? ' …' : ''}</span>` : '');
+        + (errors.length ? `<br><span style="color:var(--on-amber);">${errors.length} Hinweis(e): ${escapeHTML(errors.slice(0, 5).join(' · '))}${errors.length > 5 ? ' …' : ''}</span>` : '');
     await loadReliability();
 }
 
@@ -203,7 +203,7 @@ function renderAgreementForModel(model, studies, refs) {
         categoricalBlock('AMSTAR 2 (Gesamtvertrauen)', cmp.amstar2, 'Gewichtetes κ (linear)'),
         numericBlock('CASQ (interner Index, Experten-CASQ)', cmp.casq, 'Punkte')
     ].join('');
-    return `<div class="integ-box" style="background:#f8fafc;border-color:var(--border);border-left-color:var(--primary);">
+    return `<div class="integ-box" style="background:var(--surface-2);border-color:var(--border);border-left-color:var(--primary);">
         <div style="font-size:.72rem;color:var(--primary);font-weight:700;">MODELL</div>
         <div style="font-size:1.05rem;font-weight:700;">${escapeHTML(model)} <span style="font-weight:normal;font-size:.85rem;color:var(--text-light);">· ${cmp.documents.length} Dokument(e) mit Referenz</span></div>
         ${body || '<div style="font-size:.85rem;color:var(--text-light);margin-top:.4rem;">Noch nichts vergleichbar: Für dieses Modell gibt es keine Dokumente mit passender Referenzbewertung (PEDro-Studien brauchen PEDro-Werte, Reviews AMSTAR 2).</div>'}

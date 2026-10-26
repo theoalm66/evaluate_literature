@@ -82,7 +82,7 @@ function renderResults(res) {
     const gradeOutcomes = Array.isArray(grade.outcomes) ? grade.outcomes : [];
     const gradeLabel = grade.applicable ? (gradeOutcomes.length === 1 ? String(gradeOutcomes[0].certainty || 'unclear').replace(/_/g,' ') : `${gradeOutcomes.length} Outcome(s)`) : 'nicht anwendbar';
     document.getElementById('res-grade').textContent = gradeLabel;
-    document.getElementById('res-grade-detail').innerHTML = grade.applicable ? `<div style="margin:0 0 1rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.5rem;"><h3 style="margin:0 0 .6rem 0;">GRADE – Sicherheit der Evidenz</h3>${gradeOutcomes.map(o=>`<div style="padding:.55rem 0;border-bottom:1px solid var(--border);"><strong>${escapeHTML(o.outcome||'Outcome')}</strong>: <span style="font-weight:700;">${escapeHTML(String(o.certainty||'unclear').replace(/_/g,' '))}</span><div style="font-size:.82rem;color:var(--text-light);">${escapeHTML(o.rationale||'')}</div></div>`).join('')}<div style="font-size:.75rem;color:var(--text-light);margin-top:.55rem;">GRADE bewertet den Evidenzkörper pro Outcome, nicht die Qualität einer einzelnen Studie.</div></div>` : '';
+    document.getElementById('res-grade-detail').innerHTML = grade.applicable ? `<div style="margin:0 0 1rem 0;padding:1rem;background:var(--surface-2);border:1px solid var(--border);border-radius:.5rem;"><h3 style="margin:0 0 .6rem 0;">GRADE – Sicherheit der Evidenz</h3>${gradeOutcomes.map(o=>`<div style="padding:.55rem 0;border-bottom:1px solid var(--border);"><strong>${escapeHTML(o.outcome||'Outcome')}</strong>: <span style="font-weight:700;">${escapeHTML(String(o.certainty||'unclear').replace(/_/g,' '))}</span><div style="font-size:.82rem;color:var(--text-light);">${escapeHTML(o.rationale||'')}</div></div>`).join('')}<div style="font-size:.75rem;color:var(--text-light);margin-top:.55rem;">GRADE bewertet den Evidenzkörper pro Outcome, nicht die Qualität einer einzelnen Studie.</div></div>` : '';
 
     document.getElementById('res-topics').innerHTML = (res.synthesis?.topics || []).map(t => `<li>${escapeHTML(t)}</li>`).join('');
     document.getElementById('res-summary').textContent = res.synthesis?.narrative_summary || '-';
@@ -90,10 +90,10 @@ function renderResults(res) {
     let studiesHtml = '';
     const failedDocs = Array.isArray(res.failed_documents) ? res.failed_documents : [];
     if (failedDocs.length) {
-        studiesHtml += `<div style="margin:0 0 1rem 0;padding:1rem;background:#fff7ed;border:1px solid #fdba74;border-radius:.5rem;">
-            <h3 style="margin:0 0 .6rem 0;color:#9a3412;">⚠️ Nicht vollständig verarbeitete Dokumente</h3>
-            <div style="font-size:.85rem;color:#7c2d12;margin-bottom:.5rem;">Der Lauf wurde fortgesetzt. Bereits erfolgreiche Studienergebnisse bleiben erhalten.</div>
-            ${failedDocs.map(f => `<div style="padding:.35rem 0;border-top:1px solid #fed7aa;"><strong>${escapeHTML(f.title || 'Dokument')}</strong> · ${escapeHTML(f.phase || 'Phase')}<br><span style="font-size:.8rem;">${escapeHTML(f.error || 'Unbekannter Fehler')}</span></div>`).join('')}
+        studiesHtml += `<div style="margin:0 0 1rem 0;padding:1rem;background:var(--tint-amber);border:1px solid var(--line-amber);border-radius:.5rem;">
+            <h3 style="margin:0 0 .6rem 0;color:var(--on-amber);">⚠️ Nicht vollständig verarbeitete Dokumente</h3>
+            <div style="font-size:.85rem;color:var(--on-amber);margin-bottom:.5rem;">Der Lauf wurde fortgesetzt. Bereits erfolgreiche Studienergebnisse bleiben erhalten.</div>
+            ${failedDocs.map(f => `<div style="padding:.35rem 0;border-top:1px solid var(--line-amber);"><strong>${escapeHTML(f.title || 'Dokument')}</strong> · ${escapeHTML(f.phase || 'Phase')}<br><span style="font-size:.8rem;">${escapeHTML(f.error || 'Unbekannter Fehler')}</span></div>`).join('')}
         </div>`;
     }
     rows.forEach(r => {
@@ -107,12 +107,12 @@ function renderResults(res) {
             const status = d.validation_status ?? d.status ?? '';
             const refs = d.source_refs || [];
             const det = dimDetails[i];
-            const weightCell = det ? `${escapeHTML(det.weight)}${det.rubric_name && det.rubric_name !== d.name ? `<div style="font-size:.7rem;color:var(--text-light);">≙ ${escapeHTML(det.rubric_name)}</div>` : ''}${casqDetails.weights_source === 'rubric' && !det.rubric_name ? '<div style="font-size:.7rem;color:#b45309;">nicht in Rubrik</div>' : ''}` : escapeHTML(d.weight ?? '-');
+            const weightCell = det ? `${escapeHTML(det.weight)}${det.rubric_name && det.rubric_name !== d.name ? `<div style="font-size:.7rem;color:var(--text-light);">≙ ${escapeHTML(det.rubric_name)}</div>` : ''}${casqDetails.weights_source === 'rubric' && !det.rubric_name ? '<div style="font-size:.7rem;color:var(--on-amber);">nicht in Rubrik</div>' : ''}` : escapeHTML(d.weight ?? '-');
             return `<tr><td>${escapeHTML(d.name)}</td><td>${Number.isFinite(Number(sc)) ? escapeHTML(sc) : '-'}</td><td>${weightCell}</td><td>${escapeHTML(status)}</td><td>${escapeHTML(d.validation_note || d.rationale || '')}${renderSourceRefs(r.title, refs)}</td></tr>`;
         }).join('');
         const casqNote = casqDetails ? `<div style="font-size:.75rem;color:var(--text-light);margin:.35rem 0 .6rem;">${casqDetails.weights_source === 'rubric'
             ? `Gewichte fest aus der CASQ-Rubrik <strong>${escapeHTML(casqDetails.rubric_label || casqDetails.rubric)}</strong> (nicht vom Modell).`
-            : '<span style="color:#b45309;">Dimensionen passten zu keiner CASQ-Rubrik – Gewichte stammen aus der Modellantwort.</span>'}
+            : '<span style="color:var(--on-amber);">Dimensionen passten zu keiner CASQ-Rubrik – Gewichte stammen aus der Modellantwort.</span>'}
             ${casqRange ? ` Die Spanne zeigt den CASQ, wenn nicht belegbare Dimensionen mit 0 bzw. 10 Punkten gerechnet würden.` : ''}
             Evidenzabdeckung = Gewichtsanteil der Dimensionen mit im PDF wiedergefundenem Beleg${Number.isFinite(Number(va.evidence_coverage_agent)) ? ` (Selbstauskunft Agent 4: ${Math.round(va.evidence_coverage_agent)} %)` : ''}.</div>` : '';
         const strengths = (ap.critical_strengths || []).map(x => `<li>${escapeHTML(x)}</li>`).join('');
@@ -123,23 +123,23 @@ function renderResults(res) {
         if (established.rating_mismatch) establishedNotes.push(`Das Modell nannte „${established.agent_rating}“; nach „worst score counts“ ergibt sich „${established.rating}“.`);
         if (established.instrument === 'AMSTAR 2' && established.applicable) establishedNotes.push(`Kritische Mängel (Items 2, 4, 7, 9, 11, 13, 15): ${established.critical_flaws}; nicht-kritische Schwächen: ${established.non_critical_weaknesses}.`);
         if (established.instrument === 'MINORS' && established.applicable) establishedNotes.push(established.comparative ? 'Komparative Studie: 12 Items, max. 24 Punkte.' : 'Nicht-komparative Studie: 8 Items, max. 16 Punkte.');
-        const establishedNotesHtml = establishedNotes.length ? `<div style="margin-top:.5rem;font-size:.78rem;color:#065f46;">${establishedNotes.map(n => `<div>• ${escapeHTML(n)}</div>`).join('')}</div>` : '';
+        const establishedNotesHtml = establishedNotes.length ? `<div style="margin-top:.5rem;font-size:.78rem;color:var(--on-green);">${establishedNotes.map(n => `<div>• ${escapeHTML(n)}</div>`).join('')}</div>` : '';
         const ea = va.validated_established_appraisal || ap.established_appraisal || {};
         const jq = va.validated_jars_quant || ap.jars_quant || {};
         const eaRows = (ea.items || []).map(item => {
             const pts = item.points === undefined || item.points === null ? '' : ` · ${escapeHTML(item.points)}${item.max_points ? '/' + escapeHTML(item.max_points) : ''} P.`;
             return `<tr><td>${escapeHTML(item.item_id || '')}</td><td>${escapeHTML(item.criterion || '-')}</td><td>${escapeHTML(item.response || '-')} ${pts}</td><td>${escapeHTML(item.validation_note || item.rationale || '')}${renderSourceRefs(r.title, item.evidence || [])}</td></tr>`;
         }).join('');
-        const establishedHtml = established.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:4px solid var(--success);border-radius:.55rem;">
-            <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start;"><div><div style="font-size:.72rem;color:#047857;font-weight:700;">PRIMÄRE WISSENSCHAFTLICHE BEWERTUNG</div><div style="font-size:1.05rem;font-weight:700;">${escapeHTML(established.instrument || 'Instrument')}</div><div style="font-size:.8rem;color:var(--text-light);">${escapeHTML(established.reason || '')}</div></div><div style="font-size:1.25rem;font-weight:800;">${escapeHTML(established.display)}</div></div>
+        const establishedHtml = established.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:var(--tint-green);border:1px solid var(--line-green);border-left:4px solid var(--success);border-radius:.55rem;">
+            <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start;"><div><div style="font-size:.72rem;color:var(--on-green);font-weight:700;">PRIMÄRE WISSENSCHAFTLICHE BEWERTUNG</div><div style="font-size:1.05rem;font-weight:700;">${escapeHTML(established.instrument || 'Instrument')}</div><div style="font-size:.8rem;color:var(--text-light);">${escapeHTML(established.reason || '')}</div></div><div style="font-size:1.25rem;font-weight:800;">${escapeHTML(established.display)}</div></div>
             ${established.summary ? `<div style="margin-top:.55rem;font-size:.85rem;"><strong>Instrument-Fazit:</strong> ${escapeHTML(established.summary)}</div>` : ''}
             ${establishedNotesHtml}
-        </div>` : (jq?.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:4px solid var(--success);border-radius:.55rem;">
-            <div style="font-size:.72rem;color:#047857;font-weight:700;">PRIMÄRER ETABLIERTER STANDARD</div>
+        </div>` : (jq?.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:var(--tint-green);border:1px solid var(--line-green);border-left:4px solid var(--success);border-radius:.55rem;">
+            <div style="font-size:.72rem;color:var(--on-green);font-weight:700;">PRIMÄRER ETABLIERTER STANDARD</div>
             <div style="font-size:1.05rem;font-weight:700;">APA JARS-Quant</div>
             <div style="font-size:.82rem;color:var(--text-light);">Offizieller APA-Reporting-Standard auf Dokumentebene; kein numerischer Qualitätsscore und kein Risk-of-Bias-Instrument.</div>
-        </div>` : `<div style="margin:.9rem 0;padding:1rem;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #f97316;border-radius:.55rem;">
-            <div style="font-size:.72rem;color:#9a3412;font-weight:700;">PRIMÄRE WISSENSCHAFTLICHE BEWERTUNG</div>
+        </div>` : `<div style="margin:.9rem 0;padding:1rem;background:var(--tint-amber);border:1px solid var(--line-amber);border-left:4px solid #f97316;border-radius:.55rem;">
+            <div style="font-size:.72rem;color:var(--on-amber);font-weight:700;">PRIMÄRE WISSENSCHAFTLICHE BEWERTUNG</div>
             <div style="font-size:1.05rem;font-weight:700;">Kein etabliertes Einzelstudien-Instrument direkt anwendbar</div>
             <div style="font-size:.82rem;color:var(--text-light);">Für diese Publikation wurde bewusst kein unpassender offizieller Score erzwungen.</div>
             ${established.summary ? `<div style="margin-top:.55rem;font-size:.85rem;"><strong>Instrument-Fazit:</strong> ${escapeHTML(established.summary)}</div>` : ''}
@@ -149,7 +149,7 @@ function renderResults(res) {
         const fwMetric = calculateFrameworkMetrics(va, ap);
         const renderFwRows = (items) => (items || []).map(item => {
             const resp = item.framework_response || item.response || 'cant_tell';
-            const badgeStyle = resp === 'yes' ? 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;' : resp === 'no' ? 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;' : resp === 'not_applicable' ? 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;' : 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;';
+            const badgeStyle = resp === 'yes' ? 'background:var(--tint-green);color:var(--on-green);border:1px solid var(--line-green);' : resp === 'no' ? 'background:var(--tint-red);color:var(--on-red);border:1px solid var(--line-red);' : resp === 'not_applicable' ? 'background:var(--surface-3);color:var(--text-2);border:1px solid var(--line-gray);' : 'background:var(--tint-amber);color:var(--on-amber);border:1px solid var(--line-amber);';
             return `<tr><td>${escapeHTML(item.criterion || '-')}</td><td><span style="display:inline-block;padding:.15rem .4rem;border-radius:.3rem;${badgeStyle}">${escapeHTML(resp)}</span></td><td>${escapeHTML(item.validation_note || item.rationale || '')}${renderSourceRefs(r.title, item.evidence || [])}</td></tr>`;
         }).join('');
         const fwScreenRows = renderFwRows(fw.screening || []);
@@ -157,26 +157,26 @@ function renderResults(res) {
         const jqm = calculateJARSMetrics(va, ap);
         const jqRows = (jq.criteria || []).map(c => {
             const s = c.status || 'not_reported';
-            const badge = s === 'reported' ? 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;' :
-                          s === 'partial' ? 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;' :
-                          s === 'not_applicable' ? 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;' :
-                          'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;';
+            const badge = s === 'reported' ? 'background:var(--tint-green);color:var(--on-green);border:1px solid var(--line-green);' :
+                          s === 'partial' ? 'background:var(--tint-amber);color:var(--on-amber);border:1px solid var(--line-amber);' :
+                          s === 'not_applicable' ? 'background:var(--surface-3);color:var(--text-2);border:1px solid var(--line-gray);' :
+                          'background:var(--tint-red);color:var(--on-red);border:1px solid var(--line-red);';
             const refs = c.source_refs || c.evidence || [];
             return `<tr><td>${escapeHTML(c.criterion || '-')}</td><td><span style="display:inline-block;padding:.15rem .4rem;border-radius:.3rem;${badge}">${escapeHTML(s)}</span></td><td>${escapeHTML(c.validation_note || c.rationale || '')}${renderSourceRefs(r.title, refs)}</td></tr>`;
         }).join('');
-        const jarsHtml = jq.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:.55rem;">
+        const jarsHtml = jq.applicable ? `<div style="margin:.9rem 0;padding:1rem;background:var(--tint-green);border:1px solid var(--line-green);border-radius:.55rem;">
             <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:.6rem;">
-                <div><div style="font-size:.72rem;color:#166534;font-weight:700;">OFFIZIELLER REPORTING-STANDARD</div><div style="font-size:1.05rem;font-weight:700;color:#14532d;">APA JARS-Quant</div><div style="font-size:.78rem;color:#166534;">Dokumentebene · Reporting Quality · kein Risk-of-Bias-Score</div></div>
-                <div style="background:white;border:1px solid #bbf7d0;padding:.55rem .7rem;border-radius:.4rem;"><div style="font-size:.7rem;color:var(--text-light);">INTERNE ORIENTIERUNG*</div><div style="font-weight:700;font-size:1.1rem;">${jqm.internalCompletion === null ? 'n/a' : jqm.internalCompletion + ' %'}</div><div style="font-size:.7rem;color:var(--text-light);">${jqm.reported} berichtet · ${jqm.partial} teilweise · ${jqm.not_reported} nicht berichtet</div></div>
+                <div><div style="font-size:.72rem;color:var(--on-green);font-weight:700;">OFFIZIELLER REPORTING-STANDARD</div><div style="font-size:1.05rem;font-weight:700;color:var(--on-green);">APA JARS-Quant</div><div style="font-size:.78rem;color:var(--on-green);">Dokumentebene · Reporting Quality · kein Risk-of-Bias-Score</div></div>
+                <div style="background:var(--surface);border:1px solid var(--line-green);padding:.55rem .7rem;border-radius:.4rem;"><div style="font-size:.7rem;color:var(--text-light);">INTERNE ORIENTIERUNG*</div><div style="font-weight:700;font-size:1.1rem;">${jqm.internalCompletion === null ? 'n/a' : jqm.internalCompletion + ' %'}</div><div style="font-size:.7rem;color:var(--text-light);">${jqm.reported} berichtet · ${jqm.partial} teilweise · ${jqm.not_reported} nicht berichtet</div></div>
             </div>
             ${jq.scope_note ? `<div style="font-size:.82rem;margin-bottom:.5rem;"><strong>Scope:</strong> ${escapeHTML(jq.scope_note)}</div>` : ''}
             <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">JARS-Quant-Kriterium</th><th>Status</th><th style="text-align:left;">Begründung / Evidenz</th></tr></thead><tbody>${jqRows}</tbody></table></div>
             ${jq.reporting_summary ? `<div style="margin-top:.55rem;font-size:.85rem;"><strong>Reporting-Fazit:</strong> ${escapeHTML(jq.reporting_summary)}</div>` : ''}
-            <div style="margin-top:.5rem;font-size:.74rem;color:#166534;"><strong>* Kein offizieller APA-JARS-Score.</strong> Der Prozentwert ist nur ein interner Reporting-Erfüllungsgrad.</div>
+            <div style="margin-top:.5rem;font-size:.74rem;color:var(--on-green);"><strong>* Kein offizieller APA-JARS-Score.</strong> Der Prozentwert ist nur ein interner Reporting-Erfüllungsgrad.</div>
         </div>` : '';
 
         const embeddedApps = va.validated_embedded_study_appraisals || ap.embedded_study_appraisals || [];
-        const embeddedHtml = embeddedApps.length ? `<div style="margin:.9rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.55rem;"><strong>Methodische Bewertung der Teilstudien</strong><div style="font-size:.78rem;color:var(--text-light);margin:.25rem 0 .55rem;">Getrennt von der JARS-Reporting-Bewertung des Gesamtartikels.</div>${embeddedApps.map(es => `<div style="padding:.5rem 0;border-top:1px solid var(--border);"><strong>${escapeHTML(es.label || 'Teilstudie')}</strong> · ${escapeHTML(es.study_design || 'Design unklar')}<br><span style="font-size:.8rem;">Instrument: <strong>${escapeHTML(es.selected_instrument || 'none')}</strong> · ${es.applicable ? escapeHTML(es.result || 'bewertet') : 'nicht anwendbar / zu wenig Information'}</span></div>`).join('')}</div>` : '';
+        const embeddedHtml = embeddedApps.length ? `<div style="margin:.9rem 0;padding:1rem;background:var(--surface-2);border:1px solid var(--border);border-radius:.55rem;"><strong>Methodische Bewertung der Teilstudien</strong><div style="font-size:.78rem;color:var(--text-light);margin:.25rem 0 .55rem;">Getrennt von der JARS-Reporting-Bewertung des Gesamtartikels.</div>${embeddedApps.map(es => `<div style="padding:.5rem 0;border-top:1px solid var(--border);"><strong>${escapeHTML(es.label || 'Teilstudie')}</strong> · ${escapeHTML(es.study_design || 'Design unklar')}<br><span style="font-size:.8rem;">Instrument: <strong>${escapeHTML(es.selected_instrument || 'none')}</strong> · ${es.applicable ? escapeHTML(es.result || 'bewertet') : 'nicht anwendbar / zu wenig Information'}</span></div>`).join('')}</div>` : '';
 
         const isMMAT = String(fw.primary_framework || '').toUpperCase().includes('MMAT');
         const screeningLabel = fwMetric.screening.total_considered
@@ -185,26 +185,26 @@ function renderResults(res) {
         const criteriaLabel = fwMetric.criteria.total_considered
             ? `${fwMetric.criteria.yes} yes / ${fwMetric.criteria.no} no / ${fwMetric.criteria.cant_tell} can't tell`
             : 'nicht durchgeführt';
-        const frameworkHtml = fw.primary_framework && fw.primary_framework !== 'none' ? `<div style="margin:.9rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.55rem;">
+        const frameworkHtml = fw.primary_framework && fw.primary_framework !== 'none' ? `<div style="margin:.9rem 0;padding:1rem;background:var(--surface-2);border:1px solid var(--border);border-radius:.55rem;">
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:.6rem;margin-bottom:.8rem;">
-                <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--primary);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">FRAMEWORK</div><div style="font-weight:700;">${escapeHTML(fw.primary_framework)}</div><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(fw.framework_category || '')}</div></div>
-                ${isMMAT ? `<div style="background:white;border:1px solid var(--border);border-left:4px solid var(--success);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">MMAT SCREENING</div><div style="font-weight:700;font-size:1.1rem;">${escapeHTML(screeningLabel)}</div><div style="font-size:.72rem;color:var(--text-light);">nur Eingangsvoraussetzung, kein Qualitäts-Score</div></div>` : ''}
-                <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--success);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">${isMMAT ? 'DESIGNSPEZIFISCHE KRITERIEN' : 'KRITERIEN'}</div><div style="font-weight:700;font-size:1.1rem;">${escapeHTML(criteriaLabel)}</div><div style="font-size:.72rem;color:var(--text-light);">${fwMetric.criteria.fulfillment === null ? 'kein Erfüllungsgrad berechenbar' : 'interner Erfüllungsgrad: ' + fwMetric.criteria.fulfillment + ' %'}</div></div>
-                <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--warning);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">ENTSCHEIDBARKEIT KRITERIEN</div><div style="font-weight:700;font-size:1.1rem;">${fwMetric.criteria.decidability === null ? 'n/a' : fwMetric.criteria.decidability + ' %'}</div><div style="font-size:.72rem;color:var(--text-light);">${fwMetric.criteria.cant_tell} × cant_tell</div></div>
-                <div style="background:white;border:1px solid var(--border);border-left:4px solid #64748b;padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">CASQ INTERN</div><div style="font-weight:700;font-size:1.1rem;">${scoreTxt}</div><div style="font-size:.72rem;color:var(--text-light);">separater Vergleichsindex</div></div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">FRAMEWORK</div><div style="font-weight:700;">${escapeHTML(fw.primary_framework)}</div><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(fw.framework_category || '')}</div></div>
+                ${isMMAT ? `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--success);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">MMAT SCREENING</div><div style="font-weight:700;font-size:1.1rem;">${escapeHTML(screeningLabel)}</div><div style="font-size:.72rem;color:var(--text-light);">nur Eingangsvoraussetzung, kein Qualitäts-Score</div></div>` : ''}
+                <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--success);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">${isMMAT ? 'DESIGNSPEZIFISCHE KRITERIEN' : 'KRITERIEN'}</div><div style="font-weight:700;font-size:1.1rem;">${escapeHTML(criteriaLabel)}</div><div style="font-size:.72rem;color:var(--text-light);">${fwMetric.criteria.fulfillment === null ? 'kein Erfüllungsgrad berechenbar' : 'interner Erfüllungsgrad: ' + fwMetric.criteria.fulfillment + ' %'}</div></div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--warning);padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">ENTSCHEIDBARKEIT KRITERIEN</div><div style="font-weight:700;font-size:1.1rem;">${fwMetric.criteria.decidability === null ? 'n/a' : fwMetric.criteria.decidability + ' %'}</div><div style="font-size:.72rem;color:var(--text-light);">${fwMetric.criteria.cant_tell} × cant_tell</div></div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid #64748b;padding:.65rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">CASQ INTERN</div><div style="font-weight:700;font-size:1.1rem;">${scoreTxt}</div><div style="font-size:.72rem;color:var(--text-light);">separater Vergleichsindex</div></div>
             </div>
             <div style="margin-bottom:.55rem;"><strong>Critical-Appraisal-Framework:</strong> ${escapeHTML(fw.primary_framework)}${fw.framework_category ? ` · ${escapeHTML(fw.framework_category)}` : ''}${fw.secondary_framework && fw.secondary_framework !== 'none' ? ` <span style="color:var(--text-light);">(+ ${escapeHTML(fw.secondary_framework)})</span>` : ''}</div>
             ${isMMAT && fwScreenRows ? `<div style="margin-top:.55rem;"><strong>MMAT Screening (2 Eingangskriterien)</strong><div style="font-size:.75rem;color:var(--text-light);margin:.15rem 0 .35rem;">Die Screening-Fragen prüfen nur, ob eine methodische Bewertung sinnvoll möglich ist. Sie dürfen nicht als vollständige MMAT-Qualitätsbewertung interpretiert werden.</div><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">Screening-Frage</th><th>Antwort</th><th style="text-align:left;">Begründung / Evidenz</th></tr></thead><tbody>${fwScreenRows}</tbody></table></div></div>` : ''}
-            ${fwCriteriaRows ? `<div style="margin-top:.7rem;"><strong>${isMMAT ? 'MMAT designspezifische Kriterien' : 'Framework-Kriterien'}</strong><div style="overflow-x:auto;margin-top:.3rem;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">Prüfpunkt</th><th>Antwort</th><th style="text-align:left;">Begründung / Evidenz</th></tr></thead><tbody>${fwCriteriaRows}</tbody></table></div></div>` : `<div style="margin-top:.65rem;padding:.6rem;background:#fffbeb;border:1px solid #fde68a;border-radius:.4rem;color:#92400e;font-size:.8rem;"><strong>Framework-Appraisal unvollständig:</strong> Es liegen keine designspezifischen Kriterien vor. Ein positives Screening allein ist keine Qualitätsbewertung.</div>`}
+            ${fwCriteriaRows ? `<div style="margin-top:.7rem;"><strong>${isMMAT ? 'MMAT designspezifische Kriterien' : 'Framework-Kriterien'}</strong><div style="overflow-x:auto;margin-top:.3rem;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr><th style="text-align:left;">Prüfpunkt</th><th>Antwort</th><th style="text-align:left;">Begründung / Evidenz</th></tr></thead><tbody>${fwCriteriaRows}</tbody></table></div></div>` : `<div style="margin-top:.65rem;padding:.6rem;background:var(--tint-amber);border:1px solid var(--line-amber);border-radius:.4rem;color:var(--on-amber);font-size:.8rem;"><strong>Framework-Appraisal unvollständig:</strong> Es liegen keine designspezifischen Kriterien vor. Ein positives Screening allein ist keine Qualitätsbewertung.</div>`}
             ${fw.framework_summary ? `<div style="margin-top:.5rem;font-size:.85rem;"><strong>Framework-Fazit:</strong> ${escapeHTML(fw.framework_summary)}</div>` : ''}
             <div style="margin-top:.5rem;font-size:.75rem;color:var(--text-light);"><strong>MMAT/CASP sind Checklisten ohne offiziellen Summenscore.</strong> Ein ggf. angezeigter Erfüllungsgrad ist ausschließlich eine interne Orientierung und basiert nur auf den designspezifischen Kriterien, niemals auf den Screening-Fragen.</div>
-        </div>` : `<div style="margin:.8rem 0;padding:.75rem;background:#fffbeb;border:1px solid #fde68a;border-radius:.5rem;font-size:.85rem;color:#92400e;"><strong>Framework-Bewertung nicht anwendbar oder nicht verfügbar.</strong> Bei Methodenbeiträgen, narrativen Übersichten oder heterogenen Multi-Study-Reports ist das häufig korrekt und wissenschaftlich sauberer als ein erzwungenes Einzelstudien-Framework.</div>`;
+        </div>` : `<div style="margin:.8rem 0;padding:.75rem;background:var(--tint-amber);border:1px solid var(--line-amber);border-radius:.5rem;font-size:.85rem;color:var(--on-amber);"><strong>Framework-Bewertung nicht anwendbar oder nicht verfügbar.</strong> Bei Methodenbeiträgen, narrativen Übersichten oder heterogenen Multi-Study-Reports ist das häufig korrekt und wissenschaftlich sauberer als ein erzwungenes Einzelstudien-Framework.</div>`;
         studiesHtml += `
-            <div style="background:white;padding:1rem;border:1px solid var(--border);border-radius:.5rem;margin-bottom:1rem;">
-                <h4 style="margin-bottom:.4rem;color:#0f172a;">${escapeHTML(r.title)}</h4>
+            <div style="background:var(--surface);padding:1rem;border:1px solid var(--border);border-radius:.5rem;margin-bottom:1rem;">
+                <h4 style="margin-bottom:.4rem;color:var(--heading);">${escapeHTML(r.title)}</h4>
                 ${renderSourceInfo(r.source_info)}
                 <div style="font-size:.9rem;margin-bottom:.35rem;"><strong>Dokumenttyp:</strong> ${escapeHTML(ex.document_type || ap.document_type_confirmed || 'unclear')}</div>
-                <div style="font-size:.9rem;margin-bottom:.7rem;"><strong>${escapeHTML(ex.study_family || 'Unclear')} / ${escapeHTML(ex.study_design || 'Unclear')}</strong> &nbsp; | &nbsp; Etabliert: <strong>${escapeHTML(jq?.applicable ? ('APA JARS-Quant (Reporting)' + (established.applicable ? ' + ' + established.display : '')) : established.display)}</strong> &nbsp; | &nbsp; CASQ intern: <strong>${scoreTxt}</strong>${casqDetails?.cap ? ` <span style="color:#b91c1c;">(gedeckelt auf ${casqDetails.cap.toFixed(1)}: ${casqDetails.critical_flaws.length} kritische Mängel, Details unten)</span>` : ''} &nbsp; | &nbsp; ${va.casq_details?.version === 'casq2' ? `Informationsgrad: <strong>${Math.round(Number(va.information_grade)||0)} %</strong> &nbsp; | &nbsp; Belege verifiziert` : va.casq_details ? 'Evidenz (verifiziert)' : 'Evidenz'}: <strong>${Math.round(Number(r.evidence_coverage)||0)} %</strong></div>
+                <div style="font-size:.9rem;margin-bottom:.7rem;"><strong>${escapeHTML(ex.study_family || 'Unclear')} / ${escapeHTML(ex.study_design || 'Unclear')}</strong> &nbsp; | &nbsp; Etabliert: <strong>${escapeHTML(jq?.applicable ? ('APA JARS-Quant (Reporting)' + (established.applicable ? ' + ' + established.display : '')) : established.display)}</strong> &nbsp; | &nbsp; CASQ intern: <strong>${scoreTxt}</strong>${casqDetails?.cap ? ` <span style="color:var(--on-red);">(gedeckelt auf ${casqDetails.cap.toFixed(1)}: ${casqDetails.critical_flaws.length} kritische Mängel, Details unten)</span>` : ''} &nbsp; | &nbsp; ${va.casq_details?.version === 'casq2' ? `Informationsgrad: <strong>${Math.round(Number(va.information_grade)||0)} %</strong> &nbsp; | &nbsp; Belege verifiziert` : va.casq_details ? 'Evidenz (verifiziert)' : 'Evidenz'}: <strong>${Math.round(Number(r.evidence_coverage)||0)} %</strong></div>
                 <div style="font-size:.9rem;color:var(--text-light);margin-bottom:.7rem;">
                     <strong>Methoden:</strong> ${escapeHTML((ex.methods || []).join(', ') || '-')}<br>
                     <strong>Forschungsfrage:</strong> ${escapeHTML(ex.research_question?.value || '-')}<br>
@@ -230,11 +230,11 @@ function renderResults(res) {
 
 const CASQ_RESPONSE_LABEL = { yes: 'ja', partial: 'teilweise', no: 'nein', not_reported: 'nicht berichtet', not_applicable: 'nicht anwendbar' };
 const CASQ_RESPONSE_STYLE = {
-    yes: 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;',
-    partial: 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;',
-    no: 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;',
-    not_reported: 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;',
-    not_applicable: 'background:#f8fafc;color:#94a3b8;border:1px dashed #cbd5e1;'
+    yes: 'background:var(--tint-green);color:var(--on-green);border:1px solid var(--line-green);',
+    partial: 'background:var(--tint-amber);color:var(--on-amber);border:1px solid var(--line-amber);',
+    no: 'background:var(--tint-red);color:var(--on-red);border:1px solid var(--line-red);',
+    not_reported: 'background:var(--surface-3);color:var(--text-2);border:1px solid var(--line-gray);',
+    not_applicable: 'background:var(--surface-2);color:#94a3b8;border:1px dashed var(--line-gray);'
 };
 
 // CASQ 2.0: Prüffragen je Dimension mit Antwort, Beleg und berechnetem Teilscore.
@@ -242,32 +242,32 @@ function renderCASQ2(d, title) {
     const pct = v => v === null || v === undefined ? 'n/a' : `${Math.round(v * 100)} %`;
     const badge = resp => `<span style="display:inline-block;padding:.1rem .4rem;border-radius:.3rem;white-space:nowrap;${CASQ_RESPONSE_STYLE[resp] || ''}">${escapeHTML(CASQ_RESPONSE_LABEL[resp] || resp)}</span>`;
     const rows = d.dimensions.map(dim => {
-        const head = `<tr style="background:#f8fafc;"><td colspan="4" style="padding:.4rem;"><strong>${escapeHTML(dim.name)}</strong> · Gewicht ${escapeHTML(dim.weight)} · Teilscore ${dim.score === null ? 'nicht anwendbar' : dim.score.toFixed(1) + ' / 10'}</td></tr>`;
+        const head = `<tr style="background:var(--surface-2);"><td colspan="4" style="padding:.4rem;"><strong>${escapeHTML(dim.name)}</strong> · Gewicht ${escapeHTML(dim.weight)} · Teilscore ${dim.score === null ? 'nicht anwendbar' : dim.score.toFixed(1) + ' / 10'}</td></tr>`;
         const qs = dim.questions.map(q => `<tr>
             <td style="white-space:nowrap;vertical-align:top;">${escapeHTML(q.id)}</td>
-            <td style="vertical-align:top;">${escapeHTML(q.text)}${q.critical ? ' <span style="font-size:.7rem;font-weight:700;color:#b91c1c;">KRITISCH</span>' : ''}</td>
-            <td style="vertical-align:top;">${badge(q.effective)}${q.downgraded ? `<div style="font-size:.7rem;color:#92400e;margin-top:.15rem;">Modell: ${escapeHTML(CASQ_RESPONSE_LABEL[q.response])} – kein Zitat im PDF gefunden</div>` : ''}</td>
+            <td style="vertical-align:top;">${escapeHTML(q.text)}${q.critical ? ' <span style="font-size:.7rem;font-weight:700;color:var(--on-red);">KRITISCH</span>' : ''}</td>
+            <td style="vertical-align:top;">${badge(q.effective)}${q.downgraded ? `<div style="font-size:.7rem;color:var(--on-amber);margin-top:.15rem;">Modell: ${escapeHTML(CASQ_RESPONSE_LABEL[q.response])} – kein Zitat im PDF gefunden</div>` : ''}</td>
             <td style="vertical-align:top;">${escapeHTML(q.note)}${renderSourceRefs(title, q.evidence)}</td></tr>`).join('');
         return head + qs;
     }).join('');
-    const capNote = d.cap ? `<div style="color:#b91c1c;font-size:.8rem;margin-top:.35rem;"><strong>Gedeckelt auf ${d.cap.toFixed(1)}</strong> wegen kritischer Mängel (${escapeHTML(d.critical_flaws.join(', '))}); ohne Deckel ${d.score_uncapped.toFixed(1)}.</div>` : '';
+    const capNote = d.cap ? `<div style="color:var(--on-red);font-size:.8rem;margin-top:.35rem;"><strong>Gedeckelt auf ${d.cap.toFixed(1)}</strong> wegen kritischer Mängel (${escapeHTML(d.critical_flaws.join(', '))}); ohne Deckel ${d.score_uncapped.toFixed(1)}.</div>` : '';
     // „Warum dieser Wert?“: kritische Mängel mit Fragetext und Antwort, dazu die schwächsten Dimensionen
     const flawed = new Set(d.critical_flaws || []);
     const flawList = d.dimensions.flatMap(dim => dim.questions).filter(q => flawed.has(q.id))
-        .map(q => `<li><strong>${escapeHTML(q.id)}</strong> ${escapeHTML(q.text)} <span style="color:#b91c1c;">(Antwort: ${escapeHTML(CASQ_RESPONSE_LABEL[q.effective] || q.effective)}${q.downgraded ? ', herabgestuft' : ''})</span></li>`).join('');
+        .map(q => `<li><strong>${escapeHTML(q.id)}</strong> ${escapeHTML(q.text)} <span style="color:var(--on-red);">(Antwort: ${escapeHTML(CASQ_RESPONSE_LABEL[q.effective] || q.effective)}${q.downgraded ? ', herabgestuft' : ''})</span></li>`).join('');
     const weakest = d.dimensions.filter(dim => dim.score !== null).sort((a, b) => a.score - b.score).slice(0, 3)
         .map(dim => `${escapeHTML(dim.name)} (${dim.score.toFixed(1)})`).join(', ');
-    const whyBox = `<div style="font-size:.8rem;margin:.4rem 0;padding:.55rem .7rem;background:#fff;border:1px solid var(--border);border-radius:.4rem;"><strong>Warum dieser Wert?</strong>${flawList ? `<div style="margin-top:.25rem;">Kritische Fragen mit „nein“ oder „nicht berichtet“ (sie begrenzen den CASQ):</div><ul style="margin:.2rem 0 0 1.2rem;">${flawList}</ul>` : '<div style="margin-top:.25rem;">Keine kritischen Mängel; der Wert ergibt sich aus den Antworten je Dimension.</div>'}${weakest ? `<div style="margin-top:.35rem;">Schwächste Dimensionen: ${weakest}.</div>` : ''}</div>`;
-    return `<div style="margin:.9rem 0;padding:1rem;background:#f8fafc;border:1px solid var(--border);border-radius:.55rem;">
+    const whyBox = `<div style="font-size:.8rem;margin:.4rem 0;padding:.55rem .7rem;background:var(--surface);border:1px solid var(--border);border-radius:.4rem;"><strong>Warum dieser Wert?</strong>${flawList ? `<div style="margin-top:.25rem;">Kritische Fragen mit „nein“ oder „nicht berichtet“ (sie begrenzen den CASQ):</div><ul style="margin:.2rem 0 0 1.2rem;">${flawList}</ul>` : '<div style="margin-top:.25rem;">Keine kritischen Mängel; der Wert ergibt sich aus den Antworten je Dimension.</div>'}${weakest ? `<div style="margin-top:.35rem;">Schwächste Dimensionen: ${weakest}.</div>` : ''}</div>`;
+    return `<div style="margin:.9rem 0;padding:1rem;background:var(--surface-2);border:1px solid var(--border);border-radius:.55rem;">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin-bottom:.6rem;">
-            <div style="background:white;border:1px solid var(--border);border-left:4px solid #64748b;padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">CASQ (INTERNER INDEX) · ${escapeHTML(d.rubric_label)}</div><div style="font-weight:700;font-size:1.1rem;">${formatCASQ(d.score)}</div><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(formatCASQRange(d.score_min, d.score_max)) || 'keine Spanne'}</div></div>
-            <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--warning);padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">INFORMATIONSGRAD</div><div style="font-weight:700;font-size:1.1rem;">${pct(d.information_grade)}</div><div style="font-size:.72rem;color:var(--text-light);">Prüffragen mit Angaben im Text</div></div>
-            <div style="background:white;border:1px solid var(--border);border-left:4px solid var(--success);padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">BELEGE VERIFIZIERT</div><div style="font-weight:700;font-size:1.1rem;">${pct(d.evidence_rate)}</div><div style="font-size:.72rem;color:var(--text-light);">„ja/teilweise“ mit Zitat im PDF</div></div>
-            <div style="background:white;border:1px solid var(--border);border-left:4px solid ${d.critical_flaws.length ? 'var(--danger)' : 'var(--success)'};padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">KRITISCHE MÄNGEL</div><div style="font-weight:700;font-size:1.1rem;">${d.critical_flaws.length}</div><div style="font-size:.72rem;color:var(--text-light);">${d.critical_flaws.length ? escapeHTML(d.critical_flaws.join(', ')) : 'keine'}</div></div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid #64748b;padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">CASQ (INTERNER INDEX) · ${escapeHTML(d.rubric_label)}</div><div style="font-weight:700;font-size:1.1rem;">${formatCASQ(d.score)}</div><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(formatCASQRange(d.score_min, d.score_max)) || 'keine Spanne'}</div></div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--warning);padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">INFORMATIONSGRAD</div><div style="font-weight:700;font-size:1.1rem;">${pct(d.information_grade)}</div><div style="font-size:.72rem;color:var(--text-light);">Prüffragen mit Angaben im Text</div></div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--success);padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">BELEGE VERIFIZIERT</div><div style="font-weight:700;font-size:1.1rem;">${pct(d.evidence_rate)}</div><div style="font-size:.72rem;color:var(--text-light);">„ja/teilweise“ mit Zitat im PDF</div></div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${d.critical_flaws.length ? 'var(--danger)' : 'var(--success)'};padding:.6rem;border-radius:.4rem;"><div style="font-size:.72rem;color:var(--text-light);">KRITISCHE MÄNGEL</div><div style="font-weight:700;font-size:1.1rem;">${d.critical_flaws.length}</div><div style="font-size:.72rem;color:var(--text-light);">${d.critical_flaws.length ? escapeHTML(d.critical_flaws.join(', ')) : 'keine'}</div></div>
         </div>
         ${capNote}
         ${whyBox}
-        ${d.reporting ? `<div style="background:white;border:1px solid var(--border);border-left:4px solid var(--primary);padding:.6rem;border-radius:.4rem;margin:.4rem 0;"><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(d.reporting.label.toUpperCase())}</div><div style="font-weight:700;font-size:1.1rem;">${Math.round(d.reporting.compliance * 100)} % (${d.reporting.fulfilled} von ${d.reporting.considered} Berichtspunkten erfüllt)</div><div style="font-size:.72rem;color:var(--text-light);">interner Erfüllungsgrad der Berichtspunkte – kein offizieller Score; getrennt vom CASQ</div></div>` : ''}
+        ${d.reporting ? `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);padding:.6rem;border-radius:.4rem;margin:.4rem 0;"><div style="font-size:.72rem;color:var(--text-light);">${escapeHTML(d.reporting.label.toUpperCase())}</div><div style="font-weight:700;font-size:1.1rem;">${Math.round(d.reporting.compliance * 100)} % (${d.reporting.fulfilled} von ${d.reporting.considered} Berichtspunkten erfüllt)</div><div style="font-size:.72rem;color:var(--text-light);">interner Erfüllungsgrad der Berichtspunkte – kein offizieller Score; getrennt vom CASQ</div></div>` : ''}
         <div style="font-size:.78rem;color:var(--text-light);margin:.2rem 0 .4rem;"><strong>Methodische Grundlage der Prüffragen:</strong> ${escapeHTML(d.rubric_reference || RUBRIC_REFERENCES[d.rubric] || 'intern abgeleitet')}. Der CASQ ist ein intern berechneter Vergleichsindex, kein offizieller Score.</div>
         <details style="margin-top:.5rem;"><summary style="cursor:pointer;font-weight:600;">CASQ-Prüffragen (${d.dimensions.reduce((a, x) => a + x.questions.length, 0)})</summary>
             <div style="overflow-x:auto;margin-top:.4rem;"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:.8rem;table-layout:fixed;"><colgroup><col style="width:4.5rem;"><col style="width:40%;"><col style="width:8.5rem;"><col></colgroup><thead><tr><th style="text-align:left;">ID</th><th style="text-align:left;">Prüffrage</th><th style="text-align:left;">Antwort</th><th style="text-align:left;">Begründung / Beleg</th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -303,10 +303,10 @@ function renderSourceInfo(info) {
 // ---------- Integritätsprüfung: rechnerisch und per LLM nebeneinander ----------
 function integrityBadge(kind, text) {
     const styles = {
-        ok: 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;',
-        warn: 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;',
-        bad: 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;',
-        none: 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;'
+        ok: 'background:var(--tint-green);color:var(--on-green);border:1px solid var(--line-green);',
+        warn: 'background:var(--tint-amber);color:var(--on-amber);border:1px solid var(--line-amber);',
+        bad: 'background:var(--tint-red);color:var(--on-red);border:1px solid var(--line-red);',
+        none: 'background:var(--surface-3);color:var(--text-2);border:1px solid var(--line-gray);'
     };
     return `<span style="display:inline-block;padding:.1rem .4rem;border-radius:.3rem;white-space:nowrap;font-size:.75rem;${styles[kind] || styles.none}">${escapeHTML(text)}</span>`;
 }
@@ -393,7 +393,7 @@ function renderIntegrity(integ, title) {
     const llmSummary = llm?.summary ? `<div style="margin-top:.35rem;font-size:.85rem;"><strong>LLM-Fazit:</strong> ${escapeHTML(llm.summary)}</div>` : '';
 
     return `<div class="integ-box">
-        <div style="font-size:.72rem;color:#1e3a8a;font-weight:700;">INTEGRITÄTSPRÜFUNG</div>
+        <div style="font-size:.72rem;color:var(--on-blue);font-weight:700;">INTEGRITÄTSPRÜFUNG</div>
         <div class="integ-chips">${chips.join('')}</div>
         <details open><summary style="cursor:pointer;font-weight:600;margin:.4rem 0;">Statistische Angaben (${rows.length})</summary>${statTable}</details>
         ${sideBySide}
@@ -440,7 +440,7 @@ async function loadHistory() {
                 <!-- Detaillierte Parameter- & Performance-Ansicht -->
                 <div style="margin-top: 0.4rem; font-size: 0.75rem; display: flex; gap: 0.4rem; flex-wrap: wrap;">
                     <span class="version-badge" title="LLM-Provider">⚙️ ${escapeHTML(h.provider || '-')}</span>
-                    <span class="version-badge" title="Durchschnittliche Token-Rate" style="background: #ecfdf5; color: #065f46; font-weight: bold;">⚡ ${h.tokensPerSec ? h.tokensPerSec + ' Tok/s' : '-'}</span>
+                    <span class="version-badge" title="Durchschnittliche Token-Rate" style="background: var(--tint-green); color: var(--on-green); font-weight: bold;">⚡ ${h.tokensPerSec ? h.tokensPerSec + ' Tok/s' : '-'}</span>
                     <span class="version-badge" title="Temperature">🌡️ Temp: ${h.temperature !== undefined ? escapeHTML(h.temperature) : '-'}</span>
                     <span class="version-badge" title="Max Output Tokens">📤 Out: ${escapeHTML(h.maxTokens || '-')}</span>
                     <span class="version-badge" title="Max Evidence (Input Limit)">📥 In: ${escapeHTML(h.maxEvidence || '-')}</span>

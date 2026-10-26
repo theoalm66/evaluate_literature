@@ -13,12 +13,14 @@
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="stylesheet" href="css/app.css">
+    <script src="js/theme.js"></script>
     <!-- PDF.js für lokales Parsen im Browser (lokal ausgeliefert, damit es offline funktioniert) -->
     <script src="vendor/pdfjs/pdf.min.js"></script>
 </head>
 <body>
     <!-- LOGIN SCREEN -->
     <div id="login-screen">
+        <button type="button" class="theme-toggle theme-toggle-floating" onclick="cycleTheme()">🖥️ Auto</button>
         <div class="login-card">
             <h2>🔐 Login / Registrierung</h2>
             <p style="font-size: 0.85rem; color: var(--text-light); text-align: center; margin-bottom: 1.5rem;">
@@ -52,6 +54,7 @@
                 <button data-tab="reliability" onclick="switchTab('reliability'); loadReliability();">Zuverlässigkeit</button>
             </nav>
             <div class="user-controls">
+                <button type="button" class="theme-toggle" onclick="cycleTheme()">🖥️ Auto</button>
                 <span id="sync-status" class="sync-status"></span>
                 <span id="net-status" class="net-status" title="Keine Internetverbindung – nur lokale Modelle (z.B. LM Studio auf diesem Gerät) sind nutzbar.">offline</span>
                 👤 <span id="display-username">User</span>
@@ -216,7 +219,7 @@
                     <h2 style="font-size: 1.5rem; text-align: center; border: none; margin-bottom: 1.5rem;">⚙️ Systemeinstellungen</h2>
 
                     <label style="font-size: 1rem;">Aktiver LLM-Provider</label>
-                    <select id="llm-provider" onchange="toggleProviderSettings(); saveUserKeys();" style="padding: 0.75rem; font-size: 1rem; border-color: var(--primary); background: #eff6ff;">
+                    <select id="llm-provider" onchange="toggleProviderSettings(); saveUserKeys();" style="padding: 0.75rem; font-size: 1rem; border-color: var(--primary); background: var(--tint-blue);">
                         <option value="custom1">🖥️ Lokales Profil 1 (z.B. LM Studio)</option>
                         <option value="custom2">🖥️ Lokales Profil 2 (z.B. vLLM / Spark)</option>
                         <option value="custom3">🖥️ Lokales Profil 3 (z.B. Ollama)</option>
@@ -365,7 +368,7 @@
                     <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
 
                     <!-- Agenten-Steuerung & Limits -->
-                    <h3 style="margin-bottom: 1rem; color: #0f172a;">Agenten-Steuerung (Payload)</h3>
+                    <h3 style="margin-bottom: 1rem; color: var(--heading);">Agenten-Steuerung (Payload)</h3>
 
                     <label style="font-size: 1rem;">System Prompt (Global)</label>
                     <textarea id="llm-system-prompt" rows="4" onchange="saveUserKeys()" style="margin-bottom: 0.5rem; font-size: 0.9rem;"></textarea>
@@ -389,7 +392,7 @@
                         <input type="number" id="max-evidence-chars" value="50000" step="1000" onchange="saveUserKeys()" style="margin-bottom: 0; font-size: 1rem; padding: 0.75rem;">
                         <button type="button" class="btn btn-secondary" onclick="autoDetectContext()" style="margin: 0; width: auto; white-space: nowrap; padding: 0.5rem 1rem;">⚙️ Auto-Detect</button>
                     </div>
-                    <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem; background: #f1f5f9; padding: 0.75rem; border-radius: 0.375rem; border-left: 3px solid var(--primary);">
+                    <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem; background: var(--surface-3); padding: 0.75rem; border-radius: 0.375rem; border-left: 3px solid var(--primary);">
                         <strong>Faustregel:</strong> 1 Token ≈ 3,5 Zeichen. Ziehe vom Studio-Context-Window (n_ctx) deine reservierten Output-Tokens ab.<br>
                         <em>Beispiel: 32k Context - 8k Output = 24k für Input → max. 84.000 Zeichen.</em>
                     </div>
@@ -403,8 +406,8 @@
                 <h2>Wie die Agenten arbeiten</h2>
                 <p>Der OnePager führt ein <strong>AI-gestütztes Critical Appraisal</strong> durch. Er bewertet nicht nur Themen oder Zusammenfassungen, sondern versucht die methodische Belastbarkeit jeder Publikation anhand nachweisbarer Textstellen einzuschätzen. Fehlende Angaben werden als <code>not_reported</code> bzw. <code>insufficient_information</code> behandelt und dürfen nicht erfunden werden.</p>
 
-                <div style="background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid var(--primary);padding:1rem;border-radius:.5rem;margin:1rem 0 1.25rem 0;">
-                    <h3 style="margin:0 0 .6rem 0;color:#1e3a8a;">Priorität: etablierte wissenschaftliche Bewertungsinstrumente</h3>
+                <div style="background:var(--tint-blue);border:1px solid var(--line-blue);border-left:4px solid var(--primary);padding:1rem;border-radius:.5rem;margin:1rem 0 1.25rem 0;">
+                    <h3 style="margin:0 0 .6rem 0;color:var(--on-blue);">Priorität: etablierte wissenschaftliche Bewertungsinstrumente</h3>
                     <p style="margin:0 0 .65rem 0;">Der OnePager versucht zuerst ein <strong>in der Wissenschaft etabliertes, zum Studiendesign und Fachgebiet passendes Instrument</strong> anzuwenden. Nur wenn dessen Anwendungsbereich tatsächlich passt, wird der offizielle Score bzw. das offizielle Rating ausgegeben. Der interne CASQ steht bewusst an zweiter Stelle.</p>
                     <ol style="margin:0 0 .6rem 1.2rem;">
                         <li><strong>Primäres etabliertes Instrument:</strong> z. B. PEDro 0–10, MINORS 0–16/24, AMSTAR 2 High/Moderate/Low/Critically low oder COSMIN Very good/Adequate/Doubtful/Inadequate.</li>
@@ -414,7 +417,7 @@
                     </ol>
                     <p style="margin:0;font-size:.86rem;"><strong>Grundsatz:</strong> Ein wissenschaftlich unpassendes Instrument wird nicht erzwungen. Der Agent muss die Anwendbarkeit begründen und kann <code>not_applicable</code> ausgeben.</p>
                 </div>
-                <div style="background:#f8fafc;border:1px solid var(--border);padding:1rem;border-radius:.5rem;margin:1rem 0;">
+                <div style="background:var(--surface-2);border:1px solid var(--border);padding:1rem;border-radius:.5rem;margin:1rem 0;">
                     <h3 style="margin:0 0 .5rem 0;">Schutzstufe: Dokumenttyp vor Studiendesign</h3>
                     <p style="margin:0 0 .5rem 0;">Bevor MMAT, CASP, PEDro, MINORS oder andere Instrumente ausgewählt werden, klassifiziert Agent 2 zunächst, <strong>was für ein Dokument überhaupt vorliegt</strong>. Dadurch wird ein Methodenbeitrag, der mehrere Studien nur beschreibt, nicht mehr wie eine einzelne Primärstudie bewertet.</p>
                     <p style="margin:.4rem 0 0;font-size:.86rem;"><strong>Tie-Breaker:</strong> Mehrere erwähnte Studien machen ein Paper noch nicht zu einem <code>multiple_study_report</code>. Wenn Titel, Abstract, Zielsetzung und Gliederung primär Methoden, Messinstrumente oder Forschungszugänge erklären und die Studien nur als Beispiele/Evidenz dienen, wird <code>methodological_paper</code> gewählt. <code>multiple_study_report</code> ist für Artikel reserviert, deren mehrere originäre Teilstudien den eigentlichen empirischen Kern bilden.</p>
@@ -486,7 +489,7 @@
                 <p>Ein Sprachmodell verarbeitet Text in sogenannten "Tokens". Bei deutschen wissenschaftlichen Texten entspricht <strong>1 Token etwa 3,5 Zeichen</strong>. Das Context Window deines Modells (z. B. 16.384 Tokens) muss sich aufteilen in: den Prompt, den Evidenztext und die ausführliche JSON-Antwort.</p>
                 <p>Damit das Modell die Antwort nicht mittendrin abschneidet (was zu Parser-Fehlern führt), musst du genug Platz ("Atemluft") für die komplexe JSON-Struktur lassen – einstellbar als "Max Output Tokens" (Standard: 8.192).</p>
 
-                <div style="background: #f1f5f9; padding: 0.75rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-family: monospace; font-size: 0.9rem; color: #0f172a;">
+                <div style="background: var(--surface-3); padding: 0.75rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-family: monospace; font-size: 0.9rem; color: var(--heading);">
                     <strong>Formel:</strong> Max. Zeichen = (Context Window − Max_Output_Tokens − 12.000 Token für die Anweisungen) × 3,2, höchstens 200.000. Die Zahl ist ein Richtwert, kein Muss: Der Text eines PDFs wird nie aufgefüllt, ein größeres Limit schadet also nur bei sehr langen Dokumenten.
                 </div>
 
@@ -524,7 +527,7 @@
                     <li style="margin-bottom: 0.5rem;"><strong>Auffüllen (Fallback):</strong> Nur falls diese gezielte Stichwortsuche zu wenig Text liefert, füllt der Algorithmus den restlichen Platz der Reihe nach mit den zuvor übersprungenen Seiten auf.</li>
                 </ol>
 
-                <div style="background: #ecfdf5; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--success); margin-bottom: 2rem;">
+                <div style="background: var(--tint-green); padding: 1rem; border-radius: 0.5rem; border-left: 4px solid var(--success); margin-bottom: 2rem;">
                     <strong>Fazit:</strong> Der Evidenzkontext ist quasi ein <strong>Best-of des Papiers</strong>. Er wirft irrelevante Seiten weg, um Platz für die methodischen Kernabschnitte zu machen. Setze das Limit so hoch wie es dein Server-VRAM zulässt, damit keine relevante "Keyword-Seite" aus Platzmangel weggelassen wird!
                 </div>
 
@@ -571,7 +574,7 @@
 
                 <h2>APA JARS-Quant bei Multiple-Study-Reports</h2>
                 <p><strong>JARS</strong> steht für <em>Journal Article Reporting Standards</em> der American Psychological Association (APA). Bei geeigneten quantitativen Multiple-Study-Artikeln nutzt der OnePager JARS-Quant als <strong>offiziellen APA-Reporting-Standard</strong> auf Dokumentebene.</p>
-                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #22c55e;padding:1rem;border-radius:.5rem;margin:1rem 0;">
+                <div style="background:var(--tint-green);border:1px solid var(--line-green);border-left:4px solid #22c55e;padding:1rem;border-radius:.5rem;margin:1rem 0;">
                     <strong>JARS bewertet:</strong> Transparenz und Vollständigkeit der wissenschaftlichen Berichterstattung – etwa gemeinsamen theoretischen Rahmen, Logik der Studienfolge, Method/Results je Teilstudie und General Discussion.<br><br>
                     <strong>JARS bewertet nicht:</strong> Risk of Bias oder methodische Qualität als offiziellen numerischen Score.
                 </div>
@@ -656,7 +659,7 @@
     <div id="source-modal" class="source-modal" onclick="if(event.target===this) closeSourceReference()">
         <div class="source-modal-card">
             <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;">
-                <div><h3 style="margin:0;color:#0f172a;">Quellenbeleg</h3><div id="source-modal-meta" class="source-meta"></div></div>
+                <div><h3 style="margin:0;color:var(--heading);">Quellenbeleg</h3><div id="source-modal-meta" class="source-meta"></div></div>
                 <button class="btn btn-secondary btn-small" onclick="closeSourceReference()">Schließen</button>
             </div>
             <div id="source-modal-quote" class="source-quote"></div>
