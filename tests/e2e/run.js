@@ -476,6 +476,48 @@ async function login(page, user, pass, action = 'login') {
         assert.equal(exportedJournals, 2);
         console.log('✓ Zeitschriftenkontext: Liste importiert, Zeitschrift zugeordnet (VHB A+, ABDC A*, FT50, SJR), Export enthält die Liste');
 
+        // 14) Stopp: laufender Aufruf wird abgebrochen, es folgen keine weiteren Aufrufe, der Knopf verschwindet wieder
+        llm.state.domain = 'business';
+        llm.state.hangFirst = 1;   // der nächste Aufruf hängt 4 s
+        llm.calls.length = 0;
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForSelector('#btn-stop', { state: 'visible' });
+        await page.waitForTimeout(800);
+        const stopClickedAt = Date.now();
+        await page.click('#btn-stop');
+        await page.waitForFunction(() => !document.getElementById('btn-start').disabled, null, { timeout: 3000 });
+        assert.ok(Date.now() - stopClickedAt < 3000, 'Stopp muss sofort greifen und nicht den hängenden Aufruf abwarten');
+        assert.ok(!(await page.isVisible('#btn-stop')), 'Stopp-Knopf muss nach dem Abbruch verschwinden');
+        const stopLog = await page.textContent('#terminal');
+        assert.ok(stopLog.includes('Stopp angefordert') && stopLog.includes('vom Nutzer abgebrochen'), 'Abbruch nicht protokolliert: ' + stopLog.slice(-300));
+        assert.ok(!stopLog.includes('KRITISCHER') && !stopLog.includes('ÜBERSPRUNGEN'), 'Abbruch darf kein Fehler sein');
+        const callsAtStop = llm.calls.length;
+        await page.waitForTimeout(1500);
+        assert.equal(llm.calls.length, callsAtStop, 'nach dem Stopp dürfen keine weiteren Modellaufrufe folgen');
+        llm.state.hangFirst = 0;
+        console.log('✓ Stopp-Knopf: laufender Aufruf abgebrochen, keine weiteren Aufrufe, Start wieder möglich');
+
+        // Stopp in der Synthese: die fertig ausgewertete Studie bleibt als Teilergebnis erhalten
+        llm.state.hangAgent = 'Du bist Agent 5';
+        const runsBefore = await page.evaluate(async () => (await listRuns(currentUser)).length);
+        await page.click('nav button[data-tab="dashboard"]');
+        await page.setInputFiles('#file-input', pdfFile);
+        await page.click('#btn-start');
+        await page.waitForFunction(() => document.getElementById('terminal').textContent.includes('PHASE 5'), null, { timeout: 60000 });
+        await page.waitForTimeout(500);
+        await page.click('#btn-stop');
+        await page.waitForFunction(() => !document.getElementById('btn-start').disabled, null, { timeout: 4000 });
+        await page.waitForSelector('#results-view.active', { timeout: 10000 });
+        const partialText = await page.textContent('#res-studies');
+        assert.ok(partialText.includes('Befragung / SEM / PLS-SEM'), 'fertige Studie fehlt im Teilergebnis');
+        const runsAfter = await page.evaluate(async () => (await listRuns(currentUser)).length);
+        assert.equal(runsAfter, runsBefore + 1, 'Teilergebnis muss in der Historie gespeichert sein');
+        assert.ok((await page.textContent('#terminal')).includes('Teilergebnis erhalten'));
+        llm.state.hangAgent = null;
+        console.log('✓ Stopp in der Synthese: fertig ausgewertete Studie bleibt als Teilergebnis erhalten');
+
         // 12) Geschwindigkeitstest und Option „JSON-Schema nicht verwenden“
         await page.click('nav button[data-tab="dashboard"]');
         llm.state.payloads.length = 0;

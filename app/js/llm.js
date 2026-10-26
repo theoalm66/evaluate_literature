@@ -254,6 +254,7 @@ async function probeVisionSupport(force = false) {
             ? { state: 'yes', detail: 'Testbild erkannt.' }
             : { state: 'no', detail: 'Das Modell hat das Testbild nicht erkannt.' };
     } catch (err) {
+        rethrowIfStopped(err);
         const msg = err?.message || String(err);
         // HTTP-Fehler 4xx bei Bildern heißt fast immer: Modell/Server ohne Bildverarbeitung
         result = /API Fehler \(4\d\d\)/.test(msg)
@@ -306,7 +307,14 @@ function explainNetworkError(url, elapsedMs = 0) {
     return `Der Server ${target.host} ist nicht erreichbar, oder er erlaubt keine Aufrufe aus dem Browser (CORS: Der Anbieter muss „Access-Control-Allow-Origin“ senden). Bitte URL, Netzwerk und – bei Hochschul-Netzen – VPN prüfen.`;
 }
 
-const sleepMs = ms => new Promise(resolve => setTimeout(resolve, ms));
+// Abbruch durch den Nutzer („Stopp“): Ein laufender Aufruf wird abgebrochen, es folgen keine weiteren Aufrufe.
+class RunStopped extends Error {
+    constructor() { super('Vom Nutzer abgebrochen.'); this.name = 'RunStopped'; }
+}
+let runControl = null;   // { controller, stopped } solange eine Analyse läuft
+function throwIfStopped() { if (runControl?.stopped) throw new RunStopped(); }
+function rethrowIfStopped(err) { if (err instanceof RunStopped) throw err; }
+const sleepMs = async ms => { await new Promise(resolve => setTimeout(resolve, ms)); throwIfStopped(); };
 
 // Anbieter, bei denen die Antwort als Datenstrom (SSE) geholt wird: Ein einzelner langer Aufruf läuft sonst in
 // Zeitlimits von Gateways (z.B. 5 Minuten ohne Antwort) und endet als scheinbarer Netzwerkfehler.
@@ -367,6 +375,7 @@ async function readChatResponse(response) {
 }
 
 async function callLLM(prompt, meta = {}) {
+    throwIfStopped();
     const provider = document.getElementById('llm-provider').value;
     let url, key, model;
     
@@ -486,12 +495,12 @@ async function callLLM(prompt, meta = {}) {
         const limit = meta.timeoutMs || clientTimeoutMs;
         let timer = null;
         ownTimeoutFired = false;
-        if (limit) {
-            const ctrl = new AbortController();
-            init.signal = ctrl.signal;
-            timer = setTimeout(() => { ownTimeoutFired = true; ctrl.abort(); }, limit);
-        }
-        try { return await fetch(url, init); } finally { clearTimeout(timer); }
+        const ctrl = new AbortController();
+        init.signal = ctrl.signal;
+        if (limit) timer = setTimeout(() => { ownTimeoutFired = true; ctrl.abort(); }, limit);
+        const onStop = () => ctrl.abort();
+        runControl?.controller.signal.addEventListener('abort', onStop, { once: true });
+        try { return await fetch(url, init); } finally { clearTimeout(timer); runControl?.controller.signal.removeEventListener('abort', onStop); }
     };
     for (;;) {
         attempt++;
@@ -503,6 +512,7 @@ async function callLLM(prompt, meta = {}) {
                 response = await send();
             }
         } catch (err) {
+            throwIfStopped();
             const elapsed = performance.now() - attemptStart;
             const timedOut = ownTimeoutFired && !meta.timeoutMs;
             if (timedOut && attempt < MAX_SEND_ATTEMPTS) {
@@ -641,6 +651,7 @@ async function callLLM(prompt, meta = {}) {
     try {
         data = payload.stream ? await readChatResponse(response) : await response.json();
     } catch (err) {
+        throwIfStopped();
         const elapsed = performance.now() - startTime;
         const hint = explainNetworkError(url, elapsed);
         rec({ ...stepBase, duration_ms: Math.round(elapsed), error: `Antwort abgebrochen: ${err?.message || err} – ${hint}` });

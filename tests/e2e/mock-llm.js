@@ -119,7 +119,7 @@ function answerFor(prompt, ctx) {
 function startMockLLM(port) {
     const calls = [];            // Text der Agent-Aufrufe (ohne Bildprüfung)
     const imageCalls = [];       // { agent, images } je Aufruf mit Bildern
-    const state = { streamed: [], failSchema500: 0, rejectStream: false, kwargs500: false, emptyOnce: 0, hangFirst: 0, rejectKwargs: false, payloads: [], sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
+    const state = { streamed: [], failSchema500: 0, rejectStream: false, hangAgent: null, kwargs500: false, emptyOnce: 0, hangFirst: 0, rejectKwargs: false, payloads: [], sseContentType: 'text/event-stream', streamAsOneJson: false, domain: 'health', vision: true, jsonSchema: true, requireKey: null, agentCalls: {} };
     const temps = [];            // Agent und Temperatur je Aufruf
     const formats = [];          // response_format-Typ je Aufruf
     const server = http.createServer((req, res) => {
@@ -143,6 +143,9 @@ function startMockLLM(port) {
             const parts = Array.isArray(raw) ? raw : [{ type: 'text', text: raw }];
             const prompt = parts.filter(p => p.type === 'text').map(p => p.text).join('\n');
             const images = parts.filter(p => p.type === 'image_url').length;
+            if (state.hangAgent && prompt.includes(state.hangAgent)) {   // bestimmter Agent hängt (Abbruch-Test)
+                return void setTimeout(() => { try { res.destroy(); } catch (e) { /* schon geschlossen */ } }, 6000);
+            }
             if (images && !state.vision) {
                 res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: { message: 'This model does not support image input.' } }));

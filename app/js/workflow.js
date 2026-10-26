@@ -17,6 +17,7 @@ async function callWithVisuals(prompt, meta, doc) {
     try {
         return await callLLM(prompt + visualNote(doc), { ...meta, images: doc.visuals.map(v => v.dataUrl), imagePages: doc.visuals.map(v => v.page) });
     } catch (err) {
+        rethrowIfStopped(err);
         if (!/API Fehler \(4\d\d\)/.test(err?.message || '')) throw err;
         log(`${doc.title}: Das Modell lehnt Bilder ab – weiter nur mit Text.`, 'warning');
         visionSupport[visionKey()] = { state: 'no', detail: 'Bilder beim Aufruf abgelehnt.', checkedAt: new Date().toLocaleTimeString() };
@@ -95,6 +96,7 @@ async function runIntegrityChecks(doc, ext, options, promptVersionId) {
             const prompt = fillTemplate(getCurrentPrompt('integrity'), { TITLE: doc.title, SOURCE_TEXT: doc.evidence_text });
             result.llm = parseJSONRobust(await callWithVisuals(prompt, { agent: 'integrity', doc: doc.title, promptVersionId, schema: agentSchema('integrity') }, doc));
         } catch (err) {
+            rethrowIfStopped(err);
             result.llm_error = err?.message || String(err);
             log(`Integrität (LLM) für ${doc.title} fehlgeschlagen: ${result.llm_error}`, 'warning');
         }
@@ -132,7 +134,12 @@ async function startWorkflow() {
         llm: document.getElementById('opt-integrity-llm').checked
     };
 
+    runControl = { controller: new AbortController(), stopped: false };
     document.getElementById('btn-start').disabled = true;
+    const stopButton = document.getElementById('btn-stop');
+    stopButton.style.display = '';
+    stopButton.disabled = false;
+    stopButton.textContent = '⏹ Stopp';
     document.getElementById('terminal').style.display = 'flex';
     document.getElementById('btn-toggle-terminal').textContent = 'Terminal ausblenden';
     document.getElementById('results-view').classList.remove('active');
@@ -189,6 +196,7 @@ async function startWorkflow() {
         grade_assessment: { applicable: false, outcomes: [] }
     };
 
+    let stoppedByUser = false;
     const registerFailure = (title, phase, err) => {
         const message = err?.message || String(err);
         failures.push({ title, phase, error: message });
@@ -201,6 +209,7 @@ async function startWorkflow() {
         setStep(1, 'active');
         log('PHASE 1: Lese PDFs vollständig ein und markiere Seiten...', 'info');
         for (const file of selectedFiles) {
+            throwIfStopped();
             try {
                 const parsed = await extractPdf(file, { renderVisuals: visionActive });
                 const q = parsed.quality;
@@ -214,6 +223,7 @@ async function startWorkflow() {
                     + `${parsed.visuals.length ? `, ${parsed.visuals.length} Seitenbild(er) für das Modell` : ''}.`, 'success');
                 if (q.scanned_pages.length) log(`${file.name}: ${q.scanned_pages.length} Seite(n) ohne Textschicht, vermutlich gescannt: S. ${q.scanned_pages.join(', ')}. Ihr Inhalt fehlt im Text (OCR wird nicht unterstützt) – Ergebnisse können unvollständig sein.`, 'warning');
             } catch (err) {
+                rethrowIfStopped(err);
                 registerFailure(file.name, 'Ingestion', err);
             }
         }
@@ -224,6 +234,7 @@ async function startWorkflow() {
         log('PHASE 2: Extrahiere Studiendesign und belegte Methodenevidenz je Publikation...', 'info');
         const extPromptBase = getCurrentPrompt('extraction');
         for (const doc of docs) {
+            throwIfStopped();
             try {
                 log(`Evidence Extraction: ${doc.title}`, 'info');
                 let ext = await runExtraction(doc, extPromptBase, promptVersionIds.extraction, splitExtraction);
@@ -231,6 +242,7 @@ async function startWorkflow() {
                 ext = verifyExtractionEvidenceRefs(ext, doc.pages);
                 extractedDocs.push({ doc, ext });
             } catch (err) {
+                rethrowIfStopped(err);
                 registerFailure(doc.title, 'Extraction', err);
             }
         }
@@ -256,11 +268,13 @@ async function startWorkflow() {
                 const analysisRuns = [], casqRuns = [];
                 let analysisError = null;
                 for (let run = 1; run <= repeatRuns; run++) {
+                    throwIfStopped();
                     const runInfo = repeatRuns > 1 ? { run, temperature: runTemperature } : {};
                     try {
                         if (repeatRuns > 1) log(`Critical Appraisal (Agent 3) – Durchlauf ${run}/${repeatRuns}: ${doc.title}`, 'info');
                         analysisRuns.push(parseJSONRobust(await callLLM(prompt, { agent: 'analysis', doc: doc.title, promptVersionId: promptVersionIds.analysis, schema: agentSchema('analysis'), ...runInfo })));
                     } catch (err) {
+                        rethrowIfStopped(err);
                         analysisError = err;
                         if (repeatRuns > 1) log(`Durchlauf ${run}/${repeatRuns} (Agent 3) fehlgeschlagen: ${err?.message || err}`, 'warning');
                     }
@@ -270,6 +284,7 @@ async function startWorkflow() {
                         const casq = parseJSONRobust(await callLLM(casqPrompt, { agent: 'casq', doc: doc.title, promptVersionId: promptVersionIds.casq, schema: agentSchema('casq', { rubric: rubricKey }), ...runInfo }));
                         if (Array.isArray(casq.casq_checklist)) casqRuns.push(casq.casq_checklist);
                     } catch (err) {
+                        rethrowIfStopped(err);
                         log(`CASQ-Prüffragen für ${doc.title} fehlgeschlagen: ${err?.message || err}`, 'warning');
                     }
                 }
@@ -311,6 +326,7 @@ async function startWorkflow() {
                 if (reliability) log(`Mehrfachbewertung ${doc.title}: CASQ ${reliability.casq?.scores?.map(v => v === null ? '–' : v.toFixed(1)).join(' / ') || 'nicht berechenbar'}; ${reliability.casq?.uncertain?.length ?? 0} unsichere Prüffrage(n).`, 'info');
                 appraisedDocs.push({ doc, ext, appraisal, rubricKey, casqFields, reliability });
             } catch (err) {
+                rethrowIfStopped(err);
                 registerFailure(doc.title, 'Critical Appraisal', err);
             }
         }
@@ -337,6 +353,7 @@ async function startWorkflow() {
                         const cv = parseJSONRobust(await callLLM(cvPrompt, { agent: 'casq_validation', doc: doc.title, promptVersionId: promptVersionIds.casq_validation, schema: agentSchema('casq_validation', { rubric: rubricKey }) }));
                         if (Array.isArray(cv.validated_casq_checklist)) validation.validated_casq_checklist = cv.validated_casq_checklist;
                     } catch (err) {
+                        rethrowIfStopped(err);
                         log(`CASQ-Validierung für ${doc.title} fehlgeschlagen – es zählen die Antworten von Agent 3b: ${err?.message || err}`, 'warning');
                     }
                 }
@@ -383,6 +400,7 @@ async function startWorkflow() {
                     source_info: sourceInfoFor(doc)
                 });
             } catch (err) {
+                rethrowIfStopped(err);
                 registerFailure(doc.title, 'Evidence Validation', err);
             }
         }
@@ -419,6 +437,7 @@ async function startWorkflow() {
                 synthesis.num_studies_included = studyResults.length;
                 synthesis.meta_analysis_performed = false;
             } catch (err) {
+                rethrowIfStopped(err);
                 registerFailure('Cross-Study-Synthese', 'Synthesis', err);
                 synthesis = {
                     topics: [], synthesized_arguments: [], consistency_of_findings: 'unclear',
@@ -478,9 +497,13 @@ async function startWorkflow() {
         await saveToHistory(globalResults, currentRunSteps);
         renderResults(globalResults);
     } catch (err) {
-        // Nur noch unerwartete, laufweite Fehler landen hier. Bereits erzeugte Ergebnisse werden soweit möglich gerettet.
-        log(`KRITISCHER WORKFLOW-FEHLER: ${err.message}`, 'error');
-        console.error(err);
+        // Nur noch unerwartete, laufweite Fehler und der Abbruch durch den Nutzer landen hier. Bereits fertig ausgewertete Studien bleiben erhalten.
+        stoppedByUser = err instanceof RunStopped;
+        if (stoppedByUser) log(`⏹ Analyse vom Nutzer abgebrochen.${studyResults.length ? ` ${studyResults.length} bereits fertig ausgewertete Studie(n) bleiben als Teilergebnis erhalten.` : ' Es liegen keine fertigen Ergebnisse vor.'}`, 'warning');
+        else {
+            log(`KRITISCHER WORKFLOW-FEHLER: ${err.message}`, 'error');
+            console.error(err);
+        }
         if (studyResults.length > 0) {
             const validScores = studyResults.map(r => r.casq_score).filter(v => Number.isFinite(v));
             const meanCASQ = validScores.length ? validScores.reduce((a,b) => a+b, 0) / validScores.length : null;
@@ -491,13 +514,13 @@ async function startWorkflow() {
                 tokensPerSec: 0, prompts_used: promptDates, prompt_version_ids: promptVersionIds, scoring_version: SCORING_VERSION,
                 extractions: extractedDocs.map(x => x.ext), appraisals: appraisedDocs.map(x => x.appraisal),
                 validations: studyResults.map(x => x.validation), study_results: studyResults,
-                failed_documents: [...failures, {title:'Gesamtlauf', phase:'Workflow', error: err.message}],
+                failed_documents: [...failures, { title: 'Gesamtlauf', phase: stoppedByUser ? 'Abbruch' : 'Workflow', error: stoppedByUser ? 'Vom Nutzer abgebrochen; nicht ausgewertete Dokumente fehlen.' : err.message }],
                 synthesis,
                 validation: {
                     casq_score: meanCASQ === null ? null : Number(meanCASQ.toFixed(1)),
                     evidence_coverage: Math.round(meanCoverage),
                     overall_quality: qualityLabel(meanCASQ, meanCoverage),
-                    note: 'Teilergebnis nach kritischem Workflow-Fehler.'
+                    note: stoppedByUser ? 'Teilergebnis nach Abbruch durch den Nutzer.' : 'Teilergebnis nach kritischem Workflow-Fehler.'
                 }
             };
             await saveToHistory(globalResults, currentRunSteps);
@@ -505,6 +528,21 @@ async function startWorkflow() {
         }
     } finally {
         currentRunSteps = null;
+        runControl = null;
         document.getElementById('btn-start').disabled = false;
+        document.getElementById('btn-stop').style.display = 'none';
+        [1, 2, 3, 4, 5].forEach(i => document.getElementById(`step-${i}`)?.classList.remove('active'));
     }
+}
+
+
+// Hält die laufende Analyse an: der gerade laufende Modellaufruf wird abgebrochen, weitere werden nicht mehr gestartet.
+function stopWorkflow() {
+    if (!runControl || runControl.stopped) return;
+    runControl.stopped = true;
+    runControl.controller.abort();
+    const button = document.getElementById('btn-stop');
+    button.disabled = true;
+    button.textContent = 'Wird abgebrochen …';
+    log('⏹ Stopp angefordert – der laufende Modellaufruf wird abgebrochen.', 'warning');
 }
