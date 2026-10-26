@@ -320,6 +320,14 @@ async function login(page, user, pass, action = 'login') {
         await page.dispatchEvent('#llm-provider', 'change');
         await page.waitForFunction(() => document.getElementById('llm-status-text').textContent.startsWith('Lokales Profil 1'));
 
+        // Kontext automatisch erkennen: Fenster des Test-Modells 32.768 Token, Antwort 8.192, 12.000 für Anweisungen → 40.000 Zeichen
+        await page.click('nav button[data-tab="config"]');
+        page.once('dialog', d => d.accept());
+        await page.evaluate(() => autoDetectContext());
+        assert.equal(await page.inputValue('#max-evidence-chars'), '40000', 'Kontext-Erkennung rechnet falsch oder bricht ab');
+        await page.evaluate(() => { document.getElementById('max-evidence-chars').value = 50000; saveUserKeys(); });
+        console.log('✓ Kontext automatisch erkennen: 32.768 Token Fenster → 40.000 Zeichen');
+
         // 4) Lauf + Agent-Protokoll in IndexedDB
         const stored = await page.evaluate(async () => {
             const runs = await listRuns('alt');

@@ -27,15 +27,12 @@ async function autoDetectContext() {
     try {
         if (provider === 'openai') {
             if(!key) { alert("Bitte zuerst einen OpenAI API-Key eingeben."); return; }
-            let ctx = 8192; 
-            const m = modelName.toLowerCase();
-            if (m.includes('gpt-4o') || m.includes('gpt-4-turbo')) ctx = 128000;
-            
+            const ctx = openaiContextTokens(modelName);
             const outTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
-            const chars = Math.floor((ctx - outTokens) * 3.5);
+            const chars = evidenceCharsForContext(ctx, outTokens);
             document.getElementById('max-evidence-chars').value = chars;
             saveUserKeys();
-            alert(`OpenAI Modell erkannt (${ctx} Tokens).\nLimit wurde automatisch auf ${chars.toLocaleString()} Zeichen gesetzt.`);
+            alert(`OpenAI-Modell „${modelName}“: Annahme ${ctx.toLocaleString('de-DE')} Token Kontextfenster (aus dem Modellnamen).\nLimit auf ${chars.toLocaleString('de-DE')} Zeichen gesetzt = (Fenster − ${outTokens.toLocaleString('de-DE')} Token Antwort − ${PROMPT_OVERHEAD_TOKENS.toLocaleString('de-DE')} Token für Anweisungen) × ${CHARS_PER_TOKEN} Zeichen je Token, höchstens ${MAX_AUTO_EVIDENCE_CHARS.toLocaleString('de-DE')}.`);
             log(`Auto-Detect: OpenAI ${ctx} Tokens -> ${chars} Zeichen`, 'success');
             return;
         }
@@ -46,10 +43,6 @@ async function autoDetectContext() {
         if (!response.ok) throw new Error(`API Fehler: ${response.status}`);
         
         const data = await response.json();
-    if (useSchema && payload.response_format?.type === 'json_schema') {
-        structuredOutputSupport[schemaKey] = 'yes';
-        stepBase.structured_output = 'json_schema';
-    }
         let ctx = null;
         
         if (data.data && data.data.length > 0) {
@@ -61,10 +54,10 @@ async function autoDetectContext() {
 
         if (ctx) {
             const outTokens = parseInt(document.getElementById('max-output-tokens').value, 10) || 8192;
-            const chars = Math.floor((ctx - outTokens) * 3.5);
+            const chars = evidenceCharsForContext(ctx, outTokens);
             document.getElementById('max-evidence-chars').value = chars;
             saveUserKeys();
-            alert(`Lokales Modell erkannt (${ctx} Tokens).\nLimit wurde automatisch auf ${chars.toLocaleString()} Zeichen gesetzt.`);
+            alert(`Modell erkannt: ${Number(ctx).toLocaleString('de-DE')} Token Kontextfenster.\nLimit auf ${chars.toLocaleString('de-DE')} Zeichen gesetzt = (Fenster − ${outTokens.toLocaleString('de-DE')} Token Antwort − ${PROMPT_OVERHEAD_TOKENS.toLocaleString('de-DE')} Token für Anweisungen) × ${CHARS_PER_TOKEN} Zeichen je Token, höchstens ${MAX_AUTO_EVIDENCE_CHARS.toLocaleString('de-DE')}.`);
             log(`Auto-Detect: Lokal ${ctx} Tokens -> ${chars} Zeichen`, 'success');
         } else {
             alert("Der lokale Server verheimlicht das Kontext-Limit leider in der API-Antwort.\n\nBitte prüfe den n_ctx Wert in deinem Studio und trage ihn manuell anhand der Faustregel ein.");
@@ -603,6 +596,11 @@ async function callLLM(prompt, meta = {}) {
             continue;
         }
         break;
+    }
+    // Der Server hat das JSON-Schema akzeptiert: für dieses Modell merken und im Protokoll festhalten.
+    if (response.ok && payload.response_format?.type === 'json_schema') {
+        structuredOutputSupport[schemaKey] = 'yes';
+        stepBase.structured_output = stepBase.structured_output || 'json_schema';
     }
     // Ohne Reasoning-Parameter gelang, was mit ihm an Serverfehlern scheiterte: nach wiederholtem Auftreten für dieses Modell abschalten.
     if (response.ok && kwargsDropped) {

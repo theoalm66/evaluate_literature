@@ -28,3 +28,15 @@ test('Provider-Zuordnung', () => {
     assert.equal(p.isUrlProvider('spark'), false);
     assert.deepEqual(p.MODEL_PROVIDERS, ['hochschule', 'endpoint']);
 });
+
+test('Kontext erkennen: Zeichenlimit berücksichtigt Antwort und Anweisungen und ist gedeckelt', () => {
+    // gpt-4o-mini mit 16.384 Token Antwort: früher (128000 − 16384) × 3,5 = 390.656 Zeichen
+    assert.equal(p.openaiContextTokens('gpt-4o-mini'), 128000);
+    assert.equal(p.evidenceCharsForContext(128000, 16384), p.MAX_AUTO_EVIDENCE_CHARS);
+    // kleineres Fenster: (32.000 − 8.000 − 12.000) × 3,2 = 38.400 → 38.000
+    assert.equal(p.evidenceCharsForContext(32000, 8000), 38000);
+    // zu kleines Fenster liefert einen kleinen, aber gültigen Wert
+    assert.equal(p.evidenceCharsForContext(8192, 8192), 4000);
+    assert.equal(p.openaiContextTokens('gpt-4.1-mini'), 128000);
+    assert.equal(p.openaiContextTokens('gpt-4'), 8192);
+});

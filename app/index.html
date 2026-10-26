@@ -486,7 +486,7 @@
                 <p>Damit das Modell die Antwort nicht mittendrin abschneidet (was zu Parser-Fehlern führt), musst du genug Platz ("Atemluft") für die komplexe JSON-Struktur lassen – einstellbar als "Max Output Tokens" (Standard: 8.192).</p>
 
                 <div style="background: #f1f5f9; padding: 0.75rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-family: monospace; font-size: 0.9rem; color: #0f172a;">
-                    <strong>Formel:</strong> Max. Zeichen = (Context Window - Max_Output_Tokens) × 3,5
+                    <strong>Formel:</strong> Max. Zeichen = (Context Window − Max_Output_Tokens − 12.000 Token für die Anweisungen) × 3,2, höchstens 200.000. Die Zahl ist ein Richtwert, kein Muss: Der Text eines PDFs wird nie aufgefüllt, ein größeres Limit schadet also nur bei sehr langen Dokumenten.
                 </div>
 
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 2rem; font-size: 0.9rem; text-align: left;">

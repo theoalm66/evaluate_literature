@@ -102,6 +102,27 @@ function updateProviderActiveHints() {
     }
 }
 
+// Empfohlenes Zeichenlimit für den Evidenztext aus dem Kontextfenster. Vom Fenster gehen die Antwort und der Aufwand der Anweisungen
+// (Prompt, Schema, Extraktion, Prüffragen) ab; Zahlen und Tabellen brauchen mehr Token je Zeichen als Fließtext. Ein sehr großes Fenster
+// wird gedeckelt: Längere Texte kosten viel, bringen selten etwas und laufen leicht in Ratenlimits.
+const PROMPT_OVERHEAD_TOKENS = 12000;
+const CHARS_PER_TOKEN = 3.2;
+const MAX_AUTO_EVIDENCE_CHARS = 200000;
+
+function evidenceCharsForContext(contextTokens, outputTokens) {
+    const usable = Number(contextTokens) - Number(outputTokens || 0) - PROMPT_OVERHEAD_TOKENS;
+    if (!(usable > 0)) return 4000;
+    return Math.min(MAX_AUTO_EVIDENCE_CHARS, Math.floor(usable * CHARS_PER_TOKEN / 1000) * 1000);
+}
+
+// Kontextfenster aus dem OpenAI-Modellnamen; bewusst vorsichtig (die genannten Modellfamilien haben mindestens 128.000 Token).
+function openaiContextTokens(modelName) {
+    const m = String(modelName || '').toLowerCase();
+    if (/gpt-4o|gpt-4-turbo|gpt-4\.1|gpt-5|^o[134]/.test(m)) return 128000;
+    if (/gpt-3\.5-turbo-16k/.test(m)) return 16000;
+    return 8192;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { parseModelList, isUrlProvider, URL_PROVIDERS, MODEL_PROVIDERS, NON_CHAT_MODEL };
+    module.exports = { evidenceCharsForContext, openaiContextTokens, PROMPT_OVERHEAD_TOKENS, MAX_AUTO_EVIDENCE_CHARS, parseModelList, isUrlProvider, URL_PROVIDERS, MODEL_PROVIDERS, NON_CHAT_MODEL };
 }
