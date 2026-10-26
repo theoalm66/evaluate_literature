@@ -115,6 +115,12 @@ Agent 3 und 4 sehen weiter den wichtigsten Ausschnitt, die LLM-Validierung der P
 Kontextfenster des Modells bekannt ist und reicht), **anderes Modell** (eingerichtete Modelle mit ausreichend großem Fenster), **gekürzt auswerten** (mit
 Warnung im Ergebnis) oder **abbrechen**. Das Kontextfenster kennt die App aus „Kontext automatisch erkennen“ bzw. aus dem OpenAI-Modellnamen (Annahme).
 
+### Darstellung (Auto / Hell / Dunkel)
+
+Oben rechts schaltet der Knopf zwischen **Auto** (folgt der Einstellung des Geräts), **Hell** und **Dunkel** um. Die Wahl gilt pro Gerät und bleibt im Browser
+gespeichert; der Knopf steht auch auf der Anmeldeseite. Alle Farben der Oberfläche laufen über Variablen in `app/css/app.css` (dunkle Werte unter
+`html[data-scheme="dark"]`), das Umschalten erledigt `app/js/theme.js`.
+
 ### Konten und Synchronisation
 
 - **Neues Konto:** beim Registrieren den Einladungscode eingeben. Ohne Code entsteht wie bisher ein rein lokales Profil.

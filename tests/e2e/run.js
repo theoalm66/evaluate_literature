@@ -172,6 +172,44 @@ async function login(page, user, pass, action = 'login') {
         assert.ok(study.includes('Testvalidierung $& mit Sonderzeichen.'), 'Sonderzeichen verfälscht');
         console.log('✓ Analyse-Lauf: PEDro 4/10 (unvollständig), CASQ 2.0 = 8.7 (Spanne 8.7–9.2), Informationsgrad 96 %, Belege 96 %');
 
+        // Darstellung: Auto → Hell → Dunkel → Auto, Wahl bleibt nach dem Neuladen erhalten, Auto folgt dem System
+        const themeState = () => page.evaluate(() => ({ pref: document.documentElement.dataset.theme, scheme: document.documentElement.dataset.scheme, bg: getComputedStyle(document.body).backgroundColor, label: document.querySelector('header .theme-toggle').textContent }));
+        await page.emulateMedia({ colorScheme: 'light' });
+        let t = await themeState();
+        assert.deepEqual([t.pref, t.scheme], ['auto', 'light'], 'Start: Auto, System hell');
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.waitForFunction(() => document.documentElement.dataset.scheme === 'dark');
+        t = await themeState();
+        assert.deepEqual([t.pref, t.scheme], ['auto', 'dark'], 'Auto folgt dem System (dunkel)');
+        await page.click('header .theme-toggle');
+        t = await themeState();
+        assert.deepEqual([t.pref, t.scheme], ['light', 'light'], 'Hell erzwingt hell trotz dunklem System: ' + JSON.stringify(t));
+        assert.match(t.label, /Hell/);
+        const lightBg = t.bg;
+        await page.click('header .theme-toggle');
+        t = await themeState();
+        assert.deepEqual([t.pref, t.scheme], ['dark', 'dark']);
+        assert.notEqual(t.bg, lightBg, 'dunkler Hintergrund muss sich vom hellen unterscheiden');
+        if (process.env.E2E_SHOT_DIR) await page.screenshot({ path: path.join(process.env.E2E_SHOT_DIR, 'dunkel-ergebnis.png'), fullPage: false });
+        if (process.env.E2E_SHOT_DIR) {
+            await page.locator('#res-studies').screenshot({ path: path.join(process.env.E2E_SHOT_DIR, 'dunkel-studie.png') });
+            await page.click('nav button[data-tab="config"]');
+            await page.screenshot({ path: path.join(process.env.E2E_SHOT_DIR, 'dunkel-konfiguration.png') });
+            await page.click('nav button[data-tab="dashboard"]');
+        }
+        await page.reload();
+        await login(page, 'alt', 'pw');
+        t = await themeState();
+        assert.deepEqual([t.pref, t.scheme], ['dark', 'dark'], 'Wahl muss nach dem Neuladen erhalten bleiben');
+        await page.click('header .theme-toggle');
+        t = await themeState();
+        assert.deepEqual([t.pref, t.scheme], ['auto', 'dark'], 'zurück auf Auto (System dunkel)');
+        await page.emulateMedia({ colorScheme: 'light' });
+        await page.waitForFunction(() => document.documentElement.dataset.scheme === 'light');
+        t = await themeState();
+        assert.deepEqual([t.pref, t.scheme], ['auto', 'light'], 'Auto folgt dem Wechsel des Systems');
+        console.log('✓ Darstellung: Auto/Hell/Dunkel umschaltbar, bleibt nach dem Neuladen, Auto folgt dem System');
+
         // Modell ohne Bildverarbeitung: Prüfung erkennt das, Hinweis und Lampe zeigen „nur Text“
         llm.state.vision = false;
         await page.click('text=Bildverarbeitung jetzt prüfen');
